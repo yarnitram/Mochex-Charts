@@ -176,7 +176,7 @@ export function TacticalHeader({
             <CandlestickChart size={16} />
           </div>
           <span className="font-sans font-black text-sm tracking-wide text-on-surface">
-            MOCHEX
+            MOCHEX <span className="text-secondary font-bold">CHARTS</span>
           </span>
           <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-surface-container-high text-primary border border-outline-variant/40">
             PRO TERMINAL

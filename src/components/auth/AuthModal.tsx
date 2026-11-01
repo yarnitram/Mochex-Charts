@@ -102,7 +102,7 @@ export function AuthModal({
             </div>
             <div>
               <h3 className="font-sans font-bold text-sm text-on-surface">
-                {user ? "Cloud Account Profile" : "Mochex Cloud Terminal"}
+                {user ? "Cloud Account Profile" : "Mochex Charts Cloud Terminal"}
               </h3>
               <p className="text-[11px] font-sans text-muted">
                 {user ? "Active session connected" : "Sync layouts, watchlists & scripts across devices"}
@@ -322,8 +322,13 @@ export function AuthModal({
             )}
 
             <p className="text-[10px] text-muted font-sans mt-4 text-center">
-              Guest mode is always supported. Creating an account enables cloud persistence to your personal PostgreSQL instance.
+              Guest mode is always active. An account unlocks cloud backup to your PocketBase database across all devices.
             </p>
+            <div className="text-center mt-2 pt-2 border-t border-border/50">
+              <a href="/login" className="text-[11px] text-primary hover:text-white transition-colors inline-flex items-center gap-1 font-medium">
+                Open Fullscreen Login Page &rarr;
+              </a>
+            </div>
           </div>
         )}
       </div>

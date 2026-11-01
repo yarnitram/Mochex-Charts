@@ -1,8 +1,8 @@
-# MOCHEX
+# Mochex Charts
 
 > MEXC Technical Analysis & Charting Platform
 
-MOCHEX is a responsive, web-based technical analysis workstation built exclusively for MEXC Spot markets. It focuses strictly on responsive charting, indicator development, and visual backtesting.
+Mochex Charts is a responsive, web-based technical analysis workstation built exclusively for MEXC Spot markets. It focuses strictly on responsive charting, indicator development, and visual backtesting.
 
 ## Tech Stack
 

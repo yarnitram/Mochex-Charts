@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MOCHEX - MEXC Technical Analysis & Charting Platform",
-  description: "Client-centric technical analysis workstation for MEXC Spot markets",
+  title: "Mochex Charts - MEXC Technical Analysis & Charting Platform",
+  description: "Institutional technical analysis workstation and charting platform for MEXC Spot markets",
 };
 
 export default function RootLayout({
