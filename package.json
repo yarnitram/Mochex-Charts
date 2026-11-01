@@ -10,16 +10,15 @@
     "start": "next start -p 3018",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "prisma:generate": "prisma generate"
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "@prisma/client": "^6.3.1",
     "clsx": "^2.1.1",
     "jose": "^5.9.6",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^0.475.0",
     "next": "15.1.7",
+    "pocketbase": "^0.28.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.5.4",
@@ -32,7 +31,6 @@
     "@types/react-dom": "^19.0.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.2",
-    "prisma": "^6.3.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"

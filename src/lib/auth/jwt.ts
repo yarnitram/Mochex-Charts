@@ -7,6 +7,7 @@ export interface UserPayload {
   username: string;
   email: string;
   role: Role;
+  pbToken?: string;
 }
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -29,6 +30,7 @@ export async function verifyToken(token: string): Promise<UserPayload | null> {
       username: payload.username as string,
       email: payload.email as string,
       role: payload.role as Role,
+      pbToken: (payload.pbToken as string) || undefined,
     };
   } catch (_err) {
     return null;

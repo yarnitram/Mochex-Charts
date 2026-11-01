@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { getPocketBase } from "@/lib/db/pocketbase";
 import { canPublishGlobalIndicator, verifyToken } from "@/lib/auth/jwt";
 
 async function getAuthUser(request: NextRequest) {
@@ -21,35 +21,60 @@ export async function PUT(
   }
 
   try {
-    const existing = await prisma.indicator.findUnique({ where: { id } });
-    if (!existing) {
+    const pb = getPocketBase(user.pbToken);
+    let existing;
+    try {
+      existing = await pb.collection("indicators").getOne(id);
+    } catch {
       return NextResponse.json({ error: "Indicator not found" }, { status: 404 });
     }
 
-    if (existing.userId !== user.userId && user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden: Not owner or admin" }, { status: 403 });
+    if (existing.user !== user.userId && user.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Forbidden: Not owner or admin" },
+        { status: 403 }
+      );
     }
 
-    const { name, description, scriptCode, inputsSchema, isGlobal } = await request.json();
+    const { name, description, scriptCode, inputsSchema, isGlobal } =
+      await request.json();
 
-    if (isGlobal !== undefined && isGlobal !== existing.isGlobal && !canPublishGlobalIndicator(user.role)) {
-      return NextResponse.json({ error: "Forbidden: Only ADMIN can change global status" }, { status: 403 });
+    if (
+      isGlobal !== undefined &&
+      isGlobal !== existing.is_global &&
+      !canPublishGlobalIndicator(user.role)
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden: Only ADMIN can change global status" },
+        { status: 403 }
+      );
     }
 
-    const updated = await prisma.indicator.update({
-      where: { id },
-      data: {
-        ...(name ? { name } : {}),
-        ...(description !== undefined ? { description } : {}),
-        ...(scriptCode ? { scriptCode } : {}),
-        ...(inputsSchema ? { inputsSchema } : {}),
-        ...(isGlobal !== undefined ? { isGlobal: Boolean(isGlobal) } : {}),
-      },
+    const updateData: Record<string, any> = {};
+    if (name) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (scriptCode) updateData.script_code = scriptCode;
+    if (inputsSchema) updateData.inputs_schema = inputsSchema;
+    if (isGlobal !== undefined) updateData.is_global = Boolean(isGlobal);
+
+    const updated = await pb.collection("indicators").update(id, updateData);
+
+    return NextResponse.json({
+      id: updated.id,
+      userId: updated.user,
+      name: updated.name,
+      description: updated.description,
+      scriptCode: updated.script_code,
+      inputsSchema: updated.inputs_schema,
+      isGlobal: Boolean(updated.is_global),
+      createdAt: updated.created,
+      updatedAt: updated.updated,
     });
-
-    return NextResponse.json(updated);
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to update indicator" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to update indicator" },
+      { status: 500 }
+    );
   }
 }
 
@@ -64,18 +89,27 @@ export async function DELETE(
   }
 
   try {
-    const existing = await prisma.indicator.findUnique({ where: { id } });
-    if (!existing) {
+    const pb = getPocketBase(user.pbToken);
+    let existing;
+    try {
+      existing = await pb.collection("indicators").getOne(id);
+    } catch {
       return NextResponse.json({ error: "Indicator not found" }, { status: 404 });
     }
 
-    if (existing.userId !== user.userId && user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden: Not owner or admin" }, { status: 403 });
+    if (existing.user !== user.userId && user.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Forbidden: Not owner or admin" },
+        { status: 403 }
+      );
     }
 
-    await prisma.indicator.delete({ where: { id } });
-    return NextResponse.json({ success: true });
+    await pb.collection("indicators").delete(id);
+    return NextResponse.json({ success: true, message: "Indicator deleted" });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to delete indicator" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to delete indicator" },
+      { status: 500 }
+    );
   }
 }

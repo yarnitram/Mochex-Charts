@@ -12,8 +12,8 @@ MOCHEX is a responsive, web-based technical analysis workstation built exclusive
 - **Charting:** TradingView JS API compliant `IBasicDataFeed` (`MexcDatafeed`)
 - **Script Sandbox:** Web Worker runtime with `technicalindicators` (50+ indicators) & 1,000ms timeout guard
 - **Backtesting:** In-memory Bar Replay Engine state machine (`IDLE`, `SELECTING`, `PAUSED`, `PLAYING`, `STEP`)
-- **Database & Auth:** PostgreSQL + Prisma ORM with HTTP-only cookie JWT and RBAC (`TRADER` vs `ADMIN`)
-- **Testing:** Automated Vitest regression test suite (25/25 passing)
+- **Database & Auth:** PocketBase with HTTP-only cookie JWT session proxy and RBAC (`TRADER` vs `ADMIN`)
+- **Testing:** Automated Vitest regression test suite (27/27 passing, 183 tests)
 
 ## Getting Started
 
@@ -27,10 +27,9 @@ MOCHEX is a responsive, web-based technical analysis workstation built exclusive
    cp .env.example .env
    ```
 
-3. Generate Prisma client & sync schema:
+3. Initialize PocketBase collections (optional if running via Docker):
    ```bash
-   npx prisma generate
-   npx prisma db push
+   node scripts/init-pocketbase.mjs
    ```
 
 4. Run the development server (default port 3018):

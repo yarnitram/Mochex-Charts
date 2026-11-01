@@ -20,9 +20,6 @@ COPY . .
 # Ensure public folder exists so COPY in runner never fails
 RUN mkdir -p public
 
-# Generate Prisma client using locally installed prisma (pnpm exec prisma generate)
-RUN if [ -f prisma/schema.prisma ]; then pnpm exec prisma generate; fi
-
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 

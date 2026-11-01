@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
-import { verifyPassword } from "@/lib/auth/password";
-import { signToken } from "@/lib/auth/jwt";
+import { getPocketBase } from "@/lib/db/pocketbase";
+import { signToken, type Role } from "@/lib/auth/jwt";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,32 +13,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [{ username: usernameOrEmail }, { email: usernameOrEmail }],
-      },
-    });
+    const pb = getPocketBase();
 
-    if (!user || !verifyPassword(password, user.passwordHash)) {
+    let authData;
+    try {
+      authData = await pb.collection("users").authWithPassword(usernameOrEmail, password);
+    } catch (pbErr: any) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: pbErr?.message || "Invalid credentials" },
         { status: 401 }
       );
     }
 
+    const userRecord = authData.record;
+    const role: Role = (userRecord.role as Role) || "TRADER";
+
     const token = await signToken({
-      userId: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
+      userId: userRecord.id,
+      username: userRecord.username,
+      email: userRecord.email,
+      role,
+      pbToken: authData.token,
     });
 
     const response = NextResponse.json({
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
+        id: userRecord.id,
+        username: userRecord.username,
+        email: userRecord.email,
+        role,
       },
     });
 

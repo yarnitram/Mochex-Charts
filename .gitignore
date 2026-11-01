@@ -27,3 +27,6 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# PocketBase data
+pb_data/

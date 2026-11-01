@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { getPocketBase } from "@/lib/db/pocketbase";
 import { verifyToken } from "@/lib/auth/jwt";
 
 async function getAuthUser(request: NextRequest) {
@@ -21,36 +21,58 @@ export async function PUT(
   }
 
   try {
-    const watchlist = await prisma.watchlist.findUnique({ where: { id } });
-    if (!watchlist) {
+    const pb = getPocketBase(user.pbToken);
+    let watchlist;
+    try {
+      watchlist = await pb.collection("watchlists").getOne(id);
+    } catch {
       return NextResponse.json({ error: "Watchlist not found" }, { status: 404 });
     }
 
-    if (watchlist.userId !== user.userId) {
-      return NextResponse.json({ error: "Forbidden: Owner only" }, { status: 403 });
+    if (watchlist.user !== user.userId) {
+      return NextResponse.json(
+        { error: "Forbidden: Owner only" },
+        { status: 403 }
+      );
     }
 
     const { name, symbols, isDefault } = await request.json();
 
     if (isDefault) {
-      await prisma.watchlist.updateMany({
-        where: { userId: watchlist.userId, isDefault: true },
-        data: { isDefault: false },
-      });
+      try {
+        const existingDefaults = await pb.collection("watchlists").getFullList({
+          filter: pb.filter("user = {:userId} && is_default = true", { userId: watchlist.user }),
+        });
+        for (const record of existingDefaults) {
+          if (record.id !== id) {
+            await pb.collection("watchlists").update(record.id, { is_default: false });
+          }
+        }
+      } catch (err) {
+        console.warn("Error unsetting default watchlists:", err);
+      }
     }
 
-    const updated = await prisma.watchlist.update({
-      where: { id },
-      data: {
-        ...(name ? { name } : {}),
-        ...(symbols ? { symbols } : {}),
-        ...(isDefault !== undefined ? { isDefault: Boolean(isDefault) } : {}),
-      },
-    });
+    const updateData: Record<string, any> = {};
+    if (name) updateData.name = name;
+    if (symbols) updateData.symbols = symbols;
+    if (isDefault !== undefined) updateData.is_default = Boolean(isDefault);
 
-    return NextResponse.json(updated);
+    const updated = await pb.collection("watchlists").update(id, updateData);
+
+    return NextResponse.json({
+      id: updated.id,
+      userId: updated.user,
+      name: updated.name,
+      symbols: updated.symbols,
+      isDefault: Boolean(updated.is_default),
+      updatedAt: updated.updated,
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to update watchlist" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to update watchlist" },
+      { status: 500 }
+    );
   }
 }
 
@@ -65,18 +87,27 @@ export async function DELETE(
   }
 
   try {
-    const watchlist = await prisma.watchlist.findUnique({ where: { id } });
-    if (!watchlist) {
+    const pb = getPocketBase(user.pbToken);
+    let watchlist;
+    try {
+      watchlist = await pb.collection("watchlists").getOne(id);
+    } catch {
       return NextResponse.json({ error: "Watchlist not found" }, { status: 404 });
     }
 
-    if (watchlist.userId !== user.userId) {
-      return NextResponse.json({ error: "Forbidden: Owner only" }, { status: 403 });
+    if (watchlist.user !== user.userId) {
+      return NextResponse.json(
+        { error: "Forbidden: Owner only" },
+        { status: 403 }
+      );
     }
 
-    await prisma.watchlist.delete({ where: { id } });
-    return NextResponse.json({ success: true });
+    await pb.collection("watchlists").delete(id);
+    return NextResponse.json({ success: true, message: "Watchlist deleted" });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to delete watchlist" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to delete watchlist" },
+      { status: 500 }
+    );
   }
 }

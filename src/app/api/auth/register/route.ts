@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
-import { hashPassword } from "@/lib/auth/password";
-import { signToken } from "@/lib/auth/jwt";
+import { getPocketBase } from "@/lib/db/pocketbase";
+import { signToken, type Role } from "@/lib/auth/jwt";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,42 +13,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ username }, { email }],
-      },
-    });
+    const pb = getPocketBase();
 
-    if (existingUser) {
+    let createdUser;
+    try {
+      createdUser = await pb.collection("users").create({
+        username,
+        email,
+        password,
+        passwordConfirm: password,
+        role: "TRADER",
+      });
+    } catch (pbErr: any) {
+      const isDuplicate =
+        pbErr?.status === 400 &&
+        (JSON.stringify(pbErr?.response?.data || "").includes("validation_not_unique") ||
+          pbErr?.message?.includes("Failed to create record"));
+
       return NextResponse.json(
-        { error: "Username or email is already taken" },
-        { status: 409 }
+        {
+          error: isDuplicate
+            ? "Username or email is already taken"
+            : pbErr?.message || "Failed to create user",
+        },
+        { status: isDuplicate ? 409 : pbErr?.status || 400 }
       );
     }
 
-    const passwordHash = hashPassword(password);
-    const user = await prisma.user.create({
-      data: {
-        username,
-        email,
-        passwordHash,
-        role: "TRADER",
-      },
-    });
+    // Authenticate the newly created user to obtain auth token
+    const authData = await pb.collection("users").authWithPassword(email, password);
+    const role: Role = (createdUser.role as Role) || "TRADER";
 
     const token = await signToken({
-      userId: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
+      userId: createdUser.id,
+      username: createdUser.username,
+      email: createdUser.email,
+      role,
+      pbToken: authData.token,
     });
 
     const response = NextResponse.json({
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
+        id: createdUser.id,
+        username: createdUser.username,
+        email: createdUser.email,
+        role,
       },
     });
 
@@ -60,13 +68,13 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
     });
 
     return response;
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || "Failed to register user" },
+      { error: error?.message || "Failed to register" },
       { status: 500 }
     );
   }

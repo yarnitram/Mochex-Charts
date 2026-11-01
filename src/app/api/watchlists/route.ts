@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { getPocketBase } from "@/lib/db/pocketbase";
 import { verifyToken } from "@/lib/auth/jwt";
 
 async function getAuthUser(request: NextRequest) {
@@ -17,14 +17,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const watchlists = await prisma.watchlist.findMany({
-      where: { userId: user.userId },
-      orderBy: { updatedAt: "desc" },
+    const pb = getPocketBase(user.pbToken);
+    const records = await pb.collection("watchlists").getFullList({
+      filter: pb.filter("user = {:userId}", { userId: user.userId }),
+      sort: "-updated",
     });
+
+    const watchlists = records.map((r) => ({
+      id: r.id,
+      userId: r.user,
+      name: r.name,
+      symbols: r.symbols,
+      isDefault: Boolean(r.is_default),
+      updatedAt: r.updated,
+    }));
 
     return NextResponse.json(watchlists);
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to fetch watchlists" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to fetch watchlists" },
+      { status: 500 }
+    );
   }
 }
 
@@ -35,26 +48,49 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { name = "Main Watchlist", symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"], isDefault = true } = await request.json();
+    const {
+      name = "Main Watchlist",
+      symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      isDefault = true,
+    } = await request.json();
+
+    const pb = getPocketBase(user.pbToken);
 
     if (isDefault) {
-      await prisma.watchlist.updateMany({
-        where: { userId: user.userId, isDefault: true },
-        data: { isDefault: false },
-      });
+      try {
+        const existingDefaults = await pb.collection("watchlists").getFullList({
+          filter: pb.filter("user = {:userId} && is_default = true", { userId: user.userId }),
+        });
+        for (const record of existingDefaults) {
+          await pb.collection("watchlists").update(record.id, { is_default: false });
+        }
+      } catch (err) {
+        console.warn("Error unsetting default watchlists:", err);
+      }
     }
 
-    const watchlist = await prisma.watchlist.create({
-      data: {
-        userId: user.userId,
-        name,
-        symbols,
-        isDefault: Boolean(isDefault),
-      },
+    const created = await pb.collection("watchlists").create({
+      user: user.userId,
+      name,
+      symbols,
+      is_default: Boolean(isDefault),
     });
 
-    return NextResponse.json(watchlist, { status: 201 });
+    return NextResponse.json(
+      {
+        id: created.id,
+        userId: created.user,
+        name: created.name,
+        symbols: created.symbols,
+        isDefault: Boolean(created.is_default),
+        updatedAt: created.updated,
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Failed to create watchlist" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Failed to create watchlist" },
+      { status: 500 }
+    );
   }
 }
