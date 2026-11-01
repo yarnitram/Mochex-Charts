@@ -3,17 +3,16 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Pin pnpm 9 to match project lockfile and prevent ERR_PNPM_IGNORED_BUILDS
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
-COPY package.json pnpm-lock.yaml ./
+# Install pinned pnpm 9 globally to prevent pnpm 12 auto-download & ERR_PNPM_IGNORED_BUILDS
+RUN npm install -g pnpm@9.15.4
 
-# Enable lifecycle build scripts for prisma/esbuild/sharp
-RUN pnpm config set ignore-scripts false && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g pnpm@9.15.4
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

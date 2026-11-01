@@ -2,6 +2,7 @@
   "name": "mochex",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.4",
   "description": "MEXC Technical Analysis & Charting Platform",
   "scripts": {
     "dev": "next dev -p 3018",
