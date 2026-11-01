@@ -17,6 +17,9 @@ RUN npm install -g pnpm@9.15.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Ensure public folder exists so COPY in runner never fails
+RUN mkdir -p public
+
 # Generate Prisma client using locally installed prisma (pnpm exec prisma generate)
 RUN if [ -f prisma/schema.prisma ]; then pnpm exec prisma generate; fi
 
