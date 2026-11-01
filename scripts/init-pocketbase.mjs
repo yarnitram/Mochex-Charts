@@ -1,146 +1,149 @@
 /**
- * PocketBase Collection Initializer / Schema Bootstrap Script
+ * Standalone Zero-Dependency PocketBase Initializer
+ * Uses native Node.js fetch (Node 18+) so it can run anywhere without node_modules!
+ *
  * Usage:
  *   node scripts/init-pocketbase.mjs [adminEmail] [adminPassword] [pbUrl]
  *
  * Example:
- *   node scripts/init-pocketbase.mjs admin@mochex.io Password123! http://127.0.0.1:8090
+ *   node scripts/init-pocketbase.mjs support@mochex.com YourPassword http://127.0.0.1:8090
  */
 
-import PocketBase from "pocketbase";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const pbUrl = process.argv[4] || process.env.POCKETBASE_URL || "http://127.0.0.1:8090";
-const adminEmail = process.argv[2] || process.env.PB_ADMIN_EMAIL || "admin@mochex.io";
-const adminPassword = process.argv[3] || process.env.PB_ADMIN_PASSWORD || "AdminPassword123!";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const pb = new PocketBase(pbUrl);
+const adminEmail = process.argv[2] || process.env.PB_ADMIN_EMAIL || "support@mochex.com";
+const adminPassword = process.argv[3] || process.env.PB_ADMIN_PASSWORD;
+const pbUrl = (process.argv[4] || process.env.POCKETBASE_URL || "http://127.0.0.1:8090").replace(/\/$/, "");
+
+if (!adminPassword) {
+  console.error("Error: Admin password must be provided as an argument or PB_ADMIN_PASSWORD env var.");
+  console.error("Usage: node scripts/init-pocketbase.mjs <adminEmail> <adminPassword> [pbUrl]");
+  process.exit(1);
+}
 
 async function main() {
   console.log(`Connecting to PocketBase at: ${pbUrl}`);
 
-  // 1. Authenticate or create superuser/admin
+  // 1. Authenticate as superuser or admin
+  let token = "";
   try {
-    // PocketBase v0.22+ supports superusers collection or admins
-    try {
-      await pb.collection("_superusers").authWithPassword(adminEmail, adminPassword);
-      console.log(`Authenticated as superuser: ${adminEmail}`);
-    } catch {
-      try {
-        await pb.admins.authWithPassword(adminEmail, adminPassword);
-        console.log(`Authenticated as admin: ${adminEmail}`);
-      } catch {
-        console.log(`Creating initial admin / superuser account (${adminEmail})...`);
-        try {
-          await pb.collection("_superusers").create({
-            email: adminEmail,
-            password: adminPassword,
-            passwordConfirm: adminPassword,
-          });
-          await pb.collection("_superusers").authWithPassword(adminEmail, adminPassword);
-        } catch {
-          await pb.admins.create({
-            email: adminEmail,
-            password: adminPassword,
-            passwordConfirm: adminPassword,
-          });
-          await pb.admins.authWithPassword(adminEmail, adminPassword);
-        }
-        console.log("Admin account successfully created and authenticated!");
-      }
+    const res = await fetch(`${pbUrl}/api/collections/_superusers/auth-with-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      token = data.token;
+      console.log(`Successfully authenticated as superuser: ${adminEmail}`);
     }
   } catch (err) {
-    console.warn("Notice: Admin auth failed or skipped:", err?.message);
-    console.log("Proceeding with collection initialization...");
+    console.warn("Superusers auth endpoint check failed:", err.message);
   }
 
-  // 2. Ensure role field exists on `users` collection
-  try {
-    const usersCollection = await pb.collections.getOne("users");
-    const fields = usersCollection.fields || usersCollection.schema || [];
-    const hasRole = fields.some((f) => f.name === "role");
-
-    if (!hasRole) {
-      console.log("Adding 'role' field to 'users' collection...");
-      const roleField = {
-        name: "role",
-        type: "select",
-        required: false,
-        maxSelect: 1,
-        values: ["TRADER", "ADMIN"],
-      };
-      if (usersCollection.fields) {
-        usersCollection.fields.push(roleField);
-      } else if (usersCollection.schema) {
-        usersCollection.schema.push(roleField);
-      }
-      await pb.collections.update("users", usersCollection);
-      console.log("Updated 'users' collection with 'role' field.");
-    } else {
-      console.log("'role' field already exists in 'users' collection.");
-    }
-  } catch (err) {
-    console.warn("Could not check/update users collection:", err?.message);
-  }
-
-  // 3. Helper to create collection if missing
-  async function ensureCollection(name, schemaDefinition) {
+  if (!token) {
     try {
-      await pb.collections.getOne(name);
-      console.log(`Collection '${name}' already exists.`);
-    } catch {
-      console.log(`Creating collection '${name}'...`);
-      await pb.collections.create({
-        name,
-        type: "base",
-        listRule: "",
-        viewRule: "",
-        createRule: "",
-        updateRule: "",
-        deleteRule: "",
-        ...schemaDefinition,
+      const res = await fetch(`${pbUrl}/api/admins/auth-with-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: adminEmail, password: adminPassword }),
       });
-      console.log(`Collection '${name}' created successfully.`);
+      if (res.ok) {
+        const data = await res.json();
+        token = data.token;
+        console.log(`Successfully authenticated as admin: ${adminEmail}`);
+      }
+    } catch (err) {
+      console.warn("Admins auth endpoint check failed:", err.message);
     }
   }
 
-  // Ensure chart_layouts
-  await ensureCollection("chart_layouts", {
-    fields: [
-      { name: "user", type: "relation", collectionId: "_pb_users_auth_", maxSelect: 1, cascadeDelete: true },
-      { name: "name", type: "text", required: true },
-      { name: "symbol", type: "text" },
-      { name: "resolution", type: "text" },
-      { name: "content", type: "json" },
-      { name: "is_default", type: "bool" },
-    ],
+  if (!token) {
+    console.error("Failed to authenticate with PocketBase. Please check the email and password.");
+    process.exit(1);
+  }
+
+  // 2. Load schema JSON
+  const schemaPath = path.join(__dirname, "pb_schema.json");
+  const schemaRaw = fs.readFileSync(schemaPath, "utf-8");
+  const collections = JSON.parse(schemaRaw);
+
+  // 3. Import collections
+  console.log("Importing collections (chart_layouts, indicators, watchlists)...");
+  const importRes = await fetch(`${pbUrl}/api/collections/import`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: token,
+    },
+    body: JSON.stringify({
+      collections,
+      deleteMissing: false,
+    }),
   });
 
-  // Ensure indicators
-  await ensureCollection("indicators", {
-    fields: [
-      { name: "user", type: "relation", collectionId: "_pb_users_auth_", maxSelect: 1, cascadeDelete: true },
-      { name: "name", type: "text", required: true },
-      { name: "description", type: "text" },
-      { name: "script_code", type: "text", required: true },
-      { name: "inputs_schema", type: "json" },
-      { name: "is_global", type: "bool" },
-    ],
-  });
+  if (!importRes.ok) {
+    const errData = await importRes.text();
+    console.error("Collection import response:", errData);
+  } else {
+    console.log("Collections imported successfully!");
+  }
 
-  // Ensure watchlists
-  await ensureCollection("watchlists", {
-    fields: [
-      { name: "user", type: "relation", collectionId: "_pb_users_auth_", maxSelect: 1, cascadeDelete: true },
-      { name: "name", type: "text", required: true },
-      { name: "symbols", type: "json" },
-      { name: "is_default", type: "bool" },
-    ],
-  });
+  // 4. Ensure 'role' field on 'users' collection
+  try {
+    const usersRes = await fetch(`${pbUrl}/api/collections/users`, {
+      headers: { Authorization: token },
+    });
+    if (usersRes.ok) {
+      const usersData = await usersRes.json();
+      const fields = usersData.fields || usersData.schema || [];
+      const hasRole = fields.some((f) => f.name === "role");
 
-  console.log("\nPocketBase initialization completed successfully!");
+      if (!hasRole) {
+        console.log("Adding 'role' field to users collection...");
+        const roleField = {
+          name: "role",
+          type: "select",
+          required: false,
+          maxSelect: 1,
+          values: ["TRADER", "ADMIN"],
+        };
+
+        if (usersData.fields) {
+          usersData.fields.push(roleField);
+        } else if (usersData.schema) {
+          usersData.schema.push(roleField);
+        }
+
+        const updateRes = await fetch(`${pbUrl}/api/collections/users`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: token,
+          },
+          body: JSON.stringify(usersData),
+        });
+
+        if (updateRes.ok) {
+          console.log("Successfully added 'role' field to users collection!");
+        }
+      } else {
+        console.log("'role' field already exists on users collection.");
+      }
+    }
+  } catch (err) {
+    console.warn("Role field update check skipped:", err.message);
+  }
+
+  console.log("\nPocketBase initialization complete! All collections are ready.");
 }
 
 main().catch((err) => {
-  console.error("Initialization failed:", err);
+  console.error("Error initializing PocketBase:", err);
   process.exit(1);
 });

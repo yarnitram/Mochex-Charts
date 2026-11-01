@@ -73,9 +73,7 @@
         "options": {}
       }
     ],
-    "indexes": [
-      "CREATE INDEX idx_chart_layouts_user ON chart_layouts (user)"
-    ],
+    "indexes": [],
     "listRule": "@request.auth.id != \"\" && user = @request.auth.id",
     "viewRule": "@request.auth.id != \"\" && user = @request.auth.id",
     "createRule": "@request.auth.id != \"\" && user = @request.auth.id",
@@ -156,9 +154,7 @@
         "options": {}
       }
     ],
-    "indexes": [
-      "CREATE INDEX idx_indicators_user_global ON indicators (user, is_global)"
-    ],
+    "indexes": [],
     "listRule": "is_global = true || (@request.auth.id != \"\" && user = @request.auth.id)",
     "viewRule": "is_global = true || (@request.auth.id != \"\" && user = @request.auth.id)",
     "createRule": "@request.auth.id != \"\" && user = @request.auth.id",
@@ -215,9 +211,7 @@
         "options": {}
       }
     ],
-    "indexes": [
-      "CREATE INDEX idx_watchlists_user ON watchlists (user)"
-    ],
+    "indexes": [],
     "listRule": "@request.auth.id != \"\" && user = @request.auth.id",
     "viewRule": "@request.auth.id != \"\" && user = @request.auth.id",
     "createRule": "@request.auth.id != \"\" && user = @request.auth.id",
