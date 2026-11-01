@@ -3,10 +3,10 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Install pinned pnpm 9 globally to prevent pnpm 12 auto-download & ERR_PNPM_IGNORED_BUILDS
+# Install pinned pnpm 9 globally
 RUN npm install -g pnpm@9.15.4
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Stage 2: Builder
@@ -17,8 +17,8 @@ RUN npm install -g pnpm@9.15.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client if schema exists
-RUN if [ -f prisma/schema.prisma ]; then pnpx prisma generate; fi
+# Generate Prisma client using locally installed prisma (pnpm exec prisma generate)
+RUN if [ -f prisma/schema.prisma ]; then pnpm exec prisma generate; fi
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
