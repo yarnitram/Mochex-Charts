@@ -37,6 +37,8 @@ import {
   DEFAULT_BOLLINGER_SCRIPT,
   DEFAULT_RSI_SCRIPT,
   DEFAULT_MACD_SCRIPT,
+  DEFAULT_ADAM_EVE_SCRIPT,
+  DEFAULT_HEAD_SHOULDERS_SCRIPT,
   resolveCatalogScriptCode,
 } from "@/lib/indicators/custom-scripts-store";
 import { IndicatorSandbox } from "@/lib/indicators/sandbox";
@@ -163,6 +165,30 @@ const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
     description: "Detects pre-breakout volatility contraction by comparing Bollinger Bands bandwidth with Keltner Channels.",
     isVerified: false,
     code: DEFAULT_BOLLINGER_SCRIPT,
+  },
+  {
+    id: "adam-eve-patterns",
+    name: "Adam & Eve Pattern Recognition",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "24.6K",
+    description: "Detects Bullish Adam (sharp V-spike) and Eve (rounded U-bottom) double bottoms and Bearish inverted patterns with Neckline breakout triggers and measured move targets.",
+    isVerified: true,
+    code: DEFAULT_ADAM_EVE_SCRIPT,
+  },
+  {
+    id: "head-and-shoulders",
+    name: "Head and Shoulders (H&S) Engine",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "31.2K",
+    description: "Detects classic Bearish Head & Shoulders and Bullish Inverse Head & Shoulders patterns with Left/Right shoulder symmetry, dynamic neckline rays, and 1:1 measured move targets.",
+    isVerified: true,
+    code: DEFAULT_HEAD_SHOULDERS_SCRIPT,
   },
 ];
 
