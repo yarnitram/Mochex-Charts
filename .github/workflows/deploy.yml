@@ -1,0 +1,25 @@
+name: Deploy Mochex Charts (Proxmox)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-proxmox
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Auto Deploy to Proxmox
+    runs-on: self-hosted
+    steps:
+      - name: Pull and Restart Docker Containers
+        run: |
+          cd /opt/mochex
+          git fetch origin main
+          git reset --hard origin/main
+          docker compose build mochex
+          docker compose up -d
+          docker compose ps
