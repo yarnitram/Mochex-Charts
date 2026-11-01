@@ -1,0 +1,19 @@
+services:
+  mochex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mochex-workstation
+    restart: unless-stopped
+    ports:
+      - "3018:3018"
+    environment:
+      - NODE_ENV=production
+      - PORT=3018
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1500M
