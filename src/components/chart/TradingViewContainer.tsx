@@ -3669,11 +3669,15 @@ export function TradingViewContainer({
           const defaultColor =
             box.type === "BULLISH" ? "#00c087" : box.type === "BEARISH" ? "#ff3b30" : "#00d8ff";
           const boxColor = box.color || defaultColor;
+          const endCoord = box.endTime !== undefined && box.endTime !== null ? getSafeScreenX(box.endTime) : null;
+          const latestCoord = getSafeScreenX(latestBarTime);
           const x2 = box.extendRight
             ? rect.width
-            : box.endTime
-            ? getSafeScreenX(box.endTime) || rect.width
-            : getSafeScreenX(latestBarTime) || rect.width;
+            : endCoord !== null
+            ? endCoord
+            : latestCoord !== null
+            ? latestCoord
+            : rect.width;
 
           renderRectangle(
             ctx,

@@ -2747,6 +2747,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   const slMode = inputs.slMode || "extreme"; // "extreme" (Adam extreme spike) or "eve"
   const rrTP1 = inputs.rrTP1 !== undefined ? inputs.rrTP1 : 1.0;
   const rrTP2 = inputs.rrTP2 !== undefined ? inputs.rrTP2 : 3.0;
+  const maxBreakoutBars = inputs.maxBreakoutBars || 35;
 
   if (!bars || bars.length < 6) {
     return { boxes: [], data: (bars || []).map(b => ({ time: b.time, value: b.close })) };
@@ -2780,12 +2781,18 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     if (isSwingHigh(i, lookback)) swingHighs.push({ index: i, price: bars[i].high, time: bars[i].time });
   }
 
+  // Track last trade exit bar to enforce single non-overlapping entries
+  let lastBullishTradeExit = -1;
+
   // 1. Bullish Adam & Eve (V-Bottom + U-Bottom)
   for (let a = 0; a < swingLows.length - 1; a++) {
     const adam = swingLows[a];
+    if (adam.index <= lastBullishTradeExit) continue;
 
     for (let e = a + 1; e < swingLows.length; e++) {
       const eveCandidate = swingLows[e];
+      if (eveCandidate.index <= lastBullishTradeExit) continue;
+
       const spanBars = eveCandidate.index - adam.index;
       if (spanBars > maxPatternBars || spanBars < 4) continue;
 
@@ -2808,147 +2815,168 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const eveWidth = eveCandidate.index - neckline.index;
       if (eveWidth < minEveBars) continue;
 
+      // Find first breakout bar within maxBreakoutBars and before pattern is invalidated
+      const searchEnd = Math.min(bars.length, eveCandidate.index + maxBreakoutBars);
       let breakoutBar = null;
-      for (let k = eveCandidate.index + 1; k < bars.length; k++) {
+      let invalidated = false;
+
+      for (let k = eveCandidate.index + 1; k < searchEnd; k++) {
+        // Invalidation: candle closes below the pattern base
+        if (bars[k].close < Math.min(adam.price, eveCandidate.price) * 0.995) {
+          invalidated = true;
+          break;
+        }
         if (bars[k].close > neckline.price) {
           breakoutBar = { bar: bars[k], index: k };
           break;
         }
       }
 
-      if (breakoutBar) {
-        const height = neckline.price - Math.min(adam.price, eveCandidate.price);
-        const sl = slMode === "eve" ? eveCandidate.price : Math.min(adam.price, eveCandidate.price);
-        const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
-        const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
-        const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
+      if (invalidated || !breakoutBar) continue;
 
-        boxes.push({
-          id: "adam-v-" + adam.index,
-          type: "ZONE",
-          startTime: bars[Math.max(0, adam.index - 1)].time,
-          endTime: bars[Math.min(bars.length - 1, adam.index + 1)].time,
-          top: adam.price + height * 0.25,
-          bottom: adam.price,
-          mid: adam.price + height * 0.125,
-          color: "#00d8ff",
-          fillColor: "rgba(0, 216, 255, 0.22)",
-          label: "Adam (V-Bottom)",
-          showMidLine: false,
-        });
+      const height = neckline.price - Math.min(adam.price, eveCandidate.price);
+      const sl = slMode === "eve" ? eveCandidate.price : Math.min(adam.price, eveCandidate.price);
+      const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
+      const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
+      const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
 
-        boxes.push({
-          id: "eve-u-" + eveCandidate.index,
-          type: "ZONE",
-          startTime: bars[neckline.index].time,
-          endTime: breakoutBar.bar.time,
-          top: eveCandidate.price + height * 0.35,
-          bottom: eveCandidate.price,
-          mid: eveCandidate.price + height * 0.175,
-          color: "#e040fb",
-          fillColor: "rgba(224, 64, 251, 0.18)",
-          label: "Eve (U-Bottom)",
-          showMidLine: false,
-        });
+      boxes.push({
+        id: "adam-v-" + adam.index,
+        type: "ZONE",
+        startTime: bars[Math.max(0, adam.index - 1)].time,
+        endTime: bars[Math.min(bars.length - 1, adam.index + 1)].time,
+        top: adam.price + height * 0.25,
+        bottom: adam.price,
+        mid: adam.price + height * 0.125,
+        color: "#00d8ff",
+        fillColor: "rgba(0, 216, 255, 0.22)",
+        label: "Adam (V-Bottom)",
+        showMidLine: false,
+      });
 
-        let tp1EndTime = bars[bars.length - 1].time;
-        let tp2EndTime = bars[bars.length - 1].time;
-        let slEndTime = bars[bars.length - 1].time;
-        let tp1Hit = false;
+      boxes.push({
+        id: "eve-u-" + eveCandidate.index,
+        type: "ZONE",
+        startTime: bars[neckline.index].time,
+        endTime: breakoutBar.bar.time,
+        top: eveCandidate.price + height * 0.35,
+        bottom: eveCandidate.price,
+        mid: eveCandidate.price + height * 0.175,
+        color: "#e040fb",
+        fillColor: "rgba(224, 64, 251, 0.18)",
+        label: "Eve (U-Bottom)",
+        showMidLine: false,
+      });
 
-        for (let m = breakoutBar.index + 1; m < bars.length; m++) {
-          const b = bars[m];
-          if (b.low <= sl) {
-            if (!tp1Hit) tp1EndTime = b.time;
-            tp2EndTime = b.time;
-            slEndTime = b.time;
-            break;
-          }
-          if (!tp1Hit && b.high >= tp1) {
-            tp1Hit = true;
-            tp1EndTime = b.time;
-          }
-          if (b.high >= tp2) {
-            tp2EndTime = b.time;
-            slEndTime = b.time;
-            break;
-          }
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tradeEndIndex = bars.length - 1;
+      let tp1Hit = false;
+
+      for (let m = breakoutBar.index + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (b.low <= sl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeEndIndex = m;
+          break;
         }
-
-        boxes.push({
-          id: "neckline-" + neckline.index,
-          type: "BULLISH",
-          startTime: neckline.time,
-          endTime: slEndTime,
-          top: neckline.price,
-          bottom: neckline.price,
-          color: "#00c087",
-          fillColor: "rgba(0, 192, 135, 0.15)",
-          label: "Neckline Breakout (" + neckline.price.toFixed(2) + ")",
-          showMidLine: false,
-        });
-
-        if (showPositionTool) {
-          positionBoxes.push({
-            id: "pos-tp1-" + breakoutBar.index,
-            type: "POSITION",
-            startTime: breakoutBar.bar.time,
-            endTime: tp1EndTime,
-            top: tp1,
-            bottom: breakoutBar.bar.close,
-            color: "#00c853",
-            fillColor: "rgba(0, 200, 83, 0.22)",
-            label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
-            showMidLine: false,
-          });
-
-          positionBoxes.push({
-            id: "pos-tp2-" + breakoutBar.index,
-            type: "POSITION",
-            startTime: breakoutBar.bar.time,
-            endTime: tp2EndTime,
-            top: tp2,
-            bottom: breakoutBar.bar.close,
-            color: "#00e676",
-            fillColor: "rgba(0, 230, 118, 0.16)",
-            label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
-            showMidLine: false,
-          });
-
-          positionBoxes.push({
-            id: "pos-sl-" + breakoutBar.index,
-            type: "POSITION",
-            startTime: breakoutBar.bar.time,
-            endTime: slEndTime,
-            top: breakoutBar.bar.close,
-            bottom: sl,
-            color: "#e53935",
-            fillColor: "rgba(229, 57, 53, 0.22)",
-            label: "SL (Extreme Adam): " + sl.toFixed(2),
-            showMidLine: false,
-          });
+        if (!tp1Hit && b.high >= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
         }
-
-        if (typeof alertcondition === "function" && breakoutBar.index === bars.length - 1) {
-          alertcondition(true, "Bullish Adam & Eve Breakout", "Adam & Eve neckline breakout confirmed at " + breakoutBar.bar.close.toFixed(2));
-        }
-
-        if (strategy && typeof strategy.entry === "function") {
-          strategy.at(breakoutBar.index).entry("AdamEve-Long", "LONG", {
-            takeProfit: tp1,
-            stopLoss: sl,
-          });
+        if (b.high >= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeEndIndex = m;
+          break;
         }
       }
+
+      boxes.push({
+        id: "neckline-" + neckline.index,
+        type: "BULLISH",
+        startTime: neckline.time,
+        endTime: slEndTime,
+        top: neckline.price,
+        bottom: neckline.price,
+        color: "#00c087",
+        fillColor: "rgba(0, 192, 135, 0.15)",
+        label: "Neckline Breakout (" + neckline.price.toFixed(2) + ")",
+        showMidLine: false,
+      });
+
+      if (showPositionTool) {
+        positionBoxes.push({
+          id: "pos-tp1-" + breakoutBar.index,
+          type: "POSITION",
+          startTime: breakoutBar.bar.time,
+          endTime: tp1EndTime,
+          top: tp1,
+          bottom: breakoutBar.bar.close,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, 0.22)",
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-tp2-" + breakoutBar.index,
+          type: "POSITION",
+          startTime: breakoutBar.bar.time,
+          endTime: tp2EndTime,
+          top: tp2,
+          bottom: breakoutBar.bar.close,
+          color: "#00e676",
+          fillColor: "rgba(0, 230, 118, 0.16)",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-sl-" + breakoutBar.index,
+          type: "POSITION",
+          startTime: breakoutBar.bar.time,
+          endTime: slEndTime,
+          top: breakoutBar.bar.close,
+          bottom: sl,
+          color: "#e53935",
+          fillColor: "rgba(229, 57, 53, 0.22)",
+          label: "SL (Extreme Adam): " + sl.toFixed(2),
+          showMidLine: false,
+        });
+      }
+
+      if (typeof alertcondition === "function" && breakoutBar.index === bars.length - 1) {
+        alertcondition(true, "Bullish Adam & Eve Breakout", "Adam & Eve neckline breakout confirmed at " + breakoutBar.bar.close.toFixed(2));
+      }
+
+      if (strategy && typeof strategy.entry === "function") {
+        strategy.at(breakoutBar.index).entry("AdamEve-Long", "LONG", {
+          takeProfit: tp1,
+          stopLoss: sl,
+        });
+      }
+
+      lastBullishTradeExit = tradeEndIndex;
+      break; // Found 1 valid entry for this Adam bottom, do not create duplicate entries
     }
   }
+
+  // Track last bearish trade exit bar to enforce single non-overlapping entries
+  let lastBearishTradeExit = -1;
 
   // 2. Bearish Inverted Adam & Eve (V-Top + U-Top)
   for (let a = 0; a < swingHighs.length - 1; a++) {
     const adam = swingHighs[a];
+    if (adam.index <= lastBearishTradeExit) continue;
 
     for (let e = a + 1; e < swingHighs.length; e++) {
       const eveCandidate = swingHighs[e];
+      if (eveCandidate.index <= lastBearishTradeExit) continue;
+
       const spanBars = eveCandidate.index - adam.index;
       if (spanBars > maxPatternBars || spanBars < 4) continue;
 
@@ -2971,136 +2999,150 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const eveWidth = eveCandidate.index - neckline.index;
       if (eveWidth < minEveBars) continue;
 
+      const searchEnd = Math.min(bars.length, eveCandidate.index + maxBreakoutBars);
       let breakdownBar = null;
-      for (let k = eveCandidate.index + 1; k < bars.length; k++) {
+      let invalidated = false;
+
+      for (let k = eveCandidate.index + 1; k < searchEnd; k++) {
+        // Invalidation: candle closes above the pattern top
+        if (bars[k].close > Math.max(adam.price, eveCandidate.price) * 1.005) {
+          invalidated = true;
+          break;
+        }
         if (bars[k].close < neckline.price) {
           breakdownBar = { bar: bars[k], index: k };
           break;
         }
       }
 
-      if (breakdownBar) {
-        const height = Math.max(adam.price, eveCandidate.price) - neckline.price;
-        const sl = slMode === "eve" ? eveCandidate.price : Math.max(adam.price, eveCandidate.price);
-        const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
-        const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
-        const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
+      if (invalidated || !breakdownBar) continue;
 
-        boxes.push({
-          id: "adam-v-top-" + adam.index,
-          type: "ZONE",
-          startTime: bars[Math.max(0, adam.index - 1)].time,
-          endTime: bars[Math.min(bars.length - 1, adam.index + 1)].time,
-          top: adam.price,
-          bottom: adam.price - height * 0.25,
-          color: "#ff3b30",
-          fillColor: "rgba(255, 59, 48, 0.22)",
-          label: "Adam (V-Top)",
-          showMidLine: false,
-        });
+      const height = Math.max(adam.price, eveCandidate.price) - neckline.price;
+      const sl = slMode === "eve" ? eveCandidate.price : Math.max(adam.price, eveCandidate.price);
+      const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
+      const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
+      const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
 
-        boxes.push({
-          id: "eve-u-top-" + eveCandidate.index,
-          type: "ZONE",
-          startTime: bars[neckline.index].time,
-          endTime: breakdownBar.bar.time,
-          top: eveCandidate.price,
-          bottom: eveCandidate.price - height * 0.35,
-          color: "#ff9800",
-          fillColor: "rgba(255, 152, 0, 0.18)",
-          label: "Eve (U-Top)",
-          showMidLine: false,
-        });
+      boxes.push({
+        id: "adam-v-top-" + adam.index,
+        type: "ZONE",
+        startTime: bars[Math.max(0, adam.index - 1)].time,
+        endTime: bars[Math.min(bars.length - 1, adam.index + 1)].time,
+        top: adam.price,
+        bottom: adam.price - height * 0.25,
+        color: "#ff3b30",
+        fillColor: "rgba(255, 59, 48, 0.22)",
+        label: "Adam (V-Top)",
+        showMidLine: false,
+      });
 
-        let tp1EndTime = bars[bars.length - 1].time;
-        let tp2EndTime = bars[bars.length - 1].time;
-        let slEndTime = bars[bars.length - 1].time;
-        let tp1Hit = false;
+      boxes.push({
+        id: "eve-u-top-" + eveCandidate.index,
+        type: "ZONE",
+        startTime: bars[neckline.index].time,
+        endTime: breakdownBar.bar.time,
+        top: eveCandidate.price,
+        bottom: eveCandidate.price - height * 0.35,
+        color: "#ff9800",
+        fillColor: "rgba(255, 152, 0, 0.18)",
+        label: "Eve (U-Top)",
+        showMidLine: false,
+      });
 
-        for (let m = breakdownBar.index + 1; m < bars.length; m++) {
-          const b = bars[m];
-          if (b.high >= sl) {
-            if (!tp1Hit) tp1EndTime = b.time;
-            tp2EndTime = b.time;
-            slEndTime = b.time;
-            break;
-          }
-          if (!tp1Hit && b.low <= tp1) {
-            tp1Hit = true;
-            tp1EndTime = b.time;
-          }
-          if (b.low <= tp2) {
-            tp2EndTime = b.time;
-            slEndTime = b.time;
-            break;
-          }
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tradeEndIndex = bars.length - 1;
+      let tp1Hit = false;
+
+      for (let m = breakdownBar.index + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (b.high >= sl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeEndIndex = m;
+          break;
         }
-
-        boxes.push({
-          id: "neckline-down-" + neckline.index,
-          type: "BEARISH",
-          startTime: neckline.time,
-          endTime: slEndTime,
-          top: neckline.price,
-          bottom: neckline.price,
-          color: "#f23645",
-          fillColor: "rgba(242, 54, 69, 0.15)",
-          label: "Neckline Breakdown (" + neckline.price.toFixed(2) + ")",
-          showMidLine: false,
-        });
-
-        if (showPositionTool) {
-          positionBoxes.push({
-            id: "pos-tp1-short-" + breakdownBar.index,
-            type: "POSITION",
-            startTime: breakdownBar.bar.time,
-            endTime: tp1EndTime,
-            top: breakdownBar.bar.close,
-            bottom: tp1,
-            color: "#00c853",
-            fillColor: "rgba(0, 200, 83, 0.22)",
-            label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
-            showMidLine: false,
-          });
-
-          positionBoxes.push({
-            id: "pos-tp2-short-" + breakdownBar.index,
-            type: "POSITION",
-            startTime: breakdownBar.bar.time,
-            endTime: tp2EndTime,
-            top: breakdownBar.bar.close,
-            bottom: tp2,
-            color: "#00e676",
-            fillColor: "rgba(0, 230, 118, 0.16)",
-            label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
-            showMidLine: false,
-          });
-
-          positionBoxes.push({
-            id: "pos-sl-short-" + breakdownBar.index,
-            type: "POSITION",
-            startTime: breakdownBar.bar.time,
-            endTime: slEndTime,
-            top: sl,
-            bottom: breakdownBar.bar.close,
-            color: "#e53935",
-            fillColor: "rgba(229, 57, 53, 0.22)",
-            label: "SL (Extreme Adam): " + sl.toFixed(2),
-            showMidLine: false,
-          });
+        if (!tp1Hit && b.low <= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
         }
-
-        if (typeof alertcondition === "function" && breakdownBar.index === bars.length - 1) {
-          alertcondition(true, "Bearish Adam & Eve Breakdown", "Adam & Eve neckline breakdown confirmed at " + breakdownBar.bar.close.toFixed(2));
-        }
-
-        if (strategy && typeof strategy.entry === "function") {
-          strategy.at(breakdownBar.index).entry("AdamEve-Short", "SHORT", {
-            takeProfit: tp1,
-            stopLoss: sl,
-          });
+        if (b.low <= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeEndIndex = m;
+          break;
         }
       }
+
+      boxes.push({
+        id: "neckline-down-" + neckline.index,
+        type: "BEARISH",
+        startTime: neckline.time,
+        endTime: slEndTime,
+        top: neckline.price,
+        bottom: neckline.price,
+        color: "#f23645",
+        fillColor: "rgba(242, 54, 69, 0.15)",
+        label: "Neckline Breakdown (" + neckline.price.toFixed(2) + ")",
+        showMidLine: false,
+      });
+
+      if (showPositionTool) {
+        positionBoxes.push({
+          id: "pos-tp1-short-" + breakdownBar.index,
+          type: "POSITION",
+          startTime: breakdownBar.bar.time,
+          endTime: tp1EndTime,
+          top: breakdownBar.bar.close,
+          bottom: tp1,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, 0.22)",
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-tp2-short-" + breakdownBar.index,
+          type: "POSITION",
+          startTime: breakdownBar.bar.time,
+          endTime: tp2EndTime,
+          top: breakdownBar.bar.close,
+          bottom: tp2,
+          color: "#00e676",
+          fillColor: "rgba(0, 230, 118, 0.16)",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-sl-short-" + breakdownBar.index,
+          type: "POSITION",
+          startTime: breakdownBar.bar.time,
+          endTime: slEndTime,
+          top: sl,
+          bottom: breakdownBar.bar.close,
+          color: "#e53935",
+          fillColor: "rgba(229, 57, 53, 0.22)",
+          label: "SL (Extreme Adam): " + sl.toFixed(2),
+          showMidLine: false,
+        });
+      }
+
+      if (typeof alertcondition === "function" && breakdownBar.index === bars.length - 1) {
+        alertcondition(true, "Bearish Adam & Eve Breakdown", "Adam & Eve neckline breakdown confirmed at " + breakdownBar.bar.close.toFixed(2));
+      }
+
+      if (strategy && typeof strategy.entry === "function") {
+        strategy.at(breakdownBar.index).entry("AdamEve-Short", "SHORT", {
+          takeProfit: tp1,
+          stopLoss: sl,
+        });
+      }
+
+      lastBearishTradeExit = tradeEndIndex;
+      break; // Found 1 valid entry for this Adam top, do not create duplicate entries
     }
   }
 
@@ -3132,6 +3174,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   const slMode = inputs.slMode || "head"; // "head" (extreme peak/trough) or "shoulder"
   const rrTP1 = inputs.rrTP1 !== undefined ? inputs.rrTP1 : 1.0;
   const rrTP2 = inputs.rrTP2 !== undefined ? inputs.rrTP2 : 3.0;
+  const maxBreakoutBars = inputs.maxBreakoutBars || 35;
 
   if (!bars || bars.length < 6) {
     return { boxes: [], data: (bars || []).map(b => ({ time: b.time, value: b.close })) };
@@ -3165,11 +3208,15 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     if (isSwingHigh(i, lookback)) swingHighs.push({ index: i, price: bars[i].high, time: bars[i].time });
   }
 
+  let lastBearishHsTradeExit = -1;
+
   // 1. Bearish Head & Shoulders
   for (let hIdx = 1; hIdx < swingHighs.length - 1; hIdx++) {
     const head = swingHighs[hIdx];
     const ls = swingHighs[hIdx - 1];
     const rs = swingHighs[hIdx + 1];
+
+    if (ls.index <= lastBearishHsTradeExit) continue;
 
     const headDominanceLS = ((head.price - ls.price) / ls.price) * 100;
     const headDominanceRS = ((head.price - rs.price) / rs.price) * 100;
@@ -3194,155 +3241,172 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     const necklinePrice = (t1.price + t2.price) / 2;
     const patternHeight = head.price - necklinePrice;
 
+    const searchEnd = Math.min(bars.length, rs.index + maxBreakoutBars);
     let breakdownBar = null;
-    for (let k = rs.index + 1; k < bars.length; k++) {
+    let invalidated = false;
+
+    for (let k = rs.index + 1; k < searchEnd; k++) {
+      // Invalidation: candle closes above Head
+      if (bars[k].close > head.price) {
+        invalidated = true;
+        break;
+      }
       if (bars[k].close < necklinePrice) {
         breakdownBar = { bar: bars[k], index: k };
         break;
       }
     }
 
-    if (breakdownBar) {
-      const sl = slMode === "shoulder" ? rs.price : head.price;
-      const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
-      const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
-      const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
+    if (invalidated || !breakdownBar) continue;
 
-      boxes.push({
-        id: "hs-ls-" + ls.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, ls.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, ls.index + 1)].time,
-        top: ls.price,
-        bottom: ls.price - patternHeight * 0.2,
-        color: "#f5ac37",
-        fillColor: "rgba(245, 172, 55, 0.22)",
-        label: "Left Shoulder (" + ls.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    const sl = slMode === "shoulder" ? rs.price : head.price;
+    const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
+    const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
+    const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
 
-      boxes.push({
-        id: "hs-head-" + head.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, head.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, head.index + 1)].time,
-        top: head.price,
-        bottom: head.price - patternHeight * 0.25,
-        color: "#ff3b30",
-        fillColor: "rgba(255, 59, 48, 0.25)",
-        label: "Head (" + head.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    boxes.push({
+      id: "hs-ls-" + ls.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, ls.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, ls.index + 1)].time,
+      top: ls.price,
+      bottom: ls.price - patternHeight * 0.2,
+      color: "#f5ac37",
+      fillColor: "rgba(245, 172, 55, 0.22)",
+      label: "Left Shoulder (" + ls.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      boxes.push({
-        id: "hs-rs-" + rs.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, rs.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, rs.index + 1)].time,
-        top: rs.price,
-        bottom: rs.price - patternHeight * 0.2,
-        color: "#f5ac37",
-        fillColor: "rgba(245, 172, 55, 0.22)",
-        label: "Right Shoulder (" + rs.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    boxes.push({
+      id: "hs-head-" + head.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, head.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, head.index + 1)].time,
+      top: head.price,
+      bottom: head.price - patternHeight * 0.25,
+      color: "#ff3b30",
+      fillColor: "rgba(255, 59, 48, 0.25)",
+      label: "Head (" + head.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      let tp1EndTime = bars[bars.length - 1].time;
-      let tp2EndTime = bars[bars.length - 1].time;
-      let slEndTime = bars[bars.length - 1].time;
-      let tp1Hit = false;
+    boxes.push({
+      id: "hs-rs-" + rs.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, rs.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, rs.index + 1)].time,
+      top: rs.price,
+      bottom: rs.price - patternHeight * 0.2,
+      color: "#f5ac37",
+      fillColor: "rgba(245, 172, 55, 0.22)",
+      label: "Right Shoulder (" + rs.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      for (let m = breakdownBar.index + 1; m < bars.length; m++) {
-        const b = bars[m];
-        if (b.high >= sl) {
-          if (!tp1Hit) tp1EndTime = b.time;
-          tp2EndTime = b.time;
-          slEndTime = b.time;
-          break;
-        }
-        if (!tp1Hit && b.low <= tp1) {
-          tp1Hit = true;
-          tp1EndTime = b.time;
-        }
-        if (b.low <= tp2) {
-          tp2EndTime = b.time;
-          slEndTime = b.time;
-          break;
-        }
+    let tp1EndTime = bars[bars.length - 1].time;
+    let tp2EndTime = bars[bars.length - 1].time;
+    let slEndTime = bars[bars.length - 1].time;
+    let tradeEndIndex = bars.length - 1;
+    let tp1Hit = false;
+
+    for (let m = breakdownBar.index + 1; m < bars.length; m++) {
+      const b = bars[m];
+      if (b.high >= sl) {
+        if (!tp1Hit) tp1EndTime = b.time;
+        tp2EndTime = b.time;
+        slEndTime = b.time;
+        tradeEndIndex = m;
+        break;
       }
-
-      boxes.push({
-        id: "hs-neckline-" + t1.index,
-        type: "BEARISH",
-        startTime: t1.time,
-        endTime: slEndTime,
-        top: necklinePrice,
-        bottom: necklinePrice,
-        color: "#e53935",
-        fillColor: "rgba(229, 57, 53, 0.15)",
-        label: "Neckline (" + necklinePrice.toFixed(2) + ")",
-        showMidLine: false,
-      });
-
-      if (showPositionTool) {
-        positionBoxes.push({
-          id: "pos-hs-tp1-" + breakdownBar.index,
-          type: "POSITION",
-          startTime: breakdownBar.bar.time,
-          endTime: tp1EndTime,
-          top: breakdownBar.bar.close,
-          bottom: tp1,
-          color: "#00c853",
-          fillColor: "rgba(0, 200, 83, 0.22)",
-          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
-          showMidLine: false,
-        });
-
-        positionBoxes.push({
-          id: "pos-hs-tp2-" + breakdownBar.index,
-          type: "POSITION",
-          startTime: breakdownBar.bar.time,
-          endTime: tp2EndTime,
-          top: breakdownBar.bar.close,
-          bottom: tp2,
-          color: "#00e676",
-          fillColor: "rgba(0, 230, 118, 0.16)",
-          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
-          showMidLine: false,
-        });
-
-        positionBoxes.push({
-          id: "pos-hs-sl-" + breakdownBar.index,
-          type: "POSITION",
-          startTime: breakdownBar.bar.time,
-          endTime: slEndTime,
-          top: sl,
-          bottom: breakdownBar.bar.close,
-          color: "#e53935",
-          fillColor: "rgba(229, 57, 53, 0.22)",
-          label: "SL (Extreme Head): " + sl.toFixed(2),
-          showMidLine: false,
-        });
+      if (!tp1Hit && b.low <= tp1) {
+        tp1Hit = true;
+        tp1EndTime = b.time;
       }
-
-      if (typeof alertcondition === "function" && breakdownBar.index === bars.length - 1) {
-        alertcondition(true, "Bearish Head & Shoulders Breakdown", "H&S breakdown confirmed below neckline at " + breakdownBar.bar.close.toFixed(2));
-      }
-
-      if (strategy && typeof strategy.entry === "function") {
-        strategy.at(breakdownBar.index).entry("HeadShoulders-Short", "SHORT", {
-          takeProfit: tp1,
-          stopLoss: sl,
-        });
+      if (b.low <= tp2) {
+        tp2EndTime = b.time;
+        slEndTime = b.time;
+        tradeEndIndex = m;
+        break;
       }
     }
+
+    boxes.push({
+      id: "hs-neckline-" + t1.index,
+      type: "BEARISH",
+      startTime: t1.time,
+      endTime: slEndTime,
+      top: necklinePrice,
+      bottom: necklinePrice,
+      color: "#e53935",
+      fillColor: "rgba(229, 57, 53, 0.15)",
+      label: "Neckline (" + necklinePrice.toFixed(2) + ")",
+      showMidLine: false,
+    });
+
+    if (showPositionTool) {
+      positionBoxes.push({
+        id: "pos-hs-tp1-" + breakdownBar.index,
+        type: "POSITION",
+        startTime: breakdownBar.bar.time,
+        endTime: tp1EndTime,
+        top: breakdownBar.bar.close,
+        bottom: tp1,
+        color: "#00c853",
+        fillColor: "rgba(0, 200, 83, 0.22)",
+        label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+        showMidLine: false,
+      });
+
+      positionBoxes.push({
+        id: "pos-hs-tp2-" + breakdownBar.index,
+        type: "POSITION",
+        startTime: breakdownBar.bar.time,
+        endTime: tp2EndTime,
+        top: breakdownBar.bar.close,
+        bottom: tp2,
+        color: "#00e676",
+        fillColor: "rgba(0, 230, 118, 0.16)",
+        label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+        showMidLine: false,
+      });
+
+      positionBoxes.push({
+        id: "pos-hs-sl-" + breakdownBar.index,
+        type: "POSITION",
+        startTime: breakdownBar.bar.time,
+        endTime: slEndTime,
+        top: sl,
+        bottom: breakdownBar.bar.close,
+        color: "#e53935",
+        fillColor: "rgba(229, 57, 53, 0.22)",
+        label: "SL (Extreme Head): " + sl.toFixed(2),
+        showMidLine: false,
+      });
+    }
+
+    if (typeof alertcondition === "function" && breakdownBar.index === bars.length - 1) {
+      alertcondition(true, "Bearish Head & Shoulders Breakdown", "H&S breakdown confirmed below neckline at " + breakdownBar.bar.close.toFixed(2));
+    }
+
+    if (strategy && typeof strategy.entry === "function") {
+      strategy.at(breakdownBar.index).entry("HeadShoulders-Short", "SHORT", {
+        takeProfit: tp1,
+        stopLoss: sl,
+      });
+    }
+
+    lastBearishHsTradeExit = tradeEndIndex;
   }
+
+  let lastBullishIhsTradeExit = -1;
 
   // 2. Bullish Inverse Head & Shoulders
   for (let hIdx = 1; hIdx < swingLows.length - 1; hIdx++) {
     const head = swingLows[hIdx];
     const ls = swingLows[hIdx - 1];
     const rs = swingLows[hIdx + 1];
+
+    if (ls.index <= lastBullishIhsTradeExit) continue;
 
     const headDominanceLS = ((ls.price - head.price) / ls.price) * 100;
     const headDominanceRS = ((rs.price - head.price) / rs.price) * 100;
@@ -3367,148 +3431,161 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     const necklinePrice = (p1.price + p2.price) / 2;
     const patternHeight = necklinePrice - head.price;
 
+    const searchEnd = Math.min(bars.length, rs.index + maxBreakoutBars);
     let breakoutBar = null;
-    for (let k = rs.index + 1; k < bars.length; k++) {
+    let invalidated = false;
+
+    for (let k = rs.index + 1; k < searchEnd; k++) {
+      // Invalidation: candle closes below Head
+      if (bars[k].close < head.price) {
+        invalidated = true;
+        break;
+      }
       if (bars[k].close > necklinePrice) {
         breakoutBar = { bar: bars[k], index: k };
         break;
       }
     }
 
-    if (breakoutBar) {
-      const sl = slMode === "shoulder" ? rs.price : head.price;
-      const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
-      const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
-      const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
+    if (invalidated || !breakoutBar) continue;
 
-      boxes.push({
-        id: "ihs-ls-" + ls.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, ls.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, ls.index + 1)].time,
-        top: ls.price + patternHeight * 0.2,
-        bottom: ls.price,
-        color: "#00d8ff",
-        fillColor: "rgba(0, 216, 255, 0.22)",
-        label: "Inv Left Shoulder (" + ls.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    const sl = slMode === "shoulder" ? rs.price : head.price;
+    const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
+    const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
+    const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
 
-      boxes.push({
-        id: "ihs-head-" + head.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, head.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, head.index + 1)].time,
-        top: head.price + patternHeight * 0.25,
-        bottom: head.price,
-        color: "#00e676",
-        fillColor: "rgba(0, 230, 118, 0.25)",
-        label: "Inv Head (" + head.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    boxes.push({
+      id: "ihs-ls-" + ls.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, ls.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, ls.index + 1)].time,
+      top: ls.price + patternHeight * 0.2,
+      bottom: ls.price,
+      color: "#00d8ff",
+      fillColor: "rgba(0, 216, 255, 0.22)",
+      label: "Inv Left Shoulder (" + ls.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      boxes.push({
-        id: "ihs-rs-" + rs.index,
-        type: "ZONE",
-        startTime: bars[Math.max(0, rs.index - 1)].time,
-        endTime: bars[Math.min(bars.length - 1, rs.index + 1)].time,
-        top: rs.price + patternHeight * 0.2,
-        bottom: rs.price,
-        color: "#00d8ff",
-        fillColor: "rgba(0, 216, 255, 0.22)",
-        label: "Inv Right Shoulder (" + rs.price.toFixed(2) + ")",
-        showMidLine: false,
-      });
+    boxes.push({
+      id: "ihs-head-" + head.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, head.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, head.index + 1)].time,
+      top: head.price + patternHeight * 0.25,
+      bottom: head.price,
+      color: "#00e676",
+      fillColor: "rgba(0, 230, 118, 0.25)",
+      label: "Inv Head (" + head.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      let tp1EndTime = bars[bars.length - 1].time;
-      let tp2EndTime = bars[bars.length - 1].time;
-      let slEndTime = bars[bars.length - 1].time;
-      let tp1Hit = false;
+    boxes.push({
+      id: "ihs-rs-" + rs.index,
+      type: "ZONE",
+      startTime: bars[Math.max(0, rs.index - 1)].time,
+      endTime: bars[Math.min(bars.length - 1, rs.index + 1)].time,
+      top: rs.price + patternHeight * 0.2,
+      bottom: rs.price,
+      color: "#00d8ff",
+      fillColor: "rgba(0, 216, 255, 0.22)",
+      label: "Inv Right Shoulder (" + rs.price.toFixed(2) + ")",
+      showMidLine: false,
+    });
 
-      for (let m = breakoutBar.index + 1; m < bars.length; m++) {
-        const b = bars[m];
-        if (b.low <= sl) {
-          if (!tp1Hit) tp1EndTime = b.time;
-          tp2EndTime = b.time;
-          slEndTime = b.time;
-          break;
-        }
-        if (!tp1Hit && b.high >= tp1) {
-          tp1Hit = true;
-          tp1EndTime = b.time;
-        }
-        if (b.high >= tp2) {
-          tp2EndTime = b.time;
-          slEndTime = b.time;
-          break;
-        }
+    let tp1EndTime = bars[bars.length - 1].time;
+    let tp2EndTime = bars[bars.length - 1].time;
+    let slEndTime = bars[bars.length - 1].time;
+    let tradeEndIndex = bars.length - 1;
+    let tp1Hit = false;
+
+    for (let m = breakoutBar.index + 1; m < bars.length; m++) {
+      const b = bars[m];
+      if (b.low <= sl) {
+        if (!tp1Hit) tp1EndTime = b.time;
+        tp2EndTime = b.time;
+        slEndTime = b.time;
+        tradeEndIndex = m;
+        break;
       }
-
-      boxes.push({
-        id: "ihs-neckline-" + p1.index,
-        type: "BULLISH",
-        startTime: p1.time,
-        endTime: slEndTime,
-        top: necklinePrice,
-        bottom: necklinePrice,
-        color: "#00c087",
-        fillColor: "rgba(0, 192, 135, 0.15)",
-        label: "Neckline (" + necklinePrice.toFixed(2) + ")",
-        showMidLine: false,
-      });
-
-      if (showPositionTool) {
-        positionBoxes.push({
-          id: "pos-ihs-tp1-" + breakoutBar.index,
-          type: "POSITION",
-          startTime: breakoutBar.bar.time,
-          endTime: tp1EndTime,
-          top: tp1,
-          bottom: breakoutBar.bar.close,
-          color: "#00c853",
-          fillColor: "rgba(0, 200, 83, 0.22)",
-          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
-          showMidLine: false,
-        });
-
-        positionBoxes.push({
-          id: "pos-ihs-tp2-" + breakoutBar.index,
-          type: "POSITION",
-          startTime: breakoutBar.bar.time,
-          endTime: tp2EndTime,
-          top: tp2,
-          bottom: breakoutBar.bar.close,
-          color: "#00e676",
-          fillColor: "rgba(0, 230, 118, 0.16)",
-          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
-          showMidLine: false,
-        });
-
-        positionBoxes.push({
-          id: "pos-ihs-sl-" + breakoutBar.index,
-          type: "POSITION",
-          startTime: breakoutBar.bar.time,
-          endTime: slEndTime,
-          top: sl,
-          bottom: breakoutBar.bar.close,
-          color: "#e53935",
-          fillColor: "rgba(229, 57, 53, 0.22)",
-          label: "SL (Extreme Head): " + sl.toFixed(2),
-          showMidLine: false,
-        });
+      if (!tp1Hit && b.high >= tp1) {
+        tp1Hit = true;
+        tp1EndTime = b.time;
       }
-
-      if (typeof alertcondition === "function" && breakoutBar.index === bars.length - 1) {
-        alertcondition(true, "Bullish Inverse H&S Breakout", "Inverse H&S breakout confirmed above neckline at " + breakoutBar.bar.close.toFixed(2));
-      }
-
-      if (strategy && typeof strategy.entry === "function") {
-        strategy.at(breakoutBar.index).entry("InverseHS-Long", "LONG", {
-          takeProfit: tp1,
-          stopLoss: sl,
-        });
+      if (b.high >= tp2) {
+        tp2EndTime = b.time;
+        slEndTime = b.time;
+        tradeEndIndex = m;
+        break;
       }
     }
+
+    boxes.push({
+      id: "ihs-neckline-" + p1.index,
+      type: "BULLISH",
+      startTime: p1.time,
+      endTime: slEndTime,
+      top: necklinePrice,
+      bottom: necklinePrice,
+      color: "#00c087",
+      fillColor: "rgba(0, 192, 135, 0.15)",
+      label: "Neckline (" + necklinePrice.toFixed(2) + ")",
+      showMidLine: false,
+    });
+
+    if (showPositionTool) {
+      positionBoxes.push({
+        id: "pos-ihs-tp1-" + breakoutBar.index,
+        type: "POSITION",
+        startTime: breakoutBar.bar.time,
+        endTime: tp1EndTime,
+        top: tp1,
+        bottom: breakoutBar.bar.close,
+        color: "#00c853",
+        fillColor: "rgba(0, 200, 83, 0.22)",
+        label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+        showMidLine: false,
+      });
+
+      positionBoxes.push({
+        id: "pos-ihs-tp2-" + breakoutBar.index,
+        type: "POSITION",
+        startTime: breakoutBar.bar.time,
+        endTime: tp2EndTime,
+        top: tp2,
+        bottom: breakoutBar.bar.close,
+        color: "#00e676",
+        fillColor: "rgba(0, 230, 118, 0.16)",
+        label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+        showMidLine: false,
+      });
+
+      positionBoxes.push({
+        id: "pos-ihs-sl-" + breakoutBar.index,
+        type: "POSITION",
+        startTime: breakoutBar.bar.time,
+        endTime: slEndTime,
+        top: sl,
+        bottom: breakoutBar.bar.close,
+        color: "#e53935",
+        fillColor: "rgba(229, 57, 53, 0.22)",
+        label: "SL (Extreme Head): " + sl.toFixed(2),
+        showMidLine: false,
+      });
+    }
+
+    if (typeof alertcondition === "function" && breakoutBar.index === bars.length - 1) {
+      alertcondition(true, "Bullish Inverse H&S Breakout", "Inverse H&S breakout confirmed above neckline at " + breakoutBar.bar.close.toFixed(2));
+    }
+
+    if (strategy && typeof strategy.entry === "function") {
+      strategy.at(breakoutBar.index).entry("InverseHS-Long", "LONG", {
+        takeProfit: tp1,
+        stopLoss: sl,
+      });
+    }
+
+    lastBullishIhsTradeExit = tradeEndIndex;
   }
 
   return {
@@ -3517,7 +3594,6 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   };
 }
 `;
-
 
 export function getCustomScripts(): CustomScript[] {
   if (typeof window === "undefined") return [];
