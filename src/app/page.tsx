@@ -424,6 +424,11 @@ export default function WorkstationPage() {
       } catch {}
       return next;
     });
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("mochex:refresh-chart"));
+      }, 30);
+    }
   };
 
   useEffect(() => {
@@ -448,6 +453,11 @@ export default function WorkstationPage() {
       }
       return next;
     });
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("mochex:refresh-chart"));
+      }, 30);
+    }
   };
 
   const handleToggleIndicatorVisibility = (name: string) => {
@@ -496,17 +506,25 @@ export default function WorkstationPage() {
   const handleClearDrawings = () => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("mochex:clear-drawings"));
+      window.dispatchEvent(new CustomEvent("mochex:refresh-chart"));
     }
   };
 
   const handleClearIndicators = () => {
     setActiveIndicators([]);
     setCustomIndicatorData(null);
+    setCustomIndicatorBoxes(null);
+    setHiddenIndicators([]);
+    setStrategyResult(null);
+    setFocusedTrade(null);
     try {
       localStorage.setItem("mochex:active_indicators", JSON.stringify([]));
+      localStorage.setItem("mochex:hidden_indicators", JSON.stringify([]));
     } catch {}
     if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mochex:clear-indicators"));
       window.dispatchEvent(new CustomEvent("mochex:clear-custom-indicators"));
+      window.dispatchEvent(new CustomEvent("mochex:refresh-chart"));
     }
   };
 

@@ -2202,21 +2202,13 @@ export function TradingViewContainer({
   }, [resolution, selectedDrawingId, saveDrawings]);
 
   useEffect(() => {
-    const handleClearDrawings = () => {
-      saveDrawings([]);
-      setSelectedDrawingId(null);
-      setInFlightDrawing(null);
-      setDrawingStep(0);
-    };
-    window.addEventListener("mochex:clear-drawings", handleClearDrawings);
     window.addEventListener("mochex:undo", handleUndo);
     window.addEventListener("mochex:redo", handleRedo);
     return () => {
-      window.removeEventListener("mochex:clear-drawings", handleClearDrawings);
       window.removeEventListener("mochex:undo", handleUndo);
       window.removeEventListener("mochex:redo", handleRedo);
     };
-  }, [saveDrawings, handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo]);
 
   // Specialized Geometric Renderers (DEC-041, DEC-046, DEC-047)
   const renderTrendline = useCallback(
@@ -3576,6 +3568,48 @@ export function TradingViewContainer({
     [isDrawingsHidden, drawings, getSafeScreenX, getSafeScreenY, timeToCoordinate, priceToCoordinate]
   );
 
+  const isFvgHidden =
+    hiddenIndicators.includes("Unmitigated Multi-Timeframe FVG (0% Hit)") ||
+    hiddenIndicators.some((ind) => ind.toLowerCase().includes("fvg"));
+  const hasFvgIndicator =
+    (activeIndicators.includes("Unmitigated Multi-Timeframe FVG (0% Hit)") ||
+      activeIndicators.some((ind) => ind.toLowerCase().includes("fvg"))) &&
+    !isFvgHidden;
+
+  const activeFvgZones = useMemo(() => {
+    if (!hasFvgIndicator) return [];
+    return computeUnmitigatedFvgs(bars, { timeframe: resolution });
+  }, [hasFvgIndicator, bars, resolution]);
+
+  const isMarketStructureHidden =
+    hiddenIndicators.includes("True Market Structure & Substructure") ||
+    hiddenIndicators.some((ind) => ind.toLowerCase().includes("structure"));
+  const hasMarketStructure =
+    (activeIndicators.includes("True Market Structure & Substructure") ||
+      activeIndicators.some((ind) => ind.toLowerCase().includes("structure"))) &&
+    !isMarketStructureHidden;
+
+  const marketStructureResult = useMemo(() => {
+    if (!hasMarketStructure || bars.length === 0) return null;
+    return computeMarketStructure(bars, marketStructureSettings);
+  }, [hasMarketStructure, bars, marketStructureSettings]);
+
+  const isCandleStructureHidden =
+    hiddenIndicators.includes("Candlestick Market Structure (Price Action)") ||
+    hiddenIndicators.some((ind) => ind.toLowerCase().includes("candle"));
+  const hasCandleStructure =
+    (activeIndicators.includes("Candlestick Market Structure (Price Action)") ||
+      activeIndicators.some((ind) => ind.toLowerCase().includes("candle"))) &&
+    !isCandleStructureHidden;
+
+  const candleStructureResult = useMemo(() => {
+    if (!hasCandleStructure || bars.length === 0) return null;
+    return computeCandleMarketStructure(bars, candleStructureSettings);
+  }, [hasCandleStructure, bars, candleStructureSettings]);
+
+  const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
+  const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
+
   const renderDrawingCanvas = useCallback(() => {
     const canvas = drawingCanvasRef.current;
     if (!canvas) return;
@@ -4659,6 +4693,12 @@ export function TradingViewContainer({
     renderBrush,
     renderText,
     renderHandles,
+    customScriptBoxes,
+    activeFvgZones,
+    marketStructureResult,
+    candleStructureResult,
+    isCustomIndicatorHidden,
+    customIndicatorData,
   ]);
 
   // Listen for Multi-Chart Crosshair Synchronization events from sibling panes (DEC-075)
@@ -4700,6 +4740,127 @@ export function TradingViewContainer({
     });
     return () => cancelAnimationFrame(rafId);
   }, [renderDrawingCanvas]);
+
+  // Unified auto-refresh & indicator/drawing cleanup handler (DEC-119)
+  useEffect(() => {
+    const handleClearDrawings = () => {
+      saveDrawings([]);
+      setSelectedDrawingId(null);
+      setInFlightDrawing(null);
+      setDrawingStep(0);
+
+      const canvas = drawingCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      const chart = chartRef.current;
+      if (chart) {
+        try {
+          chart.applyOptions({});
+          chart.timeScale().applyOptions({});
+        } catch {}
+      }
+
+      requestAnimationFrame(() => {
+        renderDrawingCanvas();
+      });
+    };
+
+    const handleClearIndicatorsEvent = () => {
+      const chart = chartRef.current;
+      if (chart) {
+        // 1. Hide main pane indicator series
+        ema20SeriesRef.current?.applyOptions({ visible: false });
+        ema50SeriesRef.current?.applyOptions({ visible: false });
+        ema100SeriesRef.current?.applyOptions({ visible: false });
+        ema200SeriesRef.current?.applyOptions({ visible: false });
+        bbUpperSeriesRef.current?.applyOptions({ visible: false });
+        bbMiddleSeriesRef.current?.applyOptions({ visible: false });
+        bbLowerSeriesRef.current?.applyOptions({ visible: false });
+
+        // 2. Tear down sub-pane series
+        if (rsiSeriesRef.current) {
+          try { chart.removeSeries(rsiSeriesRef.current); } catch {}
+          rsiSeriesRef.current = null;
+        }
+        if (macdLineSeriesRef.current) {
+          try { chart.removeSeries(macdLineSeriesRef.current); } catch {}
+          macdLineSeriesRef.current = null;
+        }
+        if (macdSignalSeriesRef.current) {
+          try { chart.removeSeries(macdSignalSeriesRef.current); } catch {}
+          macdSignalSeriesRef.current = null;
+        }
+        if (macdHistSeriesRef.current) {
+          try { chart.removeSeries(macdHistSeriesRef.current); } catch {}
+          macdHistSeriesRef.current = null;
+        }
+        if (strategyEquitySeriesRef.current) {
+          try { chart.removeSeries(strategyEquitySeriesRef.current); } catch {}
+          strategyEquitySeriesRef.current = null;
+        }
+        if (strategyBuyHoldSeriesRef.current) {
+          try { chart.removeSeries(strategyBuyHoldSeriesRef.current); } catch {}
+          strategyBuyHoldSeriesRef.current = null;
+        }
+        if (strategyDrawdownSeriesRef.current) {
+          try { chart.removeSeries(strategyDrawdownSeriesRef.current); } catch {}
+          strategyDrawdownSeriesRef.current = null;
+        }
+        if (customIndicatorSeriesRef.current) {
+          try { chart.removeSeries(customIndicatorSeriesRef.current); } catch {}
+          customIndicatorSeriesRef.current = null;
+        }
+
+        try {
+          chart.applyOptions({});
+          chart.timeScale().applyOptions({});
+        } catch {}
+      }
+
+      const canvas = drawingCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      requestAnimationFrame(() => {
+        renderDrawingCanvas();
+      });
+    };
+
+    const handleRefreshChartEvent = () => {
+      const chart = chartRef.current;
+      if (chart) {
+        try {
+          chart.applyOptions({});
+          chart.timeScale().applyOptions({});
+        } catch {}
+      }
+      const canvas = drawingCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      requestAnimationFrame(() => {
+        renderDrawingCanvas();
+      });
+    };
+
+    window.addEventListener("mochex:clear-drawings", handleClearDrawings);
+    window.addEventListener("mochex:clear-indicators", handleClearIndicatorsEvent);
+    window.addEventListener("mochex:clear-custom-indicators", handleClearIndicatorsEvent);
+    window.addEventListener("mochex:refresh-chart", handleRefreshChartEvent);
+
+    return () => {
+      window.removeEventListener("mochex:clear-drawings", handleClearDrawings);
+      window.removeEventListener("mochex:clear-indicators", handleClearIndicatorsEvent);
+      window.removeEventListener("mochex:clear-custom-indicators", handleClearIndicatorsEvent);
+      window.removeEventListener("mochex:refresh-chart", handleRefreshChartEvent);
+    };
+  }, [saveDrawings, renderDrawingCanvas]);
 
   // Keyboard shortcut listener (Delete/Backspace to remove, Enter to finish path, Escape to cancel)
   useEffect(() => {
@@ -6173,47 +6334,7 @@ export function TradingViewContainer({
     ? calculateVisibleVolumeProfile(bars, vpvrRows, vpvrVaPercent / 100)
     : null;
 
-  const isFvgHidden =
-    hiddenIndicators.includes("Unmitigated Multi-Timeframe FVG (0% Hit)") ||
-    hiddenIndicators.some((ind) => ind.toLowerCase().includes("fvg"));
-  const hasFvgIndicator =
-    (activeIndicators.includes("Unmitigated Multi-Timeframe FVG (0% Hit)") ||
-      activeIndicators.some((ind) => ind.toLowerCase().includes("fvg"))) &&
-    !isFvgHidden;
-
-  const activeFvgZones = useMemo(() => {
-    if (!hasFvgIndicator) return [];
-    return computeUnmitigatedFvgs(bars, { timeframe: resolution });
-  }, [hasFvgIndicator, bars, resolution]);
-
-  const isMarketStructureHidden =
-    hiddenIndicators.includes("True Market Structure & Substructure") ||
-    hiddenIndicators.some((ind) => ind.toLowerCase().includes("structure"));
-  const hasMarketStructure =
-    (activeIndicators.includes("True Market Structure & Substructure") ||
-      activeIndicators.some((ind) => ind.toLowerCase().includes("structure"))) &&
-    !isMarketStructureHidden;
-
-  const marketStructureResult = useMemo(() => {
-    if (!hasMarketStructure || bars.length === 0) return null;
-    return computeMarketStructure(bars, marketStructureSettings);
-  }, [hasMarketStructure, bars, marketStructureSettings]);
-
-  const isCandleStructureHidden =
-    hiddenIndicators.includes("Candlestick Market Structure (Price Action)") ||
-    hiddenIndicators.some((ind) => ind.toLowerCase().includes("candle"));
-  const hasCandleStructure =
-    (activeIndicators.includes("Candlestick Market Structure (Price Action)") ||
-      activeIndicators.some((ind) => ind.toLowerCase().includes("candle"))) &&
-    !isCandleStructureHidden;
-
-  const candleStructureResult = useMemo(() => {
-    if (!hasCandleStructure || bars.length === 0) return null;
-    return computeCandleMarketStructure(bars, candleStructureSettings);
-  }, [hasCandleStructure, bars, candleStructureSettings]);
-
-  const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
-  const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
+  // Indicator structures hoisted above renderDrawingCanvas (DEC-119)
 
   // Drawing overlay interaction state (DEC-042, DEC-043 & DEC-073)
   const isInteracting =
