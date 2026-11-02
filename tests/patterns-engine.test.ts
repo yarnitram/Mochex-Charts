@@ -211,5 +211,34 @@ describe("Chart Patterns Recognition Suite: Adam & Eve and Head & Shoulders", ()
       expect(tp2Box).toBeDefined();
       expect(slBox).toBeDefined();
     });
-  });
+  
+    it("stops position box at the exact candle where TP1 or SL is hit instead of extending to the right", async () => {
+      const bars = [
+        { time: 1000, open: 105, high: 110, low: 104, close: 108, volume: 100 },
+        { time: 2000, open: 108, high: 120, low: 107, close: 118, volume: 150 },
+        { time: 3000, open: 118, high: 112, low: 102, close: 104, volume: 120 },
+        { time: 4000, open: 104, high: 135, low: 105, close: 132, volume: 250 },
+        { time: 5000, open: 132, high: 114, low: 103, close: 105, volume: 160 },
+        { time: 6000, open: 105, high: 121, low: 106, close: 119, volume: 130 },
+        { time: 7000, open: 119, high: 115, low: 108, close: 110, volume: 110 },
+        { time: 8000, open: 110, high: 111, low: 96, close: 98, volume: 290 },
+        { time: 9000, open: 98, high: 99, low: 58, close: 60, volume: 210 },
+        { time: 10000, open: 60, high: 62, low: 57, close: 59, volume: 180 },
+        { time: 11000, open: 59, high: 60, low: 55, close: 56, volume: 150 },
+      ];
+
+      const res = await indicatorSandbox.execute({
+        scriptId: "hs-stop-tp-test",
+        code: DEFAULT_HEAD_SHOULDERS_SCRIPT,
+        bars,
+        inputs: { lookback: 1, shoulderTolerancePct: 6.0, minHeadDominancePct: 0.5, showPositionTool: true },
+      });
+
+      expect(res.success).toBe(true);
+      const tp1Box = res.boxes!.find((b) => b.label?.includes("TP1 (1R)"));
+      expect(tp1Box).toBeDefined();
+      expect(tp1Box?.endTime).toBe(9000);
+      expect(tp1Box?.endTime).toBeLessThan(11000);
+    });
+});
 });

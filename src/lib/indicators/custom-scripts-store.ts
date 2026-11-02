@@ -2851,11 +2851,35 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           showMidLine: false,
         });
 
+        let tp1EndTime = bars[bars.length - 1].time;
+        let tp2EndTime = bars[bars.length - 1].time;
+        let slEndTime = bars[bars.length - 1].time;
+        let tp1Hit = false;
+
+        for (let m = breakoutBar.index + 1; m < bars.length; m++) {
+          const b = bars[m];
+          if (b.low <= sl) {
+            if (!tp1Hit) tp1EndTime = b.time;
+            tp2EndTime = b.time;
+            slEndTime = b.time;
+            break;
+          }
+          if (!tp1Hit && b.high >= tp1) {
+            tp1Hit = true;
+            tp1EndTime = b.time;
+          }
+          if (b.high >= tp2) {
+            tp2EndTime = b.time;
+            slEndTime = b.time;
+            break;
+          }
+        }
+
         boxes.push({
           id: "neckline-" + neckline.index,
           type: "BULLISH",
           startTime: neckline.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: slEndTime,
           top: neckline.price,
           bottom: neckline.price,
           color: "#00c087",
@@ -2869,7 +2893,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-tp1-" + breakoutBar.index,
             type: "POSITION",
             startTime: breakoutBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: tp1EndTime,
             top: tp1,
             bottom: breakoutBar.bar.close,
             color: "#00c853",
@@ -2882,7 +2906,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-tp2-" + breakoutBar.index,
             type: "POSITION",
             startTime: breakoutBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: tp2EndTime,
             top: tp2,
             bottom: breakoutBar.bar.close,
             color: "#00e676",
@@ -2895,7 +2919,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-sl-" + breakoutBar.index,
             type: "POSITION",
             startTime: breakoutBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: slEndTime,
             top: breakoutBar.bar.close,
             bottom: sl,
             color: "#e53935",
@@ -2988,11 +3012,35 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           showMidLine: false,
         });
 
+        let tp1EndTime = bars[bars.length - 1].time;
+        let tp2EndTime = bars[bars.length - 1].time;
+        let slEndTime = bars[bars.length - 1].time;
+        let tp1Hit = false;
+
+        for (let m = breakdownBar.index + 1; m < bars.length; m++) {
+          const b = bars[m];
+          if (b.high >= sl) {
+            if (!tp1Hit) tp1EndTime = b.time;
+            tp2EndTime = b.time;
+            slEndTime = b.time;
+            break;
+          }
+          if (!tp1Hit && b.low <= tp1) {
+            tp1Hit = true;
+            tp1EndTime = b.time;
+          }
+          if (b.low <= tp2) {
+            tp2EndTime = b.time;
+            slEndTime = b.time;
+            break;
+          }
+        }
+
         boxes.push({
           id: "neckline-down-" + neckline.index,
           type: "BEARISH",
           startTime: neckline.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: slEndTime,
           top: neckline.price,
           bottom: neckline.price,
           color: "#f23645",
@@ -3006,7 +3054,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-tp1-short-" + breakdownBar.index,
             type: "POSITION",
             startTime: breakdownBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: tp1EndTime,
             top: breakdownBar.bar.close,
             bottom: tp1,
             color: "#00c853",
@@ -3019,7 +3067,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-tp2-short-" + breakdownBar.index,
             type: "POSITION",
             startTime: breakdownBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: tp2EndTime,
             top: breakdownBar.bar.close,
             bottom: tp2,
             color: "#00e676",
@@ -3032,7 +3080,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             id: "pos-sl-short-" + breakdownBar.index,
             type: "POSITION",
             startTime: breakdownBar.bar.time,
-            endTime: bars[bars.length - 1].time,
+            endTime: slEndTime,
             top: sl,
             bottom: breakdownBar.bar.close,
             color: "#e53935",
@@ -3199,11 +3247,35 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
         showMidLine: false,
       });
 
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tp1Hit = false;
+
+      for (let m = breakdownBar.index + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (b.high >= sl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          break;
+        }
+        if (!tp1Hit && b.low <= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
+        }
+        if (b.low <= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          break;
+        }
+      }
+
       boxes.push({
         id: "hs-neckline-" + t1.index,
         type: "BEARISH",
         startTime: t1.time,
-        endTime: bars[bars.length - 1].time,
+        endTime: slEndTime,
         top: necklinePrice,
         bottom: necklinePrice,
         color: "#e53935",
@@ -3217,7 +3289,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-hs-tp1-" + breakdownBar.index,
           type: "POSITION",
           startTime: breakdownBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: tp1EndTime,
           top: breakdownBar.bar.close,
           bottom: tp1,
           color: "#00c853",
@@ -3230,7 +3302,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-hs-tp2-" + breakdownBar.index,
           type: "POSITION",
           startTime: breakdownBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: tp2EndTime,
           top: breakdownBar.bar.close,
           bottom: tp2,
           color: "#00e676",
@@ -3243,7 +3315,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-hs-sl-" + breakdownBar.index,
           type: "POSITION",
           startTime: breakdownBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: slEndTime,
           top: sl,
           bottom: breakdownBar.bar.close,
           color: "#e53935",
@@ -3348,11 +3420,35 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
         showMidLine: false,
       });
 
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tp1Hit = false;
+
+      for (let m = breakoutBar.index + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (b.low <= sl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          break;
+        }
+        if (!tp1Hit && b.high >= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
+        }
+        if (b.high >= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          break;
+        }
+      }
+
       boxes.push({
         id: "ihs-neckline-" + p1.index,
         type: "BULLISH",
         startTime: p1.time,
-        endTime: bars[bars.length - 1].time,
+        endTime: slEndTime,
         top: necklinePrice,
         bottom: necklinePrice,
         color: "#00c087",
@@ -3366,7 +3462,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-ihs-tp1-" + breakoutBar.index,
           type: "POSITION",
           startTime: breakoutBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: tp1EndTime,
           top: tp1,
           bottom: breakoutBar.bar.close,
           color: "#00c853",
@@ -3379,7 +3475,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-ihs-tp2-" + breakoutBar.index,
           type: "POSITION",
           startTime: breakoutBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: tp2EndTime,
           top: tp2,
           bottom: breakoutBar.bar.close,
           color: "#00e676",
@@ -3392,7 +3488,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           id: "pos-ihs-sl-" + breakoutBar.index,
           type: "POSITION",
           startTime: breakoutBar.bar.time,
-          endTime: bars[bars.length - 1].time,
+          endTime: slEndTime,
           top: sl,
           bottom: breakoutBar.bar.close,
           color: "#e53935",
