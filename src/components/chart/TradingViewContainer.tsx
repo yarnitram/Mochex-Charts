@@ -893,75 +893,152 @@ export function TradingViewContainer({
     isInitialLoadDone.current = false;
     setIsLoading(true);
 
+    // Extracted Series Populate Helper (DEC-073, DEC-115)
+    const applyBarsToChartSeries = (targetBars: CandlestickBar[]) => {
+      barsRef.current = targetBars;
+      setBars(targetBars);
+      if (
+        candleSeriesRef.current &&
+        volumeSeriesRef.current &&
+        ema20SeriesRef.current &&
+        ema50SeriesRef.current
+      ) {
+        candleSeriesRef.current.setData(formatCandlestickData(targetBars));
+        volumeSeriesRef.current.setData(formatVolumeData(targetBars));
+        ema20SeriesRef.current.setData(buildEmaLineData(targetBars, 20));
+        ema50SeriesRef.current.setData(buildEmaLineData(targetBars, 50));
+        ema100SeriesRef.current?.setData(buildEmaLineData(targetBars, 100));
+        ema200SeriesRef.current?.setData(buildEmaLineData(targetBars, 200));
+        const bbData = buildBollingerBandsData(targetBars, 20, 2);
+        bbUpperSeriesRef.current?.setData(bbData.upper);
+        bbMiddleSeriesRef.current?.setData(bbData.middle);
+        bbLowerSeriesRef.current?.setData(bbData.lower);
+
+        if (rsiSeriesRef.current) {
+          rsiSeriesRef.current.setData(buildRsiData(targetBars, rsiPeriod));
+        }
+        if (
+          macdLineSeriesRef.current &&
+          macdSignalSeriesRef.current &&
+          macdHistSeriesRef.current
+        ) {
+          const macdData = buildMacdData(targetBars, macdFast, macdSlow, macdSignal);
+          macdLineSeriesRef.current.setData(macdData.macd);
+          macdSignalSeriesRef.current.setData(macdData.signal);
+          macdHistSeriesRef.current.setData(macdData.histogram);
+        }
+      }
+    };
+
     const loadData = async () => {
       try {
+        const isReplayActive = replayEngine.getState() !== "IDLE";
+        const activeReplayTimestamp = isReplayActive
+          ? replayEngine.getCurrentBar()?.time ?? replayEngine.getCutoffTime()
+          : null;
+
+        // Dynamic fetch depth if Replay is active in historical period (DEC-115)
+        let targetCount = 1500;
+        if (isReplayActive && activeReplayTimestamp) {
+          const resMs = Math.max(60000, getResolutionMs(resolution));
+          const timeDiffMs = Math.max(0, Date.now() - activeReplayTimestamp);
+          const estimatedBarsNeeded = Math.ceil(timeDiffMs / resMs) + 300;
+          targetCount = Math.max(1500, Math.min(estimatedBarsNeeded, 10000));
+        }
+
         const fetchedBars = await mexcClient.getDeepKlines({
           symbol,
           resolution,
-          targetCount: 1500,
+          targetCount,
         });
 
         if (!isCancelled) {
           const sorted = [...fetchedBars].sort((a, b) => a.time - b.time);
-          barsRef.current = sorted;
-          setBars(sorted);
-          replayEngine.loadHistory(sorted as Bar[]);
-          onBarsLoadedRef.current?.(sorted);
 
-          // Populate Lightweight Charts series
-          if (
-            candleSeriesRef.current &&
-            volumeSeriesRef.current &&
-            ema20SeriesRef.current &&
-            ema50SeriesRef.current
-          ) {
-            candleSeriesRef.current.setData(formatCandlestickData(sorted));
-            volumeSeriesRef.current.setData(formatVolumeData(sorted));
-            ema20SeriesRef.current.setData(buildEmaLineData(sorted, 20));
-            ema50SeriesRef.current.setData(buildEmaLineData(sorted, 50));
-            ema100SeriesRef.current?.setData(buildEmaLineData(sorted, 100));
-            ema200SeriesRef.current?.setData(buildEmaLineData(sorted, 200));
-            const bbData = buildBollingerBandsData(sorted, 20, 2);
-            bbUpperSeriesRef.current?.setData(bbData.upper);
-            bbMiddleSeriesRef.current?.setData(bbData.middle);
-            bbLowerSeriesRef.current?.setData(bbData.lower);
+          if (isReplayActive && activeReplayTimestamp) {
+            // DEC-115: Preserve replay session across timeframe changes
+            replayEngine.loadHistory(sorted as Bar[], activeReplayTimestamp);
+            const visibleBars = replayEngine.getVisibleBars() as CandlestickBar[];
+            applyBarsToChartSeries(visibleBars);
+            onBarsLoadedRef.current?.(visibleBars);
 
-            if (rsiSeriesRef.current) {
-              rsiSeriesRef.current.setData(buildRsiData(sorted, rsiPeriod));
+            // Center chart view around historical replay moment with 75 bars context & 25 bars margin
+            if (chartRef.current && visibleBars.length > 0) {
+              try {
+                const resSec = Math.max(60, Math.floor(getResolutionMs(resolution) / 1000));
+                const cutoffSec = Number(toUtcTimestamp(activeReplayTimestamp));
+                const fromSec = Math.max(
+                  Number(toUtcTimestamp(visibleBars[0].time)),
+                  cutoffSec - 75 * resSec
+                );
+                const toSec = cutoffSec + 25 * resSec;
+                chartRef.current.timeScale().setVisibleRange({
+                  from: fromSec as any,
+                  to: toSec as any,
+                });
+              } catch {
+                chartRef.current.timeScale().fitContent();
+              }
             }
-            if (macdLineSeriesRef.current && macdSignalSeriesRef.current && macdHistSeriesRef.current) {
-              const macdData = buildMacdData(sorted, macdFast, macdSlow, macdSignal);
-              macdLineSeriesRef.current.setData(macdData.macd);
-              macdSignalSeriesRef.current.setData(macdData.signal);
-              macdHistSeriesRef.current.setData(macdData.histogram);
+
+            const currentReplayBar = replayEngine.getCurrentBar();
+            if (currentReplayBar) {
+              const currentClose = currentReplayBar.close;
+              const firstBar = visibleBars[0] || currentReplayBar;
+              const change =
+                firstBar.open > 0
+                  ? ((currentClose - firstBar.open) / firstBar.open) * 100
+                  : 0;
+              const high = Math.max(...visibleBars.map((b) => b.high));
+              const low = Math.min(...visibleBars.map((b) => b.low));
+              const volume = visibleBars.reduce((acc, b) => acc + b.volume, 0);
+
+              setCurrentPrice(currentClose);
+              onPriceUpdateRef.current?.({
+                price: currentClose,
+                change,
+                high,
+                low,
+                volume,
+              });
             }
+
+            setTimeout(() => {
+              isInitialLoadDone.current = true;
+            }, 600);
+          } else {
+            replayEngine.loadHistory(sorted as Bar[]);
+            applyBarsToChartSeries(sorted);
+            onBarsLoadedRef.current?.(sorted);
             chartRef.current?.timeScale().scrollToRealTime();
+
+            if (sorted.length > 0) {
+              const lastBar = sorted[sorted.length - 1];
+              const firstBar = sorted[Math.max(0, sorted.length - 96)];
+              const change =
+                firstBar.open > 0
+                  ? ((lastBar.close - firstBar.open) / firstBar.open) * 100
+                  : 0;
+              const recentWindow = sorted.slice(-96);
+              const high = Math.max(...recentWindow.map((b) => b.high));
+              const low = Math.min(...recentWindow.map((b) => b.low));
+              const volume = recentWindow.reduce((acc, b) => acc + b.volume, 0);
+
+              setCurrentPrice(lastBar.close);
+              onPriceUpdateRef.current?.({
+                price: lastBar.close,
+                change,
+                high,
+                low,
+                volume,
+              });
+            }
+
             setTimeout(() => {
               isInitialLoadDone.current = true;
             }, 600);
           }
 
-          if (sorted.length > 0) {
-            const lastBar = sorted[sorted.length - 1];
-            const firstBar = sorted[Math.max(0, sorted.length - 96)];
-            const change =
-              firstBar.open > 0
-                ? ((lastBar.close - firstBar.open) / firstBar.open) * 100
-                : 0;
-            const recentWindow = sorted.slice(-96);
-            const high = Math.max(...recentWindow.map((b) => b.high));
-            const low = Math.min(...recentWindow.map((b) => b.low));
-            const volume = recentWindow.reduce((acc, b) => acc + b.volume, 0);
-
-            setCurrentPrice(lastBar.close);
-            onPriceUpdateRef.current?.({
-              price: lastBar.close,
-              change,
-              high,
-              low,
-              volume,
-            });
-          }
           setIsLoading(false);
         }
       } catch (err) {
@@ -1145,42 +1222,7 @@ export function TradingViewContainer({
       } catch {}
     }, 2500);
 
-    // Replay Engine Listener (DEC-073)
-    const applyBarsToChartSeries = (targetBars: CandlestickBar[]) => {
-      barsRef.current = targetBars;
-      setBars(targetBars);
-      if (
-        candleSeriesRef.current &&
-        volumeSeriesRef.current &&
-        ema20SeriesRef.current &&
-        ema50SeriesRef.current
-      ) {
-        candleSeriesRef.current.setData(formatCandlestickData(targetBars));
-        volumeSeriesRef.current.setData(formatVolumeData(targetBars));
-        ema20SeriesRef.current.setData(buildEmaLineData(targetBars, 20));
-        ema50SeriesRef.current.setData(buildEmaLineData(targetBars, 50));
-        ema100SeriesRef.current?.setData(buildEmaLineData(targetBars, 100));
-        ema200SeriesRef.current?.setData(buildEmaLineData(targetBars, 200));
-        const bbData = buildBollingerBandsData(targetBars, 20, 2);
-        bbUpperSeriesRef.current?.setData(bbData.upper);
-        bbMiddleSeriesRef.current?.setData(bbData.middle);
-        bbLowerSeriesRef.current?.setData(bbData.lower);
-
-        if (rsiSeriesRef.current) {
-          rsiSeriesRef.current.setData(buildRsiData(targetBars, rsiPeriod));
-        }
-        if (
-          macdLineSeriesRef.current &&
-          macdSignalSeriesRef.current &&
-          macdHistSeriesRef.current
-        ) {
-          const macdData = buildMacdData(targetBars, macdFast, macdSlow, macdSignal);
-          macdLineSeriesRef.current.setData(macdData.macd);
-          macdSignalSeriesRef.current.setData(macdData.signal);
-          macdHistSeriesRef.current.setData(macdData.histogram);
-        }
-      }
-    };
+    // Replay Engine Listener (DEC-073) uses hoisted applyBarsToChartSeries
 
     const unsubscribeReplay = replayEngine.subscribe({
       onStateChange: (newState) => {

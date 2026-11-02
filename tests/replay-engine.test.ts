@@ -92,4 +92,35 @@ describe("BarReplayEngine State Machine, Scissor-Cut & Intrabar Path (DEC-073)",
     const bearishBar: Bar = { time: 2000, open: 108, high: 115, low: 92, close: 95, volume: 60 };
     expect(getIntrabarPricePath(bearishBar)).toEqual([108, 115, 92, 95]);
   });
+
+  it("preserves historical replay cutoff across timeframe changes when loading new history", () => {
+    // 1. Replay cutoff set at timestamp 3000
+    engine.setCutoffTime(3000);
+    expect(engine.getState()).toBe("PAUSED");
+    expect(engine.getCutoffTime()).toBe(3000);
+
+    // 2. User changes timeframe to lower interval with 10 bars (e.g. 500ms intervals)
+    const newTimeframeBars: Bar[] = [
+      { time: 500, open: 9, high: 10, low: 8, close: 9.5, volume: 50 },
+      { time: 1000, open: 9.5, high: 11, low: 9, close: 10, volume: 60 },
+      { time: 1500, open: 10, high: 12, low: 9.5, close: 11, volume: 70 },
+      { time: 2000, open: 11, high: 12.5, low: 10.5, close: 12, volume: 80 },
+      { time: 2500, open: 12, high: 13, low: 11.5, close: 12.5, volume: 90 },
+      { time: 3000, open: 12.5, high: 13.5, low: 12, close: 13, volume: 100 },
+      { time: 3500, open: 13, high: 14, low: 12.5, close: 13.5, volume: 110 },
+      { time: 4000, open: 13.5, high: 14.5, low: 13, close: 14, volume: 120 },
+      { time: 4500, open: 14, high: 15, low: 13.5, close: 14.5, volume: 130 },
+      { time: 5000, open: 14.5, high: 16, low: 14, close: 15, volume: 140 },
+    ];
+
+    // Reload history with targetTimestamp 3000
+    engine.loadHistory(newTimeframeBars, 3000);
+
+    // Should remain in PAUSED state, cursor remapped to index 5 (time 3000)
+    expect(engine.getState()).toBe("PAUSED");
+    expect(engine.getCursorIndex()).toBe(5);
+    expect(engine.getCurrentBar()?.time).toBe(3000);
+    expect(engine.getVisibleBars().length).toBe(6); // bars 0 to 5
+    expect(engine.getVisibleBars()[5].time).toBe(3000);
+  });
 });
