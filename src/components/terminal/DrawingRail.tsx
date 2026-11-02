@@ -405,7 +405,7 @@ export function DrawingRail({
               </div>
               <button
                 onClick={() => {
-                  onClearDrawings?.() || onClearAll?.();
+                  onClearDrawings?.();
                   setIsTrashMenuOpen(false);
                 }}
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-on-surface hover:text-tertiary hover:bg-surface-container cursor-pointer transition-colors text-[11px]"

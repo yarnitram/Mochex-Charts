@@ -501,9 +501,13 @@ export default function WorkstationPage() {
 
   const handleClearIndicators = () => {
     setActiveIndicators([]);
+    setCustomIndicatorData(null);
     try {
       localStorage.setItem("mochex:active_indicators", JSON.stringify([]));
     } catch {}
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mochex:clear-custom-indicators"));
+    }
   };
 
   const handleClearAll = () => {

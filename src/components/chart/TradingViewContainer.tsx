@@ -7,7 +7,7 @@ import { mexcWsManager } from "@/lib/mexc/websocket";
 import { replayEngine, ReplayState } from "@/lib/replay/replay-engine";
 import { Bar } from "@/types/tradingview";
 import { ta } from "@/lib/indicators/ta-math";
-import { Activity, ShieldCheck, Layers, Settings, X, Trash2, Lock, Unlock, Settings2, BellPlus, Copy, Eye, EyeOff, BarChart2, Play, RefreshCw, RotateCcw } from "lucide-react";
+import { Activity, ShieldCheck, Layers, Settings, X, Trash2, Lock, Unlock, Settings2, BellPlus, Copy, Eye, EyeOff, BarChart2, Play, RefreshCw, RotateCcw, GripVertical } from "lucide-react";
 import { DrawingToolType } from "../terminal/DrawingRail";
 import { BacktestPerformance, BacktestTrade } from "@/lib/strategy/types";
 import { PriceAlert, createAlertsFromDrawing } from "@/lib/alerts/alerts-engine";
@@ -284,6 +284,80 @@ export function TradingViewContainer({
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [canLoadMoreHistory, setCanLoadMoreHistory] = useState(true);
   const [activeQuickRange, setActiveQuickRange] = useState<string | null>(null);
+  const [quickRangePos, setQuickRangePos] = useState<{ x: number; y: number } | null>(null);
+  const [isDraggingQuickRange, setIsDraggingQuickRange] = useState(false);
+  const quickRangeDragRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+  const quickRangeBarRef = useRef<HTMLDivElement>(null);
+
+  // Load persisted Quick-Range bar position (DEC-117)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("mochex:quick_range_pos");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          setQuickRangePos(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const handleMouseDownQuickRangeGrip = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentEl = quickRangeBarRef.current;
+    const parentRect = currentEl?.parentElement?.getBoundingClientRect();
+    const elRect = currentEl?.getBoundingClientRect();
+
+    const currentX = quickRangePos?.x ?? (elRect && parentRect ? elRect.left - parentRect.left : 64);
+    const currentY = quickRangePos?.y ?? (elRect && parentRect ? elRect.top - parentRect.top : (parentRect ? parentRect.height - 38 : 600));
+
+    setIsDraggingQuickRange(true);
+    quickRangeDragRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startX: currentX,
+      startY: currentY,
+    };
+  };
+
+  useEffect(() => {
+    if (!isDraggingQuickRange) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!quickRangeDragRef.current) return;
+      const dx = e.clientX - quickRangeDragRef.current.mouseX;
+      const dy = e.clientY - quickRangeDragRef.current.mouseY;
+      const parentRect = quickRangeBarRef.current?.parentElement?.getBoundingClientRect();
+      const maxW = parentRect ? parentRect.width - 150 : window.innerWidth - 150;
+      const maxH = parentRect ? parentRect.height - 35 : window.innerHeight - 35;
+
+      const newX = Math.max(8, Math.min(maxW, quickRangeDragRef.current.startX + dx));
+      const newY = Math.max(8, Math.min(maxH, quickRangeDragRef.current.startY + dy));
+
+      setQuickRangePos({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingQuickRange(false);
+      quickRangeDragRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingQuickRange]);
+
+  useEffect(() => {
+    if (quickRangePos) {
+      try {
+        localStorage.setItem("mochex:quick_range_pos", JSON.stringify(quickRangePos));
+      } catch {}
+    }
+  }, [quickRangePos]);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [hoveredStats, setHoveredStats] = useState<HoveredStats | null>(null);
   const [replayState, setReplayState] = useState<ReplayState>("IDLE");
@@ -7214,8 +7288,30 @@ export function TradingViewContainer({
               </div>
             )}
 
-            {/* TradingView-Style Historical Depth & Quick-Range Bar (DEC-076) */}
-            <div className="absolute bottom-7 left-2 z-20 hidden sm:flex items-center gap-1 bg-[#12161f]/90 border border-outline-variant/40 px-2 py-1 rounded-md text-[10px] font-mono backdrop-blur-md shadow-lg">
+            {/* TradingView-Style Historical Depth & Quick-Range Bar (DEC-076, DEC-117) */}
+            <div
+              ref={quickRangeBarRef}
+              style={
+                quickRangePos
+                  ? { left: `${quickRangePos.x}px`, top: `${quickRangePos.y}px`, bottom: "auto" }
+                  : { left: "64px", bottom: "28px" }
+              }
+              className="absolute z-20 hidden sm:flex items-center gap-1 bg-[#12161f]/95 border border-outline-variant/40 px-2 py-1 rounded-md text-[10px] font-mono backdrop-blur-md shadow-lg select-none"
+            >
+              {/* Drag Handle Grip (DEC-117) */}
+              <div
+                onMouseDown={handleMouseDownQuickRangeGrip}
+                onDoubleClick={() => {
+                  setQuickRangePos(null);
+                  try {
+                    localStorage.removeItem("mochex:quick_range_pos");
+                  } catch {}
+                }}
+                title="Drag to reposition · Double-click to reset position"
+                className="cursor-grab active:cursor-grabbing text-muted/50 hover:text-white flex items-center pr-1 -ml-0.5 border-r border-outline-variant/30 mr-0.5"
+              >
+                <GripVertical size={12} />
+              </div>
               {(["1D", "1W", "1M", "3M", "ALL"] as const).map((rangeKey) => {
                 const isActive = activeQuickRange === rangeKey;
                 return (
