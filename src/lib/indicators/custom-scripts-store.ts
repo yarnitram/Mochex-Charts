@@ -2744,6 +2744,9 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   const priceTolerancePct = inputs.priceTolerancePct !== undefined ? inputs.priceTolerancePct : 4.0;
   const minBouncePct = inputs.minBouncePct || 0.6;
   const showPositionTool = inputs.showPositionTool !== undefined ? inputs.showPositionTool : true;
+  const slMode = inputs.slMode || "extreme"; // "extreme" (Adam extreme spike) or "eve"
+  const rrTP1 = inputs.rrTP1 !== undefined ? inputs.rrTP1 : 1.0;
+  const rrTP2 = inputs.rrTP2 !== undefined ? inputs.rrTP2 : 3.0;
 
   if (!bars || bars.length < 6) {
     return { boxes: [], data: (bars || []).map(b => ({ time: b.time, value: b.close })) };
@@ -2815,9 +2818,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
 
       if (breakoutBar) {
         const height = neckline.price - Math.min(adam.price, eveCandidate.price);
-        const tp1 = breakoutBar.bar.close + height;
-        const tp2 = breakoutBar.bar.close + height * 1.618;
-        const sl = eveCandidate.price;
+        const sl = slMode === "eve" ? eveCandidate.price : Math.min(adam.price, eveCandidate.price);
+        const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
+        const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
+        const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
 
         boxes.push({
           id: "adam-v-" + adam.index,
@@ -2870,7 +2874,20 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             bottom: breakoutBar.bar.close,
             color: "#00c853",
             fillColor: "rgba(0, 200, 83, 0.22)",
-            label: "TP1 (1:1 Measured Move): " + tp1.toFixed(2),
+            label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+            showMidLine: false,
+          });
+
+          positionBoxes.push({
+            id: "pos-tp2-" + breakoutBar.index,
+            type: "POSITION",
+            startTime: breakoutBar.bar.time,
+            endTime: bars[bars.length - 1].time,
+            top: tp2,
+            bottom: breakoutBar.bar.close,
+            color: "#00e676",
+            fillColor: "rgba(0, 230, 118, 0.16)",
+            label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
             showMidLine: false,
           });
 
@@ -2883,7 +2900,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             bottom: sl,
             color: "#e53935",
             fillColor: "rgba(229, 57, 53, 0.22)",
-            label: "SL: " + sl.toFixed(2),
+            label: "SL (Extreme Adam): " + sl.toFixed(2),
             showMidLine: false,
           });
         }
@@ -2940,8 +2957,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
 
       if (breakdownBar) {
         const height = Math.max(adam.price, eveCandidate.price) - neckline.price;
-        const tp1 = breakdownBar.bar.close - height;
-        const sl = eveCandidate.price;
+        const sl = slMode === "eve" ? eveCandidate.price : Math.max(adam.price, eveCandidate.price);
+        const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
+        const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
+        const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
 
         boxes.push({
           id: "adam-v-top-" + adam.index,
@@ -2992,7 +3011,20 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             bottom: tp1,
             color: "#00c853",
             fillColor: "rgba(0, 200, 83, 0.22)",
-            label: "TP1 (1:1 Measured Move): " + tp1.toFixed(2),
+            label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+            showMidLine: false,
+          });
+
+          positionBoxes.push({
+            id: "pos-tp2-short-" + breakdownBar.index,
+            type: "POSITION",
+            startTime: breakdownBar.bar.time,
+            endTime: bars[bars.length - 1].time,
+            top: breakdownBar.bar.close,
+            bottom: tp2,
+            color: "#00e676",
+            fillColor: "rgba(0, 230, 118, 0.16)",
+            label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
             showMidLine: false,
           });
 
@@ -3005,7 +3037,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
             bottom: breakdownBar.bar.close,
             color: "#e53935",
             fillColor: "rgba(229, 57, 53, 0.22)",
-            label: "SL: " + sl.toFixed(2),
+            label: "SL (Extreme Adam): " + sl.toFixed(2),
             showMidLine: false,
           });
         }
@@ -3049,6 +3081,9 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   const shoulderTolerancePct = inputs.shoulderTolerancePct !== undefined ? inputs.shoulderTolerancePct : 6.0;
   const minHeadDominancePct = inputs.minHeadDominancePct !== undefined ? inputs.minHeadDominancePct : 0.6;
   const showPositionTool = inputs.showPositionTool !== undefined ? inputs.showPositionTool : true;
+  const slMode = inputs.slMode || "head"; // "head" (extreme peak/trough) or "shoulder"
+  const rrTP1 = inputs.rrTP1 !== undefined ? inputs.rrTP1 : 1.0;
+  const rrTP2 = inputs.rrTP2 !== undefined ? inputs.rrTP2 : 3.0;
 
   if (!bars || bars.length < 6) {
     return { boxes: [], data: (bars || []).map(b => ({ time: b.time, value: b.close })) };
@@ -3120,8 +3155,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     }
 
     if (breakdownBar) {
-      const tp1 = breakdownBar.bar.close - patternHeight;
-      const sl = rs.price;
+      const sl = slMode === "shoulder" ? rs.price : head.price;
+      const riskDist = Math.max(sl - breakdownBar.bar.close, breakdownBar.bar.close * 0.002);
+      const tp1 = breakdownBar.bar.close - (riskDist * rrTP1);
+      const tp2 = breakdownBar.bar.close - (riskDist * rrTP2);
 
       boxes.push({
         id: "hs-ls-" + ls.index,
@@ -3185,7 +3222,20 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           bottom: tp1,
           color: "#00c853",
           fillColor: "rgba(0, 200, 83, 0.22)",
-          label: "TP1 (1:1 Measured Move): " + tp1.toFixed(2),
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-hs-tp2-" + breakdownBar.index,
+          type: "POSITION",
+          startTime: breakdownBar.bar.time,
+          endTime: bars[bars.length - 1].time,
+          top: breakdownBar.bar.close,
+          bottom: tp2,
+          color: "#00e676",
+          fillColor: "rgba(0, 230, 118, 0.16)",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
           showMidLine: false,
         });
 
@@ -3198,7 +3248,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           bottom: breakdownBar.bar.close,
           color: "#e53935",
           fillColor: "rgba(229, 57, 53, 0.22)",
-          label: "SL: " + sl.toFixed(2),
+          label: "SL (Extreme Head): " + sl.toFixed(2),
           showMidLine: false,
         });
       }
@@ -3254,8 +3304,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
     }
 
     if (breakoutBar) {
-      const tp1 = breakoutBar.bar.close + patternHeight;
-      const sl = rs.price;
+      const sl = slMode === "shoulder" ? rs.price : head.price;
+      const riskDist = Math.max(breakoutBar.bar.close - sl, breakoutBar.bar.close * 0.002);
+      const tp1 = breakoutBar.bar.close + (riskDist * rrTP1);
+      const tp2 = breakoutBar.bar.close + (riskDist * rrTP2);
 
       boxes.push({
         id: "ihs-ls-" + ls.index,
@@ -3319,7 +3371,20 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           bottom: breakoutBar.bar.close,
           color: "#00c853",
           fillColor: "rgba(0, 200, 83, 0.22)",
-          label: "TP1 (1:1 Measured Move): " + tp1.toFixed(2),
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+          showMidLine: false,
+        });
+
+        positionBoxes.push({
+          id: "pos-ihs-tp2-" + breakoutBar.index,
+          type: "POSITION",
+          startTime: breakoutBar.bar.time,
+          endTime: bars[bars.length - 1].time,
+          top: tp2,
+          bottom: breakoutBar.bar.close,
+          color: "#00e676",
+          fillColor: "rgba(0, 230, 118, 0.16)",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
           showMidLine: false,
         });
 
@@ -3332,7 +3397,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
           bottom: breakoutBar.bar.close,
           color: "#e53935",
           fillColor: "rgba(229, 57, 53, 0.22)",
-          label: "SL: " + sl.toFixed(2),
+          label: "SL (Extreme Head): " + sl.toFixed(2),
           showMidLine: false,
         });
       }

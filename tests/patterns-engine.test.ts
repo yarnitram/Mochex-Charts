@@ -86,9 +86,11 @@ describe("Chart Patterns Recognition Suite: Adam & Eve and Head & Shoulders", ()
       expect(necklineBox).toBeDefined();
       expect(necklineBox?.color).toBe("#00c087");
 
-      const tpBox = res.boxes!.find((b) => b.label?.includes("TP1 (1:1 Measured Move)"));
-      const slBox = res.boxes!.find((b) => b.label?.includes("SL:"));
-      expect(tpBox).toBeDefined();
+      const tp1Box = res.boxes!.find((b) => b.label?.includes("TP1 (1R)"));
+      const tp2Box = res.boxes!.find((b) => b.label?.includes("TP2 (3R)"));
+      const slBox = res.boxes!.find((b) => b.label?.includes("SL (Extreme Adam)"));
+      expect(tp1Box).toBeDefined();
+      expect(tp2Box).toBeDefined();
       expect(slBox).toBeDefined();
     });
 
@@ -161,8 +163,12 @@ describe("Chart Patterns Recognition Suite: Adam & Eve and Head & Shoulders", ()
       expect(rsBox).toBeDefined();
       expect(necklineBox).toBeDefined();
 
-      const shortTpBox = res.boxes!.find((b) => b.label?.includes("TP1 (1:1 Measured Move)"));
-      expect(shortTpBox).toBeDefined();
+      const tp1Box = res.boxes!.find((b) => b.label?.includes("TP1 (1R)"));
+      const tp2Box = res.boxes!.find((b) => b.label?.includes("TP2 (3R)"));
+      const slBox = res.boxes!.find((b) => b.label?.includes("SL (Extreme Head)"));
+      expect(tp1Box).toBeDefined();
+      expect(tp2Box).toBeDefined();
+      expect(slBox).toBeDefined();
     });
 
     it("detects Bullish Inverse Head & Shoulders (Inv LS, Inv Head, Inv RS) and triggers breakout long", async () => {
@@ -198,8 +204,12 @@ describe("Chart Patterns Recognition Suite: Adam & Eve and Head & Shoulders", ()
       expect(invRsBox).toBeDefined();
       expect(necklineBox).toBeDefined();
 
-      const tpBox = res.boxes!.find((b) => b.label?.includes("TP1 (1:1 Measured Move)"));
-      expect(tpBox).toBeDefined();
+      const tp1Box = res.boxes!.find((b) => b.label?.includes("TP1 (1R)"));
+      const tp2Box = res.boxes!.find((b) => b.label?.includes("TP2 (3R)"));
+      const slBox = res.boxes!.find((b) => b.label?.includes("SL (Extreme Head)"));
+      expect(tp1Box).toBeDefined();
+      expect(tp2Box).toBeDefined();
+      expect(slBox).toBeDefined();
     });
   });
 });
