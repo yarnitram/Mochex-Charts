@@ -3,20 +3,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Crosshair,
-  TrendingUp,
-  Minus,
-  MoveVertical,
-  Sliders,
-  GitFork,
-  Grid,
-  Square,
-  Circle,
-  Waypoints,
-  Brush,
-  Type,
-  ArrowUpRight,
-  ArrowDownRight,
-  CalendarRange,
   Magnet,
   Lock,
   Unlock,
@@ -26,7 +12,24 @@ import {
   ChevronRight,
   Star,
   Layers,
+  Sliders,
 } from "lucide-react";
+import {
+  TrendlineIcon,
+  HorizontalLineIcon,
+  VerticalLineIcon,
+  FibRetracementIcon,
+  TrendFibIcon,
+  GannBoxIcon,
+  RectangleIcon,
+  CircleIcon,
+  PathIcon,
+  BrushIcon,
+  TextIcon,
+  LongPositionIcon,
+  ShortPositionIcon,
+  DateRangeIcon,
+} from "./drawing-icons";
 
 export type DrawingToolType =
   | "crosshair"
@@ -84,9 +87,9 @@ const TOOL_GROUPS: ToolGroup[] = [
     name: "Lines & Rays",
     defaultTool: "trendline",
     variants: [
-      { id: "trendline", label: "Trendline", shortcut: "T", icon: <TrendingUp size={16} /> },
-      { id: "horizontal_line", label: "Horizontal Line", shortcut: "H", icon: <Minus size={16} /> },
-      { id: "vertical_line", label: "Vertical Line", shortcut: "V", icon: <MoveVertical size={16} /> },
+      { id: "trendline", label: "Trendline", shortcut: "T", icon: <TrendlineIcon size={16} /> },
+      { id: "horizontal_line", label: "Horizontal Line", shortcut: "H", icon: <HorizontalLineIcon size={16} /> },
+      { id: "vertical_line", label: "Vertical Line", shortcut: "V", icon: <VerticalLineIcon size={16} /> },
     ],
   },
   {
@@ -94,9 +97,9 @@ const TOOL_GROUPS: ToolGroup[] = [
     name: "Fibonacci & Gann",
     defaultTool: "fibonacci",
     variants: [
-      { id: "fibonacci", label: "Fib Retracement", shortcut: "F", icon: <Sliders size={16} /> },
-      { id: "trend_fib", label: "Trend-Based Fib Extension", shortcut: "E", icon: <GitFork size={16} /> },
-      { id: "gann_box", label: "Gann Box", shortcut: "G", icon: <Grid size={16} /> },
+      { id: "fibonacci", label: "Fib Retracement", shortcut: "F", icon: <FibRetracementIcon size={16} /> },
+      { id: "trend_fib", label: "Trend-Based Fib Extension", shortcut: "E", icon: <TrendFibIcon size={16} /> },
+      { id: "gann_box", label: "Gann Box", shortcut: "G", icon: <GannBoxIcon size={16} /> },
     ],
   },
   {
@@ -104,10 +107,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     name: "Geometric Shapes",
     defaultTool: "rectangle",
     variants: [
-      { id: "rectangle", label: "Rectangle / Order Block", shortcut: "R", icon: <Square size={16} /> },
-      { id: "circle", label: "Circle", shortcut: "C", icon: <Circle size={16} /> },
-      { id: "path", label: "Path (Polyline)", shortcut: "W", icon: <Waypoints size={16} /> },
-      { id: "brush", label: "Brush (Freehand)", shortcut: "B", icon: <Brush size={16} /> },
+      { id: "rectangle", label: "Rectangle / Order Block", shortcut: "R", icon: <RectangleIcon size={16} /> },
+      { id: "circle", label: "Circle", shortcut: "C", icon: <CircleIcon size={16} /> },
+      { id: "path", label: "Path (Polyline)", shortcut: "W", icon: <PathIcon size={16} /> },
+      { id: "brush", label: "Brush (Freehand)", shortcut: "B", icon: <BrushIcon size={16} /> },
     ],
   },
   {
@@ -115,7 +118,7 @@ const TOOL_GROUPS: ToolGroup[] = [
     name: "Annotations",
     defaultTool: "text",
     variants: [
-      { id: "text", label: "Text Note", shortcut: "A", icon: <Type size={16} /> },
+      { id: "text", label: "Text Note", shortcut: "A", icon: <TextIcon size={16} /> },
     ],
   },
   {
@@ -123,9 +126,9 @@ const TOOL_GROUPS: ToolGroup[] = [
     name: "Prediction & Measurement",
     defaultTool: "long_position",
     variants: [
-      { id: "long_position", label: "Long Position", shortcut: "L", icon: <ArrowUpRight size={16} /> },
-      { id: "short_position", label: "Short Position", shortcut: "S", icon: <ArrowDownRight size={16} /> },
-      { id: "date_range", label: "Date Range Measure", shortcut: "D", icon: <CalendarRange size={16} /> },
+      { id: "long_position", label: "Long Position", shortcut: "L", icon: <LongPositionIcon size={16} /> },
+      { id: "short_position", label: "Short Position", shortcut: "S", icon: <ShortPositionIcon size={16} /> },
+      { id: "date_range", label: "Date Range Measure", shortcut: "D", icon: <DateRangeIcon size={16} /> },
     ],
   },
 ];

@@ -2,24 +2,26 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import {
-  TrendingUp,
-  Minus,
-  MoveVertical,
-  Sliders,
-  GitFork,
-  Grid,
-  Square,
-  Circle,
-  Waypoints,
-  Brush,
-  Type,
-  ArrowUpRight,
-  ArrowDownRight,
-  CalendarRange,
   GripVertical,
   X,
 } from "lucide-react";
 import { DrawingToolType } from "./DrawingRail";
+import {
+  TrendlineIcon,
+  HorizontalLineIcon,
+  VerticalLineIcon,
+  FibRetracementIcon,
+  TrendFibIcon,
+  GannBoxIcon,
+  RectangleIcon,
+  CircleIcon,
+  PathIcon,
+  BrushIcon,
+  TextIcon,
+  LongPositionIcon,
+  ShortPositionIcon,
+  DateRangeIcon,
+} from "./drawing-icons";
 
 interface FavoritesToolbarProps {
   favoriteTools: DrawingToolType[];
@@ -30,20 +32,20 @@ interface FavoritesToolbarProps {
 
 const TOOL_ICONS: Record<DrawingToolType, React.ReactNode> = {
   crosshair: null,
-  trendline: <TrendingUp size={15} />,
-  horizontal_line: <Minus size={15} />,
-  vertical_line: <MoveVertical size={15} />,
-  long_position: <ArrowUpRight size={15} />,
-  short_position: <ArrowDownRight size={15} />,
-  date_range: <CalendarRange size={15} />,
-  rectangle: <Square size={15} />,
-  path: <Waypoints size={15} />,
-  circle: <Circle size={15} />,
-  brush: <Brush size={15} />,
-  text: <Type size={15} />,
-  fibonacci: <Sliders size={15} />,
-  trend_fib: <GitFork size={15} />,
-  gann_box: <Grid size={15} />,
+  trendline: <TrendlineIcon size={15} />,
+  horizontal_line: <HorizontalLineIcon size={15} />,
+  vertical_line: <VerticalLineIcon size={15} />,
+  long_position: <LongPositionIcon size={15} />,
+  short_position: <ShortPositionIcon size={15} />,
+  date_range: <DateRangeIcon size={15} />,
+  rectangle: <RectangleIcon size={15} />,
+  path: <PathIcon size={15} />,
+  circle: <CircleIcon size={15} />,
+  brush: <BrushIcon size={15} />,
+  text: <TextIcon size={15} />,
+  fibonacci: <FibRetracementIcon size={15} />,
+  trend_fib: <TrendFibIcon size={15} />,
+  gann_box: <GannBoxIcon size={15} />,
   none: null,
 };
 

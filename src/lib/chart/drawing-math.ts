@@ -841,3 +841,131 @@ export function reorderDrawingLayer(
 }
 
 
+
+/**
+ * Angle and Axis Snapping Helpers for Shift-Key Drawing Workflows (DEC-116)
+ * Emulates TradingView behavior:
+ * - Line tools (trendline, fibonacci, date_range) snap to 45° increments (0°, 45°, 90°, 135°, 180°, etc.)
+ * - Boxes and geometric shapes snap to 1:1 square aspect ratio
+ * - Translation/moving locks to single axis (purely horizontal or purely vertical)
+ */
+export interface ShiftSnapResult {
+  x: number;
+  y: number;
+  time: number;
+  price: number;
+}
+
+export function calculateShiftAngleSnap(
+  currentX: number,
+  currentY: number,
+  anchorX: number | null | undefined,
+  anchorY: number | null | undefined,
+  anchorTime: number,
+  anchorPrice: number,
+  coordinateToTime: (x: number) => number | null,
+  coordinateToPrice: (y: number) => number | null
+): ShiftSnapResult {
+  if (anchorX === null || anchorX === undefined || anchorY === null || anchorY === undefined) {
+    return {
+      x: currentX,
+      y: currentY,
+      time: coordinateToTime(currentX) ?? anchorTime,
+      price: coordinateToPrice(currentY) ?? anchorPrice,
+    };
+  }
+  const dx = currentX - anchorX;
+  const dy = currentY - anchorY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist < 3) {
+    return {
+      x: currentX,
+      y: currentY,
+      time: coordinateToTime(currentX) ?? anchorTime,
+      price: coordinateToPrice(currentY) ?? anchorPrice,
+    };
+  }
+
+  const angle = Math.atan2(dy, dx);
+  const snapStep = Math.PI / 4; // 45 degrees
+  const snappedAngle = Math.round(angle / snapStep) * snapStep;
+
+  // Exact cardinal checks to prevent floating point inaccuracy
+  const isHorizontal = Math.abs(Math.sin(snappedAngle)) < 1e-6;
+  const isVertical = Math.abs(Math.cos(snappedAngle)) < 1e-6;
+
+  let snappedX = anchorX + dist * Math.cos(snappedAngle);
+  let snappedY = anchorY + dist * Math.sin(snappedAngle);
+
+  let time: number;
+  let price: number;
+
+  if (isHorizontal) {
+    snappedY = anchorY;
+    price = anchorPrice;
+    time = coordinateToTime(snappedX) ?? anchorTime;
+  } else if (isVertical) {
+    snappedX = anchorX;
+    time = anchorTime;
+    price = coordinateToPrice(snappedY) ?? anchorPrice;
+  } else {
+    time = coordinateToTime(snappedX) ?? anchorTime;
+    price = coordinateToPrice(snappedY) ?? anchorPrice;
+  }
+
+  return { x: snappedX, y: snappedY, time, price };
+}
+
+export function calculateShiftSquareSnap(
+  currentX: number,
+  currentY: number,
+  anchorX: number | null | undefined,
+  anchorY: number | null | undefined,
+  anchorTime: number,
+  anchorPrice: number,
+  coordinateToTime: (x: number) => number | null,
+  coordinateToPrice: (y: number) => number | null
+): ShiftSnapResult {
+  if (anchorX === null || anchorX === undefined || anchorY === null || anchorY === undefined) {
+    return {
+      x: currentX,
+      y: currentY,
+      time: coordinateToTime(currentX) ?? anchorTime,
+      price: coordinateToPrice(currentY) ?? anchorPrice,
+    };
+  }
+  const dx = currentX - anchorX;
+  const dy = currentY - anchorY;
+  const size = Math.max(Math.abs(dx), Math.abs(dy));
+  const signX = dx >= 0 ? 1 : -1;
+  const signY = dy >= 0 ? 1 : -1;
+  const snappedX = anchorX + size * signX;
+  const snappedY = anchorY + size * signY;
+
+  return {
+    x: snappedX,
+    y: snappedY,
+    time: coordinateToTime(snappedX) ?? anchorTime,
+    price: coordinateToPrice(snappedY) ?? anchorPrice,
+  };
+}
+
+export function calculateShiftAxisLock(
+  currentX: number,
+  currentY: number,
+  startX: number,
+  startY: number,
+  deltaTime: number,
+  deltaPrice: number
+): { deltaTime: number; deltaPrice: number } {
+  const screenDx = Math.abs(currentX - startX);
+  const screenDy = Math.abs(currentY - startY);
+  if (screenDx >= screenDy) {
+    // Horizontal movement: lock price delta to 0
+    return { deltaTime, deltaPrice: 0 };
+  } else {
+    // Vertical movement: lock time delta to 0
+    return { deltaTime: 0, deltaPrice };
+  }
+}

@@ -26,6 +26,9 @@ import {
   formatDrawingObjectLabel,
   cloneDrawingObject,
   reorderDrawingLayer,
+  calculateShiftAngleSnap,
+  calculateShiftSquareSnap,
+  calculateShiftAxisLock,
   ChartDrawing,
   DrawingHistoryState,
   DEFAULT_FIB_LEVELS,
@@ -507,5 +510,94 @@ describe("Geometric Drawing Math Engine (DEC-040 to DEC-055)", () => {
     // Drag entry below stop: clamped to stop + minBuffer
     expect(clampPositionEntryPrice(0.000008, target, stop, true, 0.01, minBuffer)).toBeCloseTo(0.0000086, 7);
   });
-});
 
+  it("should snap angles to 45-degree increments when holding Shift (DEC-116)", () => {
+    const mockCoordToTime = (x: number) => 1000 + x * 10;
+    const mockCoordToPrice = (y: number) => 100 - y * 0.5;
+
+    const anchorX = 100;
+    const anchorY = 100;
+    const anchorTime = 2000;
+    const anchorPrice = 50;
+
+    // 1. Horizontal snap (e.g. angle ~5 degrees -> snaps to 0 deg)
+    // dy = 4, dx = 100
+    const horizSnap = calculateShiftAngleSnap(
+      anchorX + 100,
+      anchorY + 4,
+      anchorX,
+      anchorY,
+      anchorTime,
+      anchorPrice,
+      mockCoordToTime,
+      mockCoordToPrice
+    );
+    expect(horizSnap.y).toBe(anchorY);
+    expect(horizSnap.price).toBe(anchorPrice); // Perfect horizontal price line
+
+    // 2. Vertical snap (e.g. angle ~85 degrees -> snaps to 90 deg)
+    // dy = 100, dx = 5
+    const vertSnap = calculateShiftAngleSnap(
+      anchorX + 5,
+      anchorY + 100,
+      anchorX,
+      anchorY,
+      anchorTime,
+      anchorPrice,
+      mockCoordToTime,
+      mockCoordToPrice
+    );
+    expect(vertSnap.x).toBe(anchorX);
+    expect(vertSnap.time).toBe(anchorTime); // Perfect vertical time line
+
+    // 3. 45-degree diagonal snap (e.g. angle ~42 degrees -> snaps to 45 deg)
+    const diagSnap = calculateShiftAngleSnap(
+      anchorX + 100,
+      anchorY + 85,
+      anchorX,
+      anchorY,
+      anchorTime,
+      anchorPrice,
+      mockCoordToTime,
+      mockCoordToPrice
+    );
+    // In 45-deg snap, |dx| === |dy|
+    expect(Math.abs(diagSnap.x - anchorX)).toBeCloseTo(Math.abs(diagSnap.y - anchorY), 2);
+  });
+
+  it("should snap rectangle to 1:1 square aspect ratio when holding Shift (DEC-116)", () => {
+    const mockCoordToTime = (x: number) => 1000 + x * 10;
+    const mockCoordToPrice = (y: number) => 100 - y * 0.5;
+
+    const anchorX = 50;
+    const anchorY = 50;
+    const anchorTime = 1500;
+    const anchorPrice = 75;
+
+    // Moving mouse to (150, 100) -> dx = 100, dy = 50 -> size = 100
+    const squareSnap = calculateShiftSquareSnap(
+      150,
+      100,
+      anchorX,
+      anchorY,
+      anchorTime,
+      anchorPrice,
+      mockCoordToTime,
+      mockCoordToPrice
+    );
+    expect(Math.abs(squareSnap.x - anchorX)).toBe(100);
+    expect(Math.abs(squareSnap.y - anchorY)).toBe(100);
+  });
+
+  it("should lock translation movement to a single axis when holding Shift (DEC-116)", () => {
+    // 1. Moving predominantly horizontally (screenDx 80 >= screenDy 20)
+    const horizLock = calculateShiftAxisLock(180, 120, 100, 100, 5000, 25);
+    expect(horizLock.deltaTime).toBe(5000);
+    expect(horizLock.deltaPrice).toBe(0); // Price locked
+
+    // 2. Moving predominantly vertically (screenDy 90 > screenDx 15)
+    const vertLock = calculateShiftAxisLock(115, 190, 100, 100, 5000, 45);
+    expect(vertLock.deltaTime).toBe(0); // Time locked
+    expect(vertLock.deltaPrice).toBe(45);
+  });
+});

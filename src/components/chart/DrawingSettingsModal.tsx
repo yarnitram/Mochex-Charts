@@ -59,7 +59,7 @@ export function DrawingSettingsModal({
   const [fillOpacity, setFillOpacity] = useState(15);
   const [extendRight, setExtendRight] = useState(false);
   const [extendLeft, setExtendLeft] = useState(false);
-  const [showMetrics, setShowMetrics] = useState(true);
+  const [showMetrics, setShowMetrics] = useState(false);
 
   // Rectangle 50% Equilibrium Line (DEC-060)
   const [showMidLine, setShowMidLine] = useState(false);
@@ -142,7 +142,7 @@ export function DrawingSettingsModal({
     setFillOpacity(drawing.fillOpacity !== undefined ? Math.round(drawing.fillOpacity * 100) : 15);
     setExtendRight(!!drawing.extendRight);
     setExtendLeft(!!drawing.extendLeft);
-    setShowMetrics(drawing.showMetrics !== false);
+    setShowMetrics(drawing.showMetrics === true);
     setStartPrice(drawing.startPrice);
     setEndPrice(drawing.endPrice);
     setText(drawing.text || "");
@@ -342,7 +342,7 @@ export function DrawingSettingsModal({
     setFillOpacity(15);
     setExtendRight(false);
     setExtendLeft(false);
-    setShowMetrics(true);
+    setShowMetrics(false);
     setFibLevels(DEFAULT_FIB_LEVELS);
 
     handleLiveChange({
@@ -353,7 +353,7 @@ export function DrawingSettingsModal({
       fillOpacity: 0.15,
       extendRight: false,
       extendLeft: false,
-      showMetrics: true,
+      showMetrics: false,
       fibLevels: DEFAULT_FIB_LEVELS,
     });
     setIsTemplateMenuOpen(false);

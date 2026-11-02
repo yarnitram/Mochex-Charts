@@ -61,6 +61,9 @@ import {
   performDrawingRedo,
   cloneDrawingObject,
   reorderDrawingLayer,
+  calculateShiftAngleSnap,
+  calculateShiftSquareSnap,
+  calculateShiftAxisLock,
   DEFAULT_FIB_LEVELS,
 } from "@/lib/chart/drawing-math";
 import { DrawingSettingsModal } from "./DrawingSettingsModal";
@@ -2196,7 +2199,7 @@ export function TradingViewContainer({
       }
 
       // Metrics badge if enabled
-      if (drawing.showMetrics !== false) {
+      if (drawing.showMetrics === true) {
         const deltaPrice = drawing.endPrice - drawing.startPrice;
         const deltaPercent =
           drawing.startPrice > 0 ? ((deltaPrice / drawing.startPrice) * 100).toFixed(2) : "0.00";
@@ -5153,6 +5156,7 @@ export function TradingViewContainer({
           endTime: effectiveTime,
           endPrice: effectivePrice,
           color: "#2962ff",
+          showMetrics: false,
           fillColor: activeDrawingTool === "rectangle" ? "#2962ff" : undefined,
           fillOpacity: activeDrawingTool === "rectangle" ? 0.15 : undefined,
           lineWidth: 2,
@@ -5172,10 +5176,50 @@ export function TradingViewContainer({
           endPrice: effectivePrice,
         });
       } else if (drawingStep === 1 && inFlightDrawing) {
+        let finalEndTime = inFlightDrawing.endTime;
+        let finalEndPrice = inFlightDrawing.endPrice;
+
+        if (e.shiftKey) {
+          const anchorX = getSafeScreenX(inFlightDrawing.startTime);
+          const anchorY = getSafeScreenY(inFlightDrawing.startPrice);
+          if (
+            inFlightDrawing.type === "trendline" ||
+            inFlightDrawing.type === "fibonacci" ||
+            inFlightDrawing.type === "date_range"
+          ) {
+            const snapped = calculateShiftAngleSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              inFlightDrawing.startTime,
+              inFlightDrawing.startPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            finalEndTime = snapped.time;
+            finalEndPrice = snapped.price;
+          } else if (inFlightDrawing.type === "rectangle" || inFlightDrawing.type === "gann_box") {
+            const snapped = calculateShiftSquareSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              inFlightDrawing.startTime,
+              inFlightDrawing.startPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            finalEndTime = snapped.time;
+            finalEndPrice = snapped.price;
+          }
+        }
+
         const finished: ChartDrawing = {
           ...inFlightDrawing,
-          endTime: effectiveTime,
-          endPrice: effectivePrice,
+          endTime: finalEndTime,
+          endPrice: finalEndPrice,
+          showMetrics: false,
         };
         saveDrawings([...drawings, finished]);
         setSelectedDrawingId(finished.id);
@@ -5301,8 +5345,48 @@ export function TradingViewContainer({
     }
 
     if (drawingStep === 1 && inFlightDrawing) {
+      let finalTime = effectiveTime;
+      let finalPrice = effectivePrice;
+
+      if (e.shiftKey) {
+        const anchorX = getSafeScreenX(inFlightDrawing.startTime);
+        const anchorY = getSafeScreenY(inFlightDrawing.startPrice);
+
+        if (
+          inFlightDrawing.type === "trendline" ||
+          inFlightDrawing.type === "fibonacci" ||
+          inFlightDrawing.type === "date_range"
+        ) {
+          const snapped = calculateShiftAngleSnap(
+            x,
+            y,
+            anchorX,
+            anchorY,
+            inFlightDrawing.startTime,
+            inFlightDrawing.startPrice,
+            coordinateToTime,
+            coordinateToPrice
+          );
+          finalTime = snapped.time;
+          finalPrice = snapped.price;
+        } else if (inFlightDrawing.type === "rectangle" || inFlightDrawing.type === "gann_box") {
+          const snapped = calculateShiftSquareSnap(
+            x,
+            y,
+            anchorX,
+            anchorY,
+            inFlightDrawing.startTime,
+            inFlightDrawing.startPrice,
+            coordinateToTime,
+            coordinateToPrice
+          );
+          finalTime = snapped.time;
+          finalPrice = snapped.price;
+        }
+      }
+
       setInFlightDrawing((prev) =>
-        prev ? { ...prev, endTime: effectiveTime, endPrice: effectivePrice } : null
+        prev ? { ...prev, endTime: finalTime, endPrice: finalPrice } : null
       );
       return;
     }
@@ -5540,22 +5624,68 @@ export function TradingViewContainer({
           return;
         }
 
-        // 7. Standard start & end handles
+        // 7. Standard start & end handles with Shift angle snap (DEC-116)
         if (activeHandle === "start") {
+          let sTime = effectiveTime;
+          let sPrice = effectivePrice;
+          if (
+            e.shiftKey &&
+            (drawing.type === "trendline" ||
+              drawing.type === "fibonacci" ||
+              drawing.type === "date_range")
+          ) {
+            const anchorX = getSafeScreenX(drawing.endTime);
+            const anchorY = getSafeScreenY(drawing.endPrice);
+            const snapped = calculateShiftAngleSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              drawing.endTime,
+              drawing.endPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            sTime = snapped.time;
+            sPrice = snapped.price;
+          }
           saveDrawings(
             currentDrawings.map((d) =>
               d.id === selectedDrawingId
-                ? { ...d, startTime: effectiveTime, startPrice: effectivePrice }
+                ? { ...d, startTime: sTime, startPrice: sPrice }
                 : d
             )
           );
           return;
         }
         if (activeHandle === "end") {
+          let eTime = effectiveTime;
+          let ePrice = effectivePrice;
+          if (
+            e.shiftKey &&
+            (drawing.type === "trendline" ||
+              drawing.type === "fibonacci" ||
+              drawing.type === "date_range")
+          ) {
+            const anchorX = getSafeScreenX(drawing.startTime);
+            const anchorY = getSafeScreenY(drawing.startPrice);
+            const snapped = calculateShiftAngleSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              drawing.startTime,
+              drawing.startPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            eTime = snapped.time;
+            ePrice = snapped.price;
+          }
           saveDrawings(
             currentDrawings.map((d) =>
               d.id === selectedDrawingId
-                ? { ...d, endTime: effectiveTime, endPrice: effectivePrice }
+                ? { ...d, endTime: eTime, endPrice: ePrice }
                 : d
             )
           );
@@ -5584,12 +5714,25 @@ export function TradingViewContainer({
           return;
         }
 
-        // 8. Body translation
+        // 8. Body translation with Shift axis lock (DEC-116)
         if (activeHandle === "body") {
-          const deltaPrice =
+          let deltaPrice =
             effectivePrice - (coordinateToPrice(dragStartPos.y) || dragStartPos.startPrice);
           const startCoordTime = coordinateToTime(dragStartPos.x) || dragStartPos.startTime;
-          const deltaTime = effectiveTime - startCoordTime;
+          let deltaTime = effectiveTime - startCoordTime;
+
+          if (e.shiftKey) {
+            const locked = calculateShiftAxisLock(
+              x,
+              y,
+              dragStartPos.x,
+              dragStartPos.y,
+              deltaTime,
+              deltaPrice
+            );
+            deltaTime = locked.deltaTime;
+            deltaPrice = locked.deltaPrice;
+          }
 
           if ((drawing.type === "path" || drawing.type === "trend_fib") && dragStartPos.points) {
             const translatedPoints = dragStartPos.points.map((pt) => ({
