@@ -412,4 +412,79 @@ describe("CustomScriptsStore", () => {
     expect(resMaster.success).toBe(true);
     expect(Array.isArray(resMaster.boxes)).toBe(true);
   });
+
+  it("resolves catalog script code for MOD-01 and MOD-02 SMC scripts", async () => {
+    const {
+      resolveCatalogScriptCode,
+      DEFAULT_PHANTOM_SMC_SCRIPT,
+      DEFAULT_PHANTOM_FLIP_SCRIPT,
+    } = await import("../src/lib/indicators/custom-scripts-store");
+
+    expect(resolveCatalogScriptCode("mod-01", "Phantom SMC MOD-01")).toBe(DEFAULT_PHANTOM_SMC_SCRIPT);
+    expect(resolveCatalogScriptCode("md01", "MD01 Supply Demand")).toBe(DEFAULT_PHANTOM_SMC_SCRIPT);
+    expect(resolveCatalogScriptCode("script-phantom-smc", "Phantom SMC Supply & Demand (v7)")).toBe(
+      DEFAULT_PHANTOM_SMC_SCRIPT
+    );
+    expect(resolveCatalogScriptCode("script-phantom-flip", "Phantom SMC S2D & D2S Flips")).toBe(
+      DEFAULT_PHANTOM_FLIP_SCRIPT
+    );
+  });
+
+  it("migrates existing stored v6 Phantom SMC scripts in localStorage to v7 with mitigation capping", async () => {
+    const { getCustomScripts } = await import("../src/lib/indicators/custom-scripts-store");
+    const outdated = [
+      {
+        id: "script-phantom-smc",
+        name: "Phantom SMC Supply & Demand (v6)",
+        description: "Old description",
+        code: "function calculate(bars) { if (!d.invalidated) d.endTime = latestTime; }",
+        type: "indicator",
+        color: "#00e676",
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+    (globalThis as any).localStorage.setItem("mochex_custom_scripts_v1", JSON.stringify(outdated));
+
+    const scripts = getCustomScripts();
+    const smc = scripts.find((s) => s.id === "script-phantom-smc");
+    expect(smc).toBeDefined();
+    expect(smc!.name).toContain("v7");
+    expect(smc!.code).toContain("Phantom SMC (Smart Money Concepts) [v7]");
+    expect(smc!.code).toContain("d.mitigated = true;");
+  });
+
+  it("caps mitigated zones and forward simulates trade trajectory without stretching to present price", async () => {
+    const { DEFAULT_PHANTOM_SMC_SCRIPT } = await import("../src/lib/indicators/custom-scripts-store");
+    const { indicatorSandbox } = await import("../src/lib/indicators/sandbox");
+
+    const bars = [
+      { time: 1000, open: 100, high: 105, low: 95, close: 100, volume: 50 },
+      { time: 2000, open: 100, high: 102, low: 88, close: 90, volume: 80 },  // c2 swept low
+      { time: 3000, open: 90, high: 110, low: 90, close: 108, volume: 150 }, // c1 expansion creating demand (88-90)
+      { time: 4000, open: 108, high: 118, low: 105, close: 116, volume: 110 },
+      { time: 5000, open: 116, high: 122, low: 114, close: 120, volume: 90 },
+      { time: 6000, open: 120, high: 121, low: 89, close: 95, volume: 100 },  // c0 low 89 taps demand (88-90)! Mitigated here!
+      { time: 7000, open: 95, high: 125, low: 94, close: 124, volume: 160 },
+      { time: 8000, open: 124, high: 130, low: 122, close: 128, volume: 100 },
+      { time: 9000, open: 128, high: 135, low: 126, close: 132, volume: 100 },
+      { time: 10000, open: 132, high: 140, low: 130, close: 138, volume: 100 }, // Present price
+    ];
+
+    const res = await indicatorSandbox.execute({
+      scriptId: "phantom-smc-capping-test",
+      code: DEFAULT_PHANTOM_SMC_SCRIPT,
+      bars,
+      inputs: { ltfSwingLen: 2, maxTapWindow: 25, rrTP1: 3.0, rrTP2: 5.0, showPositionTool: true },
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual([]); // Empty line series array to avoid duplicate price line
+
+    // Verify mitigated demand zone is capped at bar 6 (time 6000), NOT latestTime (time 10000)
+    const demandBox = res.boxes!.find((b) => b.type === "DEMAND");
+    expect(demandBox).toBeDefined();
+    expect(demandBox!.endTime).toBe(6000);
+    expect(demandBox!.label).toBe("Demand (Mitigated)");
+  });
 });

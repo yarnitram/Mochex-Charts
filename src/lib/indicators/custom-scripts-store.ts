@@ -322,10 +322,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
 }`;
 
 export const DEFAULT_PHANTOM_SMC_SCRIPT = `/**
- * Mochex Custom Indicator: Phantom SMC (Smart Money Concepts)
+ * Mochex Custom Indicator: Phantom SMC (Smart Money Concepts) [v7]
  * High-probability institutional Supply & Demand zones anchored to the exact base candle,
- * liquidity sweeps, Change of Character (CHoCH) confirmation entries, and TradingView-style
- * Long/Short Position Tool risk/reward boxes (Red SL / Green TP1 1:3 & TP2 1:5).
+ * liquidity sweeps, Change of Character (CHoCH) confirmation entries, forward-simulated
+ * risk/reward position tool brackets (Red SL / Green TP1 1:3 & TP2 1:5), and mitigation capping.
  */
 function calculate(bars, inputs, ta, strategy, alertcondition) {
   if (!bars || bars.length < 10) return { boxes: [], data: [] };
@@ -345,8 +345,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
   let lastSupplyTapIndex = -1;
   let lastTappedDemand = null;
   let lastTappedSupply = null;
-
-  let activeTrade = null;
+  let lastTradeExitIndex = -1;
 
   function isPivotHigh(idx, len) {
     if (idx < len || idx >= bars.length - len) return false;
@@ -386,21 +385,24 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const bottom = Math.min(c1.low, c2.low);
       const startTime = (c2.low < c3.low) ? c2.time : c1.time;
 
-      demandZones.push({
-        id: "demand-" + i,
-        type: "DEMAND",
-        createdIndex: i,
-        startTime: startTime,
-        endTime: bars[bars.length - 1].time,
-        top: top,
-        bottom: bottom,
-        mid: (top + bottom) / 2,
-        color: "#00897b",
-        fillColor: "rgba(0, 137, 123, 0.22)",
-        label: "Demand POI",
-        showMidLine: true,
-        invalidated: false,
-      });
+      if (top > bottom) {
+        demandZones.push({
+          id: "demand-" + i,
+          type: "DEMAND",
+          createdIndex: i,
+          startTime: startTime,
+          endTime: bars[bars.length - 1].time,
+          top: top,
+          bottom: bottom,
+          mid: (top + bottom) / 2,
+          color: "#00897b",
+          fillColor: "rgba(0, 137, 123, 0.22)",
+          label: "Demand POI",
+          showMidLine: true,
+          mitigated: false,
+          invalidated: false,
+        });
+      }
     }
 
     // 2. Bearish Supply POI (Liquidity Sweep + FVG Displacement)
@@ -414,50 +416,55 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const bottom = Math.min(c1.open, c2.close);
       const startTime = (c2.high > c3.high) ? c2.time : c1.time;
 
-      supplyZones.push({
-        id: "supply-" + i,
-        type: "SUPPLY",
-        createdIndex: i,
-        startTime: startTime,
-        endTime: bars[bars.length - 1].time,
-        top: top,
-        bottom: bottom,
-        mid: (top + bottom) / 2,
-        color: "#d81b60",
-        fillColor: "rgba(216, 27, 96, 0.22)",
-        label: "Supply POI",
-        showMidLine: true,
-        invalidated: false,
-      });
+      if (top > bottom) {
+        supplyZones.push({
+          id: "supply-" + i,
+          type: "SUPPLY",
+          createdIndex: i,
+          startTime: startTime,
+          endTime: bars[bars.length - 1].time,
+          top: top,
+          bottom: bottom,
+          mid: (top + bottom) / 2,
+          color: "#d81b60",
+          fillColor: "rgba(216, 27, 96, 0.22)",
+          label: "Supply POI",
+          showMidLine: true,
+          mitigated: false,
+          invalidated: false,
+        });
+      }
     }
 
     // 3. Monitor Taps and Invalidation
     for (const d of demandZones) {
-      if (!d.invalidated) {
-        if (c0.low <= d.top && c0.high >= d.bottom) {
-          lastDemandTapIndex = i;
-          lastTappedDemand = d;
-        }
+      if (!d.mitigated && !d.invalidated && i > d.createdIndex) {
         if (c0.close < d.bottom) {
           d.invalidated = true;
           d.endTime = c0.time;
-          d.color = "#787b86";
-          d.fillColor = "rgba(120, 123, 134, 0.1)";
+        } else if (c0.low <= d.top && c0.high >= d.bottom) {
+          d.mitigated = true;
+          d.endTime = c0.time;
+          d.fillColor = "rgba(0, 137, 123, 0.08)";
+          d.label = "Demand (Mitigated)";
+          lastDemandTapIndex = i;
+          lastTappedDemand = d;
         }
       }
     }
 
     for (const s of supplyZones) {
-      if (!s.invalidated) {
-        if (c0.high >= s.bottom && c0.low <= s.top) {
-          lastSupplyTapIndex = i;
-          lastTappedSupply = s;
-        }
+      if (!s.mitigated && !s.invalidated && i > s.createdIndex) {
         if (c0.close > s.top) {
           s.invalidated = true;
           s.endTime = c0.time;
-          s.color = "#787b86";
-          s.fillColor = "rgba(120, 123, 134, 0.1)";
+        } else if (c0.high >= s.bottom && c0.low <= s.top) {
+          s.mitigated = true;
+          s.endTime = c0.time;
+          s.fillColor = "rgba(216, 27, 96, 0.08)";
+          s.label = "Supply (Mitigated)";
+          lastSupplyTapIndex = i;
+          lastTappedSupply = s;
         }
       }
     }
@@ -470,11 +477,12 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       lastPivotLow = { index: i - ltfSwingLen, price: bars[i - ltfSwingLen].low };
     }
 
-    // 5. Detect CHoCH Triggers
+    // 5. Detect CHoCH Triggers & Forward Simulate Trade Trajectory
+    const cooldownOk = i > lastTradeExitIndex;
     const withinDemandTap = lastDemandTapIndex >= 0 && (i - lastDemandTapIndex <= maxTapWindow);
-    const withinSupplyTap = lastSupplyTapIndex >= 0 && (i - lastSupplyTapIndex <= maxTapWindow);
+    const validPivotHigh = lastPivotHigh && (lastPivotHigh.index >= lastDemandTapIndex - 5) && (i - lastPivotHigh.index <= maxTapWindow);
 
-    if (!activeTrade && withinDemandTap && lastPivotHigh && c0.close > lastPivotHigh.price && bars[i - 1].close <= lastPivotHigh.price) {
+    if (cooldownOk && withinDemandTap && validPivotHigh && c0.close > lastPivotHigh.price && bars[i - 1].close <= lastPivotHigh.price) {
       const entryPrice = c0.close;
       const structLow = lastTappedDemand ? Math.min(lastTappedDemand.bottom, c0.low) : c0.low;
       const sl = structLow * 0.998;
@@ -482,23 +490,81 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const tp1 = entryPrice + (riskDist * rrTP1);
       const tp2 = entryPrice + (riskDist * rrTP2);
 
-      activeTrade = {
-        isLong: true,
-        entryIndex: i,
-        startTime: c0.time,
-        entryPrice: entryPrice,
-        sl: sl,
-        tp1: tp1,
-        tp2: tp2,
-        tp1Hit: false,
-      };
+      let tp1Hit = false;
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tradeExitIndex = bars.length - 1;
+
+      for (let m = i + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (!tp1Hit && b.high >= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
+        }
+        const currentSl = tp1Hit ? entryPrice : sl;
+        if (b.low <= currentSl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeExitIndex = m;
+          break;
+        }
+        if (b.high >= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeExitIndex = m;
+          break;
+        }
+      }
+
+      if (showPositionTool) {
+        positionBoxes.push({
+          id: "pos-risk-" + i,
+          startTime: c0.time,
+          endTime: slEndTime,
+          top: entryPrice,
+          bottom: sl,
+          color: "#e53935",
+          fillColor: "rgba(229, 57, 53, " + posBoxOpacity + ")",
+          label: tp1Hit ? "SL: BE (" + entryPrice.toFixed(2) + ")" : "SL: " + sl.toFixed(2),
+        });
+        positionBoxes.push({
+          id: "pos-tp1-" + i,
+          startTime: c0.time,
+          endTime: tp1EndTime,
+          top: tp1,
+          bottom: entryPrice,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, " + posBoxOpacity + ")",
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+        });
+        positionBoxes.push({
+          id: "pos-tp2-" + i,
+          startTime: c0.time,
+          endTime: tp2EndTime,
+          top: tp2,
+          bottom: tp1,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, " + (posBoxOpacity * 0.5) + ")",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+        });
+      }
 
       if (typeof alertcondition === "function" && i === bars.length - 1) {
         alertcondition(true, "Phantom SMC Long CHoCH", "Bullish CHoCH Entry at " + entryPrice.toFixed(2) + " (TP1: " + tp1.toFixed(2) + ", SL: " + sl.toFixed(2) + ")");
       }
+
+      lastTradeExitIndex = tradeExitIndex;
+      lastDemandTapIndex = -1;
+      lastTappedDemand = null;
+      lastPivotHigh = null;
     }
 
-    if (!activeTrade && withinSupplyTap && lastPivotLow && c0.close < lastPivotLow.price && bars[i - 1].close >= lastPivotLow.price) {
+    const withinSupplyTap = lastSupplyTapIndex >= 0 && (i - lastSupplyTapIndex <= maxTapWindow);
+    const validPivotLow = lastPivotLow && (lastPivotLow.index >= lastSupplyTapIndex - 5) && (i - lastPivotLow.index <= maxTapWindow);
+
+    if (cooldownOk && withinSupplyTap && validPivotLow && c0.close < lastPivotLow.price && bars[i - 1].close >= lastPivotLow.price) {
       const entryPrice = c0.close;
       const structHigh = lastTappedSupply ? Math.max(lastTappedSupply.top, c0.high) : c0.high;
       const sl = structHigh * 1.002;
@@ -506,135 +572,111 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
       const tp1 = entryPrice - (riskDist * rrTP1);
       const tp2 = entryPrice - (riskDist * rrTP2);
 
-      activeTrade = {
-        isLong: false,
-        entryIndex: i,
-        startTime: c0.time,
-        entryPrice: entryPrice,
-        sl: sl,
-        tp1: tp1,
-        tp2: tp2,
-        tp1Hit: false,
-      };
+      let tp1Hit = false;
+      let tp1EndTime = bars[bars.length - 1].time;
+      let tp2EndTime = bars[bars.length - 1].time;
+      let slEndTime = bars[bars.length - 1].time;
+      let tradeExitIndex = bars.length - 1;
+
+      for (let m = i + 1; m < bars.length; m++) {
+        const b = bars[m];
+        if (!tp1Hit && b.low <= tp1) {
+          tp1Hit = true;
+          tp1EndTime = b.time;
+        }
+        const currentSl = tp1Hit ? entryPrice : sl;
+        if (b.high >= currentSl) {
+          if (!tp1Hit) tp1EndTime = b.time;
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeExitIndex = m;
+          break;
+        }
+        if (b.low <= tp2) {
+          tp2EndTime = b.time;
+          slEndTime = b.time;
+          tradeExitIndex = m;
+          break;
+        }
+      }
+
+      if (showPositionTool) {
+        positionBoxes.push({
+          id: "pos-risk-" + i,
+          startTime: c0.time,
+          endTime: slEndTime,
+          top: sl,
+          bottom: entryPrice,
+          color: "#e53935",
+          fillColor: "rgba(229, 57, 53, " + posBoxOpacity + ")",
+          label: tp1Hit ? "SL: BE (" + entryPrice.toFixed(2) + ")" : "SL: " + sl.toFixed(2),
+        });
+        positionBoxes.push({
+          id: "pos-tp1-" + i,
+          startTime: c0.time,
+          endTime: tp1EndTime,
+          top: entryPrice,
+          bottom: tp1,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, " + posBoxOpacity + ")",
+          label: "TP1 (" + rrTP1 + "R): " + tp1.toFixed(2),
+        });
+        positionBoxes.push({
+          id: "pos-tp2-" + i,
+          startTime: c0.time,
+          endTime: tp2EndTime,
+          top: tp1,
+          bottom: tp2,
+          color: "#00c853",
+          fillColor: "rgba(0, 200, 83, " + (posBoxOpacity * 0.5) + ")",
+          label: "TP2 (" + rrTP2 + "R): " + tp2.toFixed(2),
+        });
+      }
 
       if (typeof alertcondition === "function" && i === bars.length - 1) {
         alertcondition(true, "Phantom SMC Short CHoCH", "Bearish CHoCH Entry at " + entryPrice.toFixed(2) + " (TP1: " + tp1.toFixed(2) + ", SL: " + sl.toFixed(2) + ")");
       }
-    }
 
-    // 6. Manage Active Visual Trade
-    if (activeTrade) {
-      const t = activeTrade;
-      if (t.isLong) {
-        if (c0.high >= t.tp1 && !t.tp1Hit) {
-          t.tp1Hit = true;
-        }
-        const hitSl = c0.low <= (t.tp1Hit ? t.entryPrice : t.sl);
-        const hitTp = c0.high >= t.tp2;
-
-        if (hitSl || hitTp || i === bars.length - 1) {
-          if (showPositionTool) {
-            const endTime = c0.time;
-            positionBoxes.push({
-              id: "pos-risk-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.entryPrice,
-              bottom: t.sl,
-              color: "#e53935",
-              fillColor: "rgba(229, 57, 53, " + posBoxOpacity + ")",
-              label: t.tp1Hit ? "SL: BE (" + t.entryPrice.toFixed(2) + ")" : "SL: " + t.sl.toFixed(2),
-            });
-            positionBoxes.push({
-              id: "pos-tp1-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.tp1,
-              bottom: t.entryPrice,
-              color: "#00c853",
-              fillColor: "rgba(0, 200, 83, " + posBoxOpacity + ")",
-              label: "TP1 (1:3): " + t.tp1.toFixed(2),
-            });
-            positionBoxes.push({
-              id: "pos-tp2-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.tp2,
-              bottom: t.tp1,
-              color: "#00c853",
-              fillColor: "rgba(0, 200, 83, " + (posBoxOpacity * 0.5) + ")",
-              label: "TP2 (1:5): " + t.tp2.toFixed(2),
-            });
-          }
-          if (hitSl || hitTp) {
-            activeTrade = null;
-          }
-        }
-      } else {
-        if (c0.low <= t.tp1 && !t.tp1Hit) {
-          t.tp1Hit = true;
-        }
-        const hitSl = c0.high >= (t.tp1Hit ? t.entryPrice : t.sl);
-        const hitTp = c0.low <= t.tp2;
-
-        if (hitSl || hitTp || i === bars.length - 1) {
-          if (showPositionTool) {
-            const endTime = c0.time;
-            positionBoxes.push({
-              id: "pos-risk-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.sl,
-              bottom: t.entryPrice,
-              color: "#e53935",
-              fillColor: "rgba(229, 57, 53, " + posBoxOpacity + ")",
-              label: t.tp1Hit ? "SL: BE (" + t.entryPrice.toFixed(2) + ")" : "SL: " + t.sl.toFixed(2),
-            });
-            positionBoxes.push({
-              id: "pos-tp1-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.entryPrice,
-              bottom: t.tp1,
-              color: "#00c853",
-              fillColor: "rgba(0, 200, 83, " + posBoxOpacity + ")",
-              label: "TP1 (1:3): " + t.tp1.toFixed(2),
-            });
-            positionBoxes.push({
-              id: "pos-tp2-" + t.entryIndex,
-              startTime: t.startTime,
-              endTime: endTime,
-              top: t.tp1,
-              bottom: t.tp2,
-              color: "#00c853",
-              fillColor: "rgba(0, 200, 83, " + (posBoxOpacity * 0.5) + ")",
-              label: "TP2 (1:5): " + t.tp2.toFixed(2),
-            });
-          }
-          if (hitSl || hitTp) {
-            activeTrade = null;
-          }
-        }
-      }
+      lastTradeExitIndex = tradeExitIndex;
+      lastSupplyTapIndex = -1;
+      lastTappedSupply = null;
+      lastPivotLow = null;
     }
   }
 
   const latestTime = bars[bars.length - 1].time;
-  for (const d of demandZones) {
-    if (!d.invalidated) d.endTime = latestTime;
+
+  // Process unmitigated Demand zones: only extend recent 3 forward to latest candle
+  const unmitigatedDemands = demandZones.filter(d => !d.invalidated && !d.mitigated);
+  const recentDemands = unmitigatedDemands.slice(-3);
+  for (const d of recentDemands) {
+    d.endTime = latestTime;
   }
-  for (const s of supplyZones) {
-    if (!s.invalidated) s.endTime = latestTime;
+  for (const d of unmitigatedDemands) {
+    if (!recentDemands.includes(d)) {
+      d.endTime = bars[Math.min(bars.length - 1, d.createdIndex + 25)].time;
+    }
   }
 
-  const allBoxes = [...demandZones.filter(d => !d.invalidated), ...supplyZones.filter(s => !s.invalidated), ...positionBoxes];
+  // Process unmitigated Supply zones: only extend recent 3 forward to latest candle
+  const unmitigatedSupplies = supplyZones.filter(s => !s.invalidated && !s.mitigated);
+  const recentSupplies = unmitigatedSupplies.slice(-3);
+  for (const s of recentSupplies) {
+    s.endTime = latestTime;
+  }
+  for (const s of unmitigatedSupplies) {
+    if (!recentSupplies.includes(s)) {
+      s.endTime = bars[Math.min(bars.length - 1, s.createdIndex + 25)].time;
+    }
+  }
+
+  const validDemands = demandZones.filter(d => !d.invalidated);
+  const validSupplies = supplyZones.filter(s => !s.invalidated);
+  const allBoxes = [...validDemands, ...validSupplies, ...positionBoxes];
 
   return {
     boxes: allBoxes,
-    data: bars.map(bar => ({
-      time: bar.time,
-      value: bar.close
-    }))
+    data: []
   };
 }
 `;
@@ -3624,7 +3666,7 @@ export function getCustomScripts(): CustomScript[] {
         },
         {
           id: "script-phantom-smc",
-          name: "Phantom SMC Supply & Demand (v6)",
+          name: "Phantom SMC Supply & Demand (v7)",
           description: "Phantom Smart Money Concepts: exact candle POIs, liquidity sweeps, CHoCH confirmation entries, and Long/Short position risk/reward boxes.",
           code: DEFAULT_PHANTOM_SMC_SCRIPT,
           type: "indicator",
@@ -3729,10 +3771,18 @@ export function getCustomScripts(): CustomScript[] {
     const parsed: CustomScript[] = JSON.parse(raw);
     let updated = false;
 
+    const smcScript = parsed.find((s) => s.id === "script-phantom-smc");
+    if (smcScript && (!smcScript.name.includes("v7") || smcScript.code.includes("if (!d.invalidated) d.endTime = latestTime;"))) {
+      smcScript.name = "Phantom SMC Supply & Demand (v7)";
+      smcScript.code = DEFAULT_PHANTOM_SMC_SCRIPT;
+      smcScript.updatedAt = Date.now();
+      updated = true;
+    }
+
     if (!parsed.some((s) => s.id === "script-phantom-smc")) {
       parsed.push({
         id: "script-phantom-smc",
-        name: "Phantom SMC Supply & Demand (v6)",
+        name: "Phantom SMC Supply & Demand (v7)",
         description: "Phantom Smart Money Concepts: exact candle POIs, liquidity sweeps, CHoCH confirmation entries, and Long/Short position risk/reward boxes.",
         code: DEFAULT_PHANTOM_SMC_SCRIPT,
         type: "indicator",
@@ -4090,6 +4140,20 @@ export function resolveCatalogScriptCode(id?: string, name?: string): string {
   }
   if (n.includes("idm") || n.includes("inducement")) {
     return DEFAULT_PHANTOM_IDM_SCRIPT;
+  }
+  if (n.includes("flip") || n.includes("s2d") || n.includes("d2s")) {
+    return DEFAULT_PHANTOM_FLIP_SCRIPT;
+  }
+  if (
+    n.includes("mod-01") ||
+    n.includes("md01") ||
+    n.includes("phantom-smc") ||
+    n.includes("phantom smc") ||
+    n.includes("supply & demand") ||
+    n.includes("supply and demand") ||
+    n.includes("smc")
+  ) {
+    return DEFAULT_PHANTOM_SMC_SCRIPT;
   }
   if (n.includes("fvg") || n.includes("fair value")) {
     return DEFAULT_FVG_SCRIPT;
