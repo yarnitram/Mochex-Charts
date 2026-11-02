@@ -394,6 +394,8 @@ export function TradingViewContainer({
     wasStartEarlier?: boolean;
     wasStartHigher?: boolean;
   } | null>(null);
+  const dragStartPosRef = useRef<typeof dragStartPos>(null);
+  dragStartPosRef.current = dragStartPos;
   const [snappedPoint, setSnappedPoint] = useState<{
     time: number;
     price: number;
@@ -2508,14 +2510,14 @@ export function TradingViewContainer({
         drawing.targetPrice !== undefined
           ? drawing.targetPrice
           : isLong
-          ? drawing.startPrice * 1.04
-          : drawing.startPrice * 0.96;
+          ? drawing.startPrice * 1.02
+          : drawing.startPrice * 0.98;
       const stopPrice =
         drawing.stopPrice !== undefined
           ? drawing.stopPrice
           : isLong
-          ? drawing.startPrice * 0.98
-          : drawing.startPrice * 1.02;
+          ? drawing.startPrice * 0.99
+          : drawing.startPrice * 1.01;
 
       const metrics = calculatePositionMetrics(
         drawing.startPrice,
@@ -3184,14 +3186,14 @@ export function TradingViewContainer({
           drawing.targetPrice !== undefined
             ? drawing.targetPrice
             : isLong
-            ? drawing.startPrice * 1.04
-            : drawing.startPrice * 0.96;
+            ? drawing.startPrice * 1.02
+            : drawing.startPrice * 0.98;
         const stopPrice =
           drawing.stopPrice !== undefined
             ? drawing.stopPrice
             : isLong
-            ? drawing.startPrice * 0.98
-            : drawing.startPrice * 1.02;
+            ? drawing.startPrice * 0.99
+            : drawing.startPrice * 1.01;
 
         const yTarget = getSafeScreenY(targetPrice);
         const yStop = getSafeScreenY(stopPrice);
@@ -3416,14 +3418,14 @@ export function TradingViewContainer({
             d.targetPrice !== undefined
               ? d.targetPrice
               : isLong
-              ? d.startPrice * 1.04
-              : d.startPrice * 0.96;
+              ? d.startPrice * 1.02
+              : d.startPrice * 0.98;
           const stopPrice =
             d.stopPrice !== undefined
               ? d.stopPrice
               : isLong
-              ? d.startPrice * 0.98
-              : d.startPrice * 1.02;
+              ? d.startPrice * 0.99
+              : d.startPrice * 1.01;
           const yTarget = getSafeScreenY(targetPrice);
           const yStop = getSafeScreenY(stopPrice);
           const validX2 = x2 !== null ? x2 : x1 + 120;
@@ -5133,9 +5135,10 @@ export function TradingViewContainer({
     }
 
     if (activeDrawingTool === "long_position") {
-      const target = effectivePrice * 1.04;
-      const stop = effectivePrice * 0.98;
-      const timeSpan = 20 * 60000 * (resolution === "1D" ? 1440 : 15);
+      const resMs = Math.max(60000, getResolutionMs(resolution));
+      const timeSpan = 20 * resMs;
+      const target = effectivePrice * 1.02;
+      const stop = effectivePrice * 0.99;
       const newDrawing: ChartDrawing = {
         id: `drawing_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: "long_position",
@@ -5163,9 +5166,10 @@ export function TradingViewContainer({
     }
 
     if (activeDrawingTool === "short_position") {
-      const target = effectivePrice * 0.96;
-      const stop = effectivePrice * 1.02;
-      const timeSpan = 20 * 60000 * (resolution === "1D" ? 1440 : 15);
+      const resMs = Math.max(60000, getResolutionMs(resolution));
+      const timeSpan = 20 * resMs;
+      const target = effectivePrice * 0.98;
+      const stop = effectivePrice * 1.01;
       const newDrawing: ChartDrawing = {
         id: `drawing_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: "short_position",
@@ -5356,6 +5360,481 @@ export function TradingViewContainer({
     }
   };
 
+  // Centralized handle dragging processor with Shift lock / angle snap (DEC-116, DEC-118)
+  const processActiveHandleDrag = useCallback(
+    (clientX: number, clientY: number, shiftKey: boolean) => {
+      const activeHandle = draggedHandle || draggedHandleRef.current;
+      const startPos = dragStartPosRef.current || dragStartPos;
+      if (!activeHandle || !selectedDrawingId || !startPos) return;
+
+      const rect = drawingCanvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+
+      let effectiveTime =
+        coordinateToTime(x) ||
+        (barsRef.current.length > 0
+          ? barsRef.current[barsRef.current.length - 1].time
+          : Date.now());
+      const clampedY = Math.max(0, Math.min(rect.height, y));
+      let effectivePrice = coordinateToPrice(y) || coordinateToPrice(clampedY) || currentPrice || 0;
+
+      if (isMagnetActive) {
+        const snap = findNearestCandlePoint(
+          x,
+          y,
+          barsRef.current,
+          timeToCoordinate,
+          priceToCoordinate,
+          25
+        );
+        if (snap) {
+          effectiveTime = snap.time;
+          effectivePrice = snap.price;
+        }
+      }
+
+      const currentDrawings = drawingsRef.current.length > 0 ? drawingsRef.current : drawings;
+      const drawing = currentDrawings.find((d) => d.id === selectedDrawingId);
+      if (!drawing || drawing.isLocked || isDrawingsLocked) return;
+
+      // 1. Node handles for path or trend_fib
+        if (activeHandle.startsWith("node_")) {
+          const nodeIdx = parseInt(activeHandle.replace("node_", ""), 10);
+          if (drawing.points && !isNaN(nodeIdx) && drawing.points[nodeIdx]) {
+            const updatedPoints = [...drawing.points];
+            updatedPoints[nodeIdx] = { time: effectiveTime, price: effectivePrice };
+            saveDrawings(
+              currentDrawings.map((d) =>
+                d.id === selectedDrawingId
+                  ? {
+                      ...d,
+                      points: updatedPoints,
+                      startTime: updatedPoints[0]?.time ?? d.startTime,
+                      endTime: updatedPoints[updatedPoints.length - 1]?.time ?? d.endTime,
+                      startPrice: updatedPoints[0]?.price ?? d.startPrice,
+                      endPrice: updatedPoints[updatedPoints.length - 1]?.price ?? d.endPrice,
+                    }
+                  : d
+              )
+            );
+          }
+          return;
+        }
+
+        // 2. Rectangle 8 handles (DEC-052, DEC-062)
+        if (activeHandle.startsWith("rect_")) {
+          const hType = activeHandle.replace("rect_", "");
+          let sT = drawing.startTime;
+          let eT = drawing.endTime;
+          let sP = drawing.startPrice;
+          let eP = drawing.endPrice;
+
+          const isStartLeft = startPos.wasStartEarlier ?? (sT <= eT);
+          const isStartTop = startPos.wasStartHigher ?? (sP >= eP);
+
+          if (hType === "tl") {
+            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
+            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
+          } else if (hType === "tr") {
+            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
+            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
+          } else if (hType === "bl") {
+            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
+            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
+          } else if (hType === "br") {
+            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
+            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
+          } else if (hType === "mt") {
+            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
+          } else if (hType === "mb") {
+            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
+          } else if (hType === "ml") {
+            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
+          } else if (hType === "mr") {
+            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
+          }
+
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, startTime: sT, endTime: eT, startPrice: sP, endPrice: eP }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 3. Long / Short Position handles (DEC-054, DEC-065, DEC-100)
+        const posMinBuffer =
+          pricePrecision?.minMove && pricePrecision.minMove > 0
+            ? pricePrecision.minMove
+            : drawing.startPrice > 0
+            ? drawing.startPrice * 0.0001
+            : 0.000001;
+        const posPrecision = pricePrecision?.precision ?? 4;
+        const posMinMove = pricePrecision?.minMove ?? posMinBuffer;
+
+        if (activeHandle === "pos_target") {
+          saveDrawings(
+            currentDrawings.map((d) => {
+              if (d.id !== selectedDrawingId) return d;
+              const isLong = d.type === "long_position";
+              const rawClamped = clampPositionTargetPrice(
+                effectivePrice,
+                d.startPrice,
+                isLong,
+                posMinBuffer
+              );
+              const quantized = quantizePrice(rawClamped, posMinMove, posPrecision);
+              return { ...d, targetPrice: quantized, endPrice: quantized };
+            })
+          );
+          return;
+        }
+        if (activeHandle === "pos_stop") {
+          saveDrawings(
+            currentDrawings.map((d) => {
+              if (d.id !== selectedDrawingId) return d;
+              const isLong = d.type === "long_position";
+              const rawClamped = clampPositionStopPrice(
+                effectivePrice,
+                d.startPrice,
+                isLong,
+                posMinBuffer
+              );
+              const quantized = quantizePrice(rawClamped, posMinMove, posPrecision);
+              return { ...d, stopPrice: quantized };
+            })
+          );
+          return;
+        }
+        if (activeHandle === "pos_entry") {
+          saveDrawings(
+            currentDrawings.map((d) => {
+              if (d.id !== selectedDrawingId) return d;
+              const isLong = d.type === "long_position";
+              const curTarget =
+                d.targetPrice !== undefined
+                  ? d.targetPrice
+                  : isLong
+                  ? d.startPrice * 1.01
+                  : d.startPrice * 0.99;
+              const curStop =
+                d.stopPrice !== undefined
+                  ? d.stopPrice
+                  : isLong
+                  ? d.startPrice * 0.99
+                  : d.startPrice * 1.01;
+              const clamped = clampPositionEntryPrice(
+                effectivePrice,
+                curTarget,
+                curStop,
+                isLong,
+                0.01,
+                posMinBuffer
+              );
+              const quantized = quantizePrice(clamped, posMinMove, posPrecision);
+              return {
+                ...d,
+                startPrice: quantized,
+                targetPrice: curTarget,
+                stopPrice: curStop,
+              };
+            })
+          );
+          return;
+        }
+        if (activeHandle === "pos_width") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, endTime: effectiveTime }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 4. Circle handles
+        if (activeHandle === "circle_center") {
+          const dt = effectiveTime - drawing.startTime;
+          const dp = effectivePrice - drawing.startPrice;
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? {
+                    ...d,
+                    startTime: effectiveTime,
+                    startPrice: effectivePrice,
+                    endTime: d.endTime + dt,
+                    endPrice: d.endPrice + dp,
+                  }
+                : d
+            )
+          );
+          return;
+        }
+        if (activeHandle === "circle_radius") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, endTime: effectiveTime, endPrice: effectivePrice }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 5. Date Range handles
+        if (activeHandle === "dr_start") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId ? { ...d, startTime: effectiveTime } : d
+            )
+          );
+          return;
+        }
+        if (activeHandle === "dr_end") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId ? { ...d, endTime: effectiveTime } : d
+            )
+          );
+          return;
+        }
+
+        // 6. Horizontal & Vertical Line handles
+        if (activeHandle === "h_center") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, startPrice: effectivePrice, endPrice: effectivePrice }
+                : d
+            )
+          );
+          return;
+        }
+        if (activeHandle === "v_center") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, startTime: effectiveTime, endTime: effectiveTime }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 7. Standard start & end handles with Shift angle snap (DEC-116)
+        if (activeHandle === "start") {
+          let sTime = effectiveTime;
+          let sPrice = effectivePrice;
+          if (
+            shiftKey &&
+            (drawing.type === "trendline" ||
+              drawing.type === "fibonacci" ||
+              drawing.type === "date_range")
+          ) {
+            const anchorX = getSafeScreenX(drawing.endTime);
+            const anchorY = getSafeScreenY(drawing.endPrice);
+            const snapped = calculateShiftAngleSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              drawing.endTime,
+              drawing.endPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            sTime = snapped.time;
+            sPrice = snapped.price;
+          }
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, startTime: sTime, startPrice: sPrice }
+                : d
+            )
+          );
+          return;
+        }
+        if (activeHandle === "end") {
+          let eTime = effectiveTime;
+          let ePrice = effectivePrice;
+          if (
+            shiftKey &&
+            (drawing.type === "trendline" ||
+              drawing.type === "fibonacci" ||
+              drawing.type === "date_range")
+          ) {
+            const anchorX = getSafeScreenX(drawing.startTime);
+            const anchorY = getSafeScreenY(drawing.startPrice);
+            const snapped = calculateShiftAngleSnap(
+              x,
+              y,
+              anchorX,
+              anchorY,
+              drawing.startTime,
+              drawing.startPrice,
+              coordinateToTime,
+              coordinateToPrice
+            );
+            eTime = snapped.time;
+            ePrice = snapped.price;
+          }
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, endTime: eTime, endPrice: ePrice }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 7.5 Gann Box corner handles (DEC-087)
+        if (activeHandle === "gann_bl") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, startTime: effectiveTime, endPrice: effectivePrice }
+                : d
+            )
+          );
+          return;
+        }
+        if (activeHandle === "gann_tr") {
+          saveDrawings(
+            currentDrawings.map((d) =>
+              d.id === selectedDrawingId
+                ? { ...d, endTime: effectiveTime, startPrice: effectivePrice }
+                : d
+            )
+          );
+          return;
+        }
+
+        // 8. Body translation with Shift axis lock (DEC-116)
+        if (activeHandle === "body") {
+          let deltaPrice =
+            effectivePrice - (coordinateToPrice(startPos.y) || startPos.startPrice);
+          const startCoordTime = coordinateToTime(startPos.x) || startPos.startTime;
+          let deltaTime = effectiveTime - startCoordTime;
+
+          if (shiftKey) {
+            const locked = calculateShiftAxisLock(
+              x,
+              y,
+              startPos.x,
+              startPos.y,
+              deltaTime,
+              deltaPrice
+            );
+            deltaTime = locked.deltaTime;
+            deltaPrice = locked.deltaPrice;
+          }
+
+          if ((drawing.type === "path" || drawing.type === "trend_fib") && startPos.points) {
+            const translatedPoints = startPos.points.map((pt) => ({
+              time: pt.time + deltaTime,
+              price: pt.price + deltaPrice,
+            }));
+            saveDrawings(
+              currentDrawings.map((d) =>
+                d.id === selectedDrawingId
+                  ? {
+                      ...d,
+                      points: translatedPoints,
+                      startTime: startPos.startTime + deltaTime,
+                      endTime: startPos.endTime + deltaTime,
+                      startPrice: startPos.startPrice + deltaPrice,
+                      endPrice: startPos.endPrice + deltaPrice,
+                    }
+                  : d
+              )
+            );
+          } else {
+            saveDrawings(
+              currentDrawings.map((d) =>
+                d.id === selectedDrawingId
+                  ? {
+                      ...d,
+                      startTime: startPos.startTime + deltaTime,
+                      endTime: startPos.endTime + deltaTime,
+                      startPrice: startPos.startPrice + deltaPrice,
+                      endPrice: startPos.endPrice + deltaPrice,
+                      targetPrice:
+                        startPos.targetPrice !== undefined
+                          ? startPos.targetPrice + deltaPrice
+                          : undefined,
+                      stopPrice:
+                        startPos.stopPrice !== undefined
+                          ? startPos.stopPrice + deltaPrice
+                          : undefined,
+                    }
+                  : d
+              )
+            );
+          }
+          return;
+        }
+    },
+    [
+      draggedHandle,
+      dragStartPos,
+      selectedDrawingId,
+      coordinateToTime,
+      coordinateToPrice,
+      currentPrice,
+      isMagnetActive,
+      timeToCoordinate,
+      priceToCoordinate,
+      drawings,
+      isDrawingsLocked,
+      pricePrecision,
+      saveDrawings,
+      getSafeScreenX,
+      getSafeScreenY,
+    ]
+  );
+
+  const processActiveHandleDragRef = useRef(processActiveHandleDrag);
+  processActiveHandleDragRef.current = processActiveHandleDrag;
+
+  // Global window listeners during active dragging to prevent premature drag cancellation (DEC-118)
+  useEffect(() => {
+    if (!draggedHandle) return;
+
+    const onWindowMouseMove = (e: MouseEvent) => {
+      if (e.target !== drawingCanvasRef.current) {
+        processActiveHandleDragRef.current(e.clientX, e.clientY, e.shiftKey);
+      }
+    };
+
+    const onWindowMouseUp = () => {
+      if (draggedHandleRef.current) {
+        if (preDragDrawingsRef.current !== null) {
+          commitHistoryBaseline(preDragDrawingsRef.current, drawingsRef.current);
+          preDragDrawingsRef.current = null;
+        }
+        draggedHandleRef.current = null;
+        setDraggedHandle(null);
+        setDragStartPos(null);
+        dragStartPosRef.current = null;
+      }
+    };
+
+    window.addEventListener("mousemove", onWindowMouseMove);
+    window.addEventListener("mouseup", onWindowMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onWindowMouseMove);
+      window.removeEventListener("mouseup", onWindowMouseUp);
+    };
+  }, [draggedHandle]);
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = drawingCanvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -5466,393 +5945,8 @@ export function TradingViewContainer({
     }
 
     const activeHandle = draggedHandle || draggedHandleRef.current;
-    if (activeHandle && selectedDrawingId && dragStartPos) {
-      const currentDrawings = drawingsRef.current.length > 0 ? drawingsRef.current : drawings;
-      const drawing = currentDrawings.find((d) => d.id === selectedDrawingId);
-      if (drawing && !drawing.isLocked && !isDrawingsLocked) {
-        // 1. Node handles for path or trend_fib
-        if (activeHandle.startsWith("node_")) {
-          const nodeIdx = parseInt(activeHandle.replace("node_", ""), 10);
-          if (drawing.points && !isNaN(nodeIdx) && drawing.points[nodeIdx]) {
-            const updatedPoints = [...drawing.points];
-            updatedPoints[nodeIdx] = { time: effectiveTime, price: effectivePrice };
-            saveDrawings(
-              currentDrawings.map((d) =>
-                d.id === selectedDrawingId
-                  ? {
-                      ...d,
-                      points: updatedPoints,
-                      startTime: updatedPoints[0]?.time ?? d.startTime,
-                      endTime: updatedPoints[updatedPoints.length - 1]?.time ?? d.endTime,
-                      startPrice: updatedPoints[0]?.price ?? d.startPrice,
-                      endPrice: updatedPoints[updatedPoints.length - 1]?.price ?? d.endPrice,
-                    }
-                  : d
-              )
-            );
-          }
-          return;
-        }
-
-        // 2. Rectangle 8 handles (DEC-052, DEC-062)
-        if (activeHandle.startsWith("rect_")) {
-          const hType = activeHandle.replace("rect_", "");
-          let sT = drawing.startTime;
-          let eT = drawing.endTime;
-          let sP = drawing.startPrice;
-          let eP = drawing.endPrice;
-
-          const isStartLeft = dragStartPos.wasStartEarlier ?? (sT <= eT);
-          const isStartTop = dragStartPos.wasStartHigher ?? (sP >= eP);
-
-          if (hType === "tl") {
-            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
-            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
-          } else if (hType === "tr") {
-            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
-            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
-          } else if (hType === "bl") {
-            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
-            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
-          } else if (hType === "br") {
-            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
-            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
-          } else if (hType === "mt") {
-            if (isStartTop) sP = effectivePrice; else eP = effectivePrice;
-          } else if (hType === "mb") {
-            if (isStartTop) eP = effectivePrice; else sP = effectivePrice;
-          } else if (hType === "ml") {
-            if (isStartLeft) sT = effectiveTime; else eT = effectiveTime;
-          } else if (hType === "mr") {
-            if (isStartLeft) eT = effectiveTime; else sT = effectiveTime;
-          }
-
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, startTime: sT, endTime: eT, startPrice: sP, endPrice: eP }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 3. Long / Short Position handles (DEC-054, DEC-065, DEC-100)
-        const posMinBuffer =
-          pricePrecision?.minMove && pricePrecision.minMove > 0
-            ? pricePrecision.minMove
-            : drawing.startPrice > 0
-            ? drawing.startPrice * 0.0001
-            : 0.000001;
-        const posPrecision = pricePrecision?.precision ?? 4;
-        const posMinMove = pricePrecision?.minMove ?? posMinBuffer;
-
-        if (activeHandle === "pos_target") {
-          saveDrawings(
-            currentDrawings.map((d) => {
-              if (d.id !== selectedDrawingId) return d;
-              const isLong = d.type === "long_position";
-              const rawClamped = clampPositionTargetPrice(
-                effectivePrice,
-                d.startPrice,
-                isLong,
-                posMinBuffer
-              );
-              const quantized = quantizePrice(rawClamped, posMinMove, posPrecision);
-              return { ...d, targetPrice: quantized, endPrice: quantized };
-            })
-          );
-          return;
-        }
-        if (activeHandle === "pos_stop") {
-          saveDrawings(
-            currentDrawings.map((d) => {
-              if (d.id !== selectedDrawingId) return d;
-              const isLong = d.type === "long_position";
-              const rawClamped = clampPositionStopPrice(
-                effectivePrice,
-                d.startPrice,
-                isLong,
-                posMinBuffer
-              );
-              const quantized = quantizePrice(rawClamped, posMinMove, posPrecision);
-              return { ...d, stopPrice: quantized };
-            })
-          );
-          return;
-        }
-        if (activeHandle === "pos_entry") {
-          saveDrawings(
-            currentDrawings.map((d) => {
-              if (d.id !== selectedDrawingId) return d;
-              const isLong = d.type === "long_position";
-              const curTarget =
-                d.targetPrice !== undefined
-                  ? d.targetPrice
-                  : isLong
-                  ? d.startPrice * 1.04
-                  : d.startPrice * 0.96;
-              const curStop =
-                d.stopPrice !== undefined
-                  ? d.stopPrice
-                  : isLong
-                  ? d.startPrice * 0.98
-                  : d.startPrice * 1.02;
-              const clamped = clampPositionEntryPrice(
-                effectivePrice,
-                curTarget,
-                curStop,
-                isLong,
-                0.01,
-                posMinBuffer
-              );
-              const quantized = quantizePrice(clamped, posMinMove, posPrecision);
-              return {
-                ...d,
-                startPrice: quantized,
-                targetPrice: curTarget,
-                stopPrice: curStop,
-              };
-            })
-          );
-          return;
-        }
-        if (activeHandle === "pos_width") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, endTime: effectiveTime }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 4. Circle handles
-        if (activeHandle === "circle_center") {
-          const dt = effectiveTime - drawing.startTime;
-          const dp = effectivePrice - drawing.startPrice;
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? {
-                    ...d,
-                    startTime: effectiveTime,
-                    startPrice: effectivePrice,
-                    endTime: d.endTime + dt,
-                    endPrice: d.endPrice + dp,
-                  }
-                : d
-            )
-          );
-          return;
-        }
-        if (activeHandle === "circle_radius") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, endTime: effectiveTime, endPrice: effectivePrice }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 5. Date Range handles
-        if (activeHandle === "dr_start") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId ? { ...d, startTime: effectiveTime } : d
-            )
-          );
-          return;
-        }
-        if (activeHandle === "dr_end") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId ? { ...d, endTime: effectiveTime } : d
-            )
-          );
-          return;
-        }
-
-        // 6. Horizontal & Vertical Line handles
-        if (activeHandle === "h_center") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, startPrice: effectivePrice, endPrice: effectivePrice }
-                : d
-            )
-          );
-          return;
-        }
-        if (activeHandle === "v_center") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, startTime: effectiveTime, endTime: effectiveTime }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 7. Standard start & end handles with Shift angle snap (DEC-116)
-        if (activeHandle === "start") {
-          let sTime = effectiveTime;
-          let sPrice = effectivePrice;
-          if (
-            e.shiftKey &&
-            (drawing.type === "trendline" ||
-              drawing.type === "fibonacci" ||
-              drawing.type === "date_range")
-          ) {
-            const anchorX = getSafeScreenX(drawing.endTime);
-            const anchorY = getSafeScreenY(drawing.endPrice);
-            const snapped = calculateShiftAngleSnap(
-              x,
-              y,
-              anchorX,
-              anchorY,
-              drawing.endTime,
-              drawing.endPrice,
-              coordinateToTime,
-              coordinateToPrice
-            );
-            sTime = snapped.time;
-            sPrice = snapped.price;
-          }
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, startTime: sTime, startPrice: sPrice }
-                : d
-            )
-          );
-          return;
-        }
-        if (activeHandle === "end") {
-          let eTime = effectiveTime;
-          let ePrice = effectivePrice;
-          if (
-            e.shiftKey &&
-            (drawing.type === "trendline" ||
-              drawing.type === "fibonacci" ||
-              drawing.type === "date_range")
-          ) {
-            const anchorX = getSafeScreenX(drawing.startTime);
-            const anchorY = getSafeScreenY(drawing.startPrice);
-            const snapped = calculateShiftAngleSnap(
-              x,
-              y,
-              anchorX,
-              anchorY,
-              drawing.startTime,
-              drawing.startPrice,
-              coordinateToTime,
-              coordinateToPrice
-            );
-            eTime = snapped.time;
-            ePrice = snapped.price;
-          }
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, endTime: eTime, endPrice: ePrice }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 7.5 Gann Box corner handles (DEC-087)
-        if (activeHandle === "gann_bl") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, startTime: effectiveTime, endPrice: effectivePrice }
-                : d
-            )
-          );
-          return;
-        }
-        if (activeHandle === "gann_tr") {
-          saveDrawings(
-            currentDrawings.map((d) =>
-              d.id === selectedDrawingId
-                ? { ...d, endTime: effectiveTime, startPrice: effectivePrice }
-                : d
-            )
-          );
-          return;
-        }
-
-        // 8. Body translation with Shift axis lock (DEC-116)
-        if (activeHandle === "body") {
-          let deltaPrice =
-            effectivePrice - (coordinateToPrice(dragStartPos.y) || dragStartPos.startPrice);
-          const startCoordTime = coordinateToTime(dragStartPos.x) || dragStartPos.startTime;
-          let deltaTime = effectiveTime - startCoordTime;
-
-          if (e.shiftKey) {
-            const locked = calculateShiftAxisLock(
-              x,
-              y,
-              dragStartPos.x,
-              dragStartPos.y,
-              deltaTime,
-              deltaPrice
-            );
-            deltaTime = locked.deltaTime;
-            deltaPrice = locked.deltaPrice;
-          }
-
-          if ((drawing.type === "path" || drawing.type === "trend_fib") && dragStartPos.points) {
-            const translatedPoints = dragStartPos.points.map((pt) => ({
-              time: pt.time + deltaTime,
-              price: pt.price + deltaPrice,
-            }));
-            saveDrawings(
-              currentDrawings.map((d) =>
-                d.id === selectedDrawingId
-                  ? {
-                      ...d,
-                      points: translatedPoints,
-                      startTime: dragStartPos.startTime + deltaTime,
-                      endTime: dragStartPos.endTime + deltaTime,
-                      startPrice: dragStartPos.startPrice + deltaPrice,
-                      endPrice: dragStartPos.endPrice + deltaPrice,
-                    }
-                  : d
-              )
-            );
-          } else {
-            saveDrawings(
-              currentDrawings.map((d) =>
-                d.id === selectedDrawingId
-                  ? {
-                      ...d,
-                      startTime: dragStartPos.startTime + deltaTime,
-                      endTime: dragStartPos.endTime + deltaTime,
-                      startPrice: dragStartPos.startPrice + deltaPrice,
-                      endPrice: dragStartPos.endPrice + deltaPrice,
-                      targetPrice:
-                        dragStartPos.targetPrice !== undefined
-                          ? dragStartPos.targetPrice + deltaPrice
-                          : undefined,
-                      stopPrice:
-                        dragStartPos.stopPrice !== undefined
-                          ? dragStartPos.stopPrice + deltaPrice
-                          : undefined,
-                    }
-                  : d
-              )
-            );
-          }
-          return;
-        }
-      }
+    if (activeHandle && selectedDrawingId && (dragStartPos || dragStartPosRef.current)) {
+      processActiveHandleDrag(e.clientX, e.clientY, e.shiftKey);
       return;
     }
 
@@ -6189,28 +6283,34 @@ export function TradingViewContainer({
         const validY2 = y2 !== null ? y2 : y1;
         let top = Math.max(40, Math.min(y1, validY2) - 40);
 
-        // For position tools, ensure toolbar is positioned above the topmost boundary line (DEC-100)
+        // For position tools, ensure toolbar is positioned above the topmost boundary line (DEC-100, DEC-118)
         if (selectedDrawing.type === "long_position" || selectedDrawing.type === "short_position") {
           const isLong = selectedDrawing.type === "long_position";
           const tp =
             selectedDrawing.targetPrice !== undefined
               ? selectedDrawing.targetPrice
               : isLong
-              ? selectedDrawing.startPrice * 1.04
-              : selectedDrawing.startPrice * 0.96;
+              ? selectedDrawing.startPrice * 1.02
+              : selectedDrawing.startPrice * 0.98;
           const sl =
             selectedDrawing.stopPrice !== undefined
               ? selectedDrawing.stopPrice
               : isLong
-              ? selectedDrawing.startPrice * 0.98
-              : selectedDrawing.startPrice * 1.02;
+              ? selectedDrawing.startPrice * 0.99
+              : selectedDrawing.startPrice * 1.01;
           const ytp = getSafeScreenY(tp);
           const ysl = getSafeScreenY(sl);
           const candidates = [y1];
           if (ytp !== null) candidates.push(ytp);
           if (ysl !== null) candidates.push(ysl);
           const highestY = Math.min(...candidates);
-          top = Math.max(36, highestY - 42);
+          const lowestY = Math.max(...candidates);
+          const height = rect?.height || 600;
+          if (highestY > 52) {
+            top = highestY - 42;
+          } else {
+            top = Math.min(height - 50, lowestY + 16);
+          }
         }
 
         const left = Math.max(12, Math.min(width - 180, (validX1 + validX2) / 2 - 80));
@@ -6648,11 +6748,6 @@ export function TradingViewContainer({
                 setIsHoveringDrawing(false);
                 setHoveredHandle(null);
                 setMousePos(null);
-                if (draggedHandle || draggedHandleRef.current) {
-                  setDraggedHandle(null);
-                  draggedHandleRef.current = null;
-                  setDragStartPos(null);
-                }
                 renderDrawingCanvas();
               }}
               className="w-full h-full absolute inset-0 z-10"
@@ -6662,11 +6757,17 @@ export function TradingViewContainer({
               }}
             />
 
-            {/* Floating Action Pill for Selected Drawing (DEC-043 & DEC-048) */}
+            {/* Floating Action Pill for Selected Drawing (DEC-043, DEC-048 & DEC-118) */}
             {selectedDrawing && floatingToolbarPos && !isDrawingsHidden && (
               <div
-                style={{ top: floatingToolbarPos.y, left: floatingToolbarPos.x }}
-                className="absolute z-30 flex items-center gap-1.5 bg-surface-container-lowest/95 border border-border px-2 py-1 rounded-md shadow-xl backdrop-blur-md text-xs font-mono"
+                style={{
+                  top: floatingToolbarPos.y,
+                  left: floatingToolbarPos.x,
+                  pointerEvents: (draggedHandle || draggedHandleRef.current) ? "none" : "auto",
+                }}
+                className={`absolute z-30 flex items-center gap-1.5 bg-surface-container-lowest/95 border border-border px-2 py-1 rounded-md shadow-xl backdrop-blur-md text-xs font-mono select-none ${
+                  (draggedHandle || draggedHandleRef.current) ? "opacity-30 pointer-events-none" : ""
+                }`}
               >
                 {/* 1-Click Execute Paper Trade from Long/Short Position Drawing (DEC-072) */}
                 {(selectedDrawing.type === "long_position" ||
