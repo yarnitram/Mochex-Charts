@@ -119,10 +119,22 @@ export function computeUnmitigatedFvgs(
     }
   }
 
-  // Extend active zones' endTime to the latest bar's time
+  // Extend recent active zones' endTime to the latest bar's time; cap older historical unmitigated zones locally
   const latestTime = bars[bars.length - 1].time;
-  for (const zone of activeZones) {
-    zone.endTime = latestTime;
+  const bullZones = activeZones.filter((z) => z.type === "BULLISH");
+  const bearZones = activeZones.filter((z) => z.type === "BEARISH");
+  const recentBull = bullZones.slice(-4);
+  const recentBear = bearZones.slice(-4);
+
+  for (const zone of bullZones) {
+    zone.endTime = recentBull.includes(zone)
+      ? latestTime
+      : bars[Math.min(bars.length - 1, zone.createdIndex + 25)].time;
+  }
+  for (const zone of bearZones) {
+    zone.endTime = recentBear.includes(zone)
+      ? latestTime
+      : bars[Math.min(bars.length - 1, zone.createdIndex + 25)].time;
   }
 
   return activeZones;

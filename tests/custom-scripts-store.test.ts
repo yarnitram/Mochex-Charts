@@ -285,7 +285,7 @@ describe("CustomScriptsStore", () => {
 
     expect(res.success).toBe(true);
     expect(Array.isArray(res.boxes)).toBe(true);
-    expect(res.data?.length).toBe(bars.length);
+    expect(res.data).toEqual([]);
   });
 
   it("seeds and executes DEFAULT_PHANTOM_CONTINUATION_SCRIPT (MOD-05) returning POI boxes", async () => {
@@ -323,7 +323,7 @@ describe("CustomScriptsStore", () => {
 
     expect(res.success).toBe(true);
     expect(Array.isArray(res.boxes)).toBe(true);
-    expect(res.data?.length).toBe(bars.length);
+    expect(res.data).toEqual([]);
   });
 
   it("seeds and executes DEFAULT_PHANTOM_RISK_SCRIPT (MOD-06) returning 50% Mean Threshold POIs", async () => {
@@ -486,5 +486,145 @@ describe("CustomScriptsStore", () => {
     expect(demandBox).toBeDefined();
     expect(demandBox!.endTime).toBe(6000);
     expect(demandBox!.label).toBe("Demand (Mitigated)");
+  });
+
+  it("caps mitigated zones across MOD-02 Flip, MOD-03 IDM, MOD-05 Continuation, MOD-06 Risk, MOD-07 Breaker, and OB scripts", async () => {
+    const {
+      DEFAULT_OB_SCRIPT,
+      DEFAULT_PHANTOM_FLIP_SCRIPT,
+      DEFAULT_PHANTOM_RISK_SCRIPT,
+      DEFAULT_PHANTOM_BREAKER_SCRIPT,
+      getCustomScripts,
+    } = await import("../src/lib/indicators/custom-scripts-store");
+    const { indicatorSandbox } = await import("../src/lib/indicators/sandbox");
+
+    // 1. Verify localStorage migration from v6 to v7 for all Phantom modules
+    const outdatedSuite = [
+      {
+        id: "script-phantom-flip",
+        name: "Phantom SMC S2D & D2S Flips (v6)",
+        description: "Old flip",
+        code: "function calculate(bars) { for (const f of flipZones) if (!f.invalidated) f.endTime = latestTime; }",
+        type: "indicator",
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: "script-phantom-idm",
+        name: "Phantom SMC Inducement Sweeps (v6)",
+        description: "Old idm",
+        code: "function calculate(bars) { for (const d of extremeDemands) if (!d.isInvalidated) d.endTime = latestTime; }",
+        type: "indicator",
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: "script-phantom-risk",
+        name: "Phantom SMC Aggressive Risk Entry (v6)",
+        description: "Old risk",
+        code: "function calculate(bars) { for (const poi of pois) if (!poi.isInvalidated) poi.endTime = latestTime; }",
+        type: "indicator",
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+    (globalThis as any).localStorage.setItem("mochex:custom_scripts", JSON.stringify(outdatedSuite));
+    const upgraded = getCustomScripts();
+    expect(upgraded.find((s) => s.id === "script-phantom-flip")?.name).toContain("(v7)");
+    expect(upgraded.find((s) => s.id === "script-phantom-idm")?.name).toContain("(v7)");
+    expect(upgraded.find((s) => s.id === "script-phantom-risk")?.name).toContain("(v7)");
+
+    // 2. Verify Order Block mitigation capping
+    const obBars = [
+      { time: 1000, open: 100, high: 105, low: 98, close: 102, volume: 50 },
+      { time: 2000, open: 102, high: 103, low: 95, close: 96, volume: 150 }, // Bearish OB (95 - 102)
+      { time: 3000, open: 96, high: 115, low: 96, close: 114, volume: 180 },  // Expansion 1
+      { time: 4000, open: 114, high: 125, low: 112, close: 122, volume: 120 }, // Expansion 2
+      { time: 5000, open: 122, high: 124, low: 100, close: 118, volume: 100 }, // Taps OB (low 100 <= top 102) at time 5000!
+      { time: 6000, open: 118, high: 130, low: 116, close: 128, volume: 100 },
+      { time: 7000, open: 128, high: 135, low: 125, close: 134, volume: 100 }, // Present price (7000)
+    ];
+    const obRes = await indicatorSandbox.execute({
+      scriptId: "ob-cap-test",
+      code: DEFAULT_OB_SCRIPT,
+      bars: obBars,
+      inputs: { lookback: 2, volMultiplier: 1.0, minBodyPct: 0.001 },
+    });
+    expect(obRes.success).toBe(true);
+    expect(obRes.data).toEqual([]);
+    expect(obRes.boxes![0].endTime).toBe(5000);
+    expect(obRes.boxes![0].label).toContain("Mitigated");
+
+    // 3. Verify MOD-02 Flip Zone mitigation capping
+    const flipBars = [
+      { time: 1000, open: 100, high: 105, low: 95, close: 100, volume: 50 },
+      { time: 2000, open: 100, high: 120, low: 98, close: 102, volume: 80 },  // Supply candidate high 120
+      { time: 3000, open: 102, high: 103, low: 90, close: 91, volume: 150 },  // Bearish impulse
+      { time: 4000, open: 91, high: 95, low: 88, close: 93, volume: 100 },     // Base candle (88 - 93)
+      { time: 5000, open: 93, high: 130, low: 92, close: 128, volume: 250 },   // Breakout above 120 -> S2D Flip created
+      { time: 6000, open: 128, high: 129, low: 91, close: 96, volume: 110 },   // Pullback tapping S2D flip base at time 6000!
+      { time: 7000, open: 96, high: 135, low: 95, close: 132, volume: 160 },
+      { time: 8000, open: 132, high: 145, low: 130, close: 142, volume: 100 },
+      { time: 9000, open: 142, high: 150, low: 140, close: 148, volume: 100 },
+      { time: 10000, open: 148, high: 155, low: 145, close: 152, volume: 100 },
+    ];
+    const flipRes = await indicatorSandbox.execute({
+      scriptId: "flip-cap-test",
+      code: DEFAULT_PHANTOM_FLIP_SCRIPT,
+      bars: flipBars,
+      inputs: { minDisplacementPct: 0.001, rrTP1: 3.0, rrTP2: 5.0, showPositionTool: true },
+    });
+    expect(flipRes.success).toBe(true);
+    expect(flipRes.data).toEqual([]);
+    const s2dBox = flipRes.boxes!.find((b) => b.type === "S2D_FLIP");
+    expect(s2dBox).toBeDefined();
+    expect(s2dBox!.endTime).toBe(6000);
+    expect(s2dBox!.label).toBe("S2D Flip (Mitigated)");
+
+    // 4. Verify MOD-06 Risk Entry 50% Mean Threshold fill capping
+    const riskBars = [
+      { time: 1000, open: 100, high: 105, low: 95, close: 100, volume: 50 },
+      { time: 2000, open: 100, high: 102, low: 90, close: 92, volume: 80 },    // c2 swept low (90 - 100, MT 50% = 95)
+      { time: 3000, open: 92, high: 110, low: 92, close: 108, volume: 150 },   // c1 bullish
+      { time: 4000, open: 108, high: 120, low: 105, close: 118, volume: 200 }, // c0 FVG (105 > 102)
+      { time: 5000, open: 118, high: 122, low: 94, close: 110, volume: 120 },  // Taps 95 MT at time 5000!
+      { time: 6000, open: 110, high: 135, low: 108, close: 132, volume: 220 },
+      { time: 7000, open: 132, high: 145, low: 130, close: 140, volume: 100 }, // Present price (7000)
+    ];
+    const riskRes = await indicatorSandbox.execute({
+      scriptId: "risk-cap-test",
+      code: DEFAULT_PHANTOM_RISK_SCRIPT,
+      bars: riskBars,
+      inputs: { minFvgPct: 0.001, meanThresholdRatio: 0.5, rrTP1: 3.0, rrTP2: 5.0, showPositionTool: true },
+    });
+    expect(riskRes.success).toBe(true);
+    expect(riskRes.data).toEqual([]);
+    const riskPoi = riskRes.boxes!.find((b) => String(b.id).startsWith("poi-risk-dem-"));
+    expect(riskPoi).toBeDefined();
+    expect(riskPoi!.endTime).toBe(5000);
+    expect(riskPoi!.label).toContain("Filled");
+
+    // 5. Verify MOD-07 Breaker Block retest capping
+    const brkBars = [
+      { time: 1000, open: 100, high: 105, low: 95, close: 100, volume: 50 },
+      { time: 2000, open: 95, high: 106, low: 94, close: 105, volume: 80 },   // Bullish base (95 - 106)
+      { time: 3000, open: 105, high: 105, low: 85, close: 88, volume: 150 },  // Bearish expansion (< 94) -> Supply OB created
+      { time: 4000, open: 88, high: 115, low: 87, close: 112, volume: 200 },  // Breaks above 106 -> Converts to Breaker Demand!
+      { time: 5000, open: 112, high: 114, low: 102, close: 110, volume: 120 }, // Retests Breaker Demand (95-106) at time 5000!
+      { time: 6000, open: 110, high: 125, low: 109, close: 122, volume: 100 },
+      { time: 7000, open: 122, high: 135, low: 120, close: 130, volume: 100 }, // Present price (7000)
+    ];
+    const brkRes = await indicatorSandbox.execute({
+      scriptId: "brk-cap-test",
+      code: DEFAULT_PHANTOM_BREAKER_SCRIPT,
+      bars: brkBars,
+      inputs: { minRejectionWickPct: 0.2, rrTP1: 3.0, rrTP2: 5.0, showPositionTool: true },
+    });
+    expect(brkRes.success).toBe(true);
+    expect(brkRes.data).toEqual([]);
+    const brkZone = brkRes.boxes!.find((b) => String(b.id).startsWith("zone-ob-"));
+    expect(brkZone).toBeDefined();
+    expect(brkZone!.endTime).toBe(5000);
+    expect(brkZone!.label).toBe("Breaker Demand (Mitigated)");
   });
 });

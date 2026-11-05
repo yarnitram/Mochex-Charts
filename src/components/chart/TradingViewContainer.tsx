@@ -4004,7 +4004,12 @@ const renderFixedRangeVolumeProfile = useCallback(
     }
 
     // Render Unmitigated Fair Value Gap Rectangles (0% Wick Touch)
-    if (activeFvgZones.length > 0 && !isDrawingsHidden) {
+    const isCustomFvgBoxesActive =
+      customScriptBoxes &&
+      customScriptBoxes.length > 0 &&
+      !isCustomIndicatorHidden &&
+      Boolean(customIndicatorData?.name?.toLowerCase().includes("fvg"));
+    if (activeFvgZones.length > 0 && !isDrawingsHidden && !isCustomFvgBoxesActive) {
       const latestBarTime = barsRef.current[barsRef.current.length - 1]?.time || Date.now();
       const latestX = getSafeScreenX(latestBarTime) || rect.width;
 
@@ -4014,7 +4019,9 @@ const renderFixedRangeVolumeProfile = useCallback(
         const y2 = getSafeScreenY(zone.bottom);
 
         if (x1 !== null && y1 !== null && y2 !== null) {
-          const rightX = Math.max(x1 + 40, latestX);
+          const endCoord = zone.endTime ? getSafeScreenX(zone.endTime) : null;
+          const x2 = endCoord !== null ? endCoord : latestX;
+          const rightX = Math.max(x1 + 24, x2);
           renderRectangle(
             ctx,
             x1,
@@ -4026,7 +4033,7 @@ const renderFixedRangeVolumeProfile = useCallback(
               type: "rectangle",
               startTime: zone.startTime,
               startPrice: zone.top,
-              endTime: latestBarTime,
+              endTime: zone.endTime || latestBarTime,
               endPrice: zone.bottom,
               color: zone.color,
               fillColor: zone.fillColor,
