@@ -150,6 +150,20 @@ export function DateRangeIcon({ size = 16, className = "" }: { size?: number; cl
   );
 }
 
+export function FixedRangeVolumeProfileIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <line x1="2.5" y1="2.5" x2="2.5" y2="13.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="2.5" cy="2.5" r="1.3" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="2.5" cy="13.5" r="1.3" stroke="currentColor" strokeWidth="1.1" />
+      <rect x="4.2" y="3.4" width="4.8" height="1.6" rx="0.4" fill="currentColor" opacity="0.65" />
+      <rect x="4.2" y="5.7" width="7.4" height="1.6" rx="0.4" fill="currentColor" opacity="0.85" />
+      <rect x="4.2" y="8.0" width="10.0" height="1.8" rx="0.4" fill="currentColor" />
+      <rect x="4.2" y="10.5" width="6.2" height="1.6" rx="0.4" fill="currentColor" opacity="0.75" />
+    </svg>
+  );
+}
+
 export function CrosshairIcon({ size = 16 }: { size?: number }) {
   return <Crosshair size={size} />;
 }
@@ -186,6 +200,8 @@ export function getDrawingToolIcon(tool: DrawingToolType, size = 16): React.Reac
       return <ShortPositionIcon size={size} />;
     case "date_range":
       return <DateRangeIcon size={size} />;
+    case "fixed_range_volume_profile":
+      return <FixedRangeVolumeProfileIcon size={size} />;
     default:
       return null;
   }

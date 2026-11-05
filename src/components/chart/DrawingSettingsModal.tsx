@@ -93,6 +93,13 @@ export function DrawingSettingsModal({
   const [riskPercent, setRiskPercent] = useState(1.0);
   const [showLabels, setShowLabels] = useState(true);
 
+  // Fixed Range Volume Profile (FRVP) parameters
+  const [frvpRows, setFrvpRows] = useState(24);
+  const [frvpValueAreaPct, setFrvpValueAreaPct] = useState(70);
+  const [frvpPlacement, setFrvpPlacement] = useState<"left" | "right">("left");
+  const [frvpWidthPct, setFrvpWidthPct] = useState(68);
+  const [frvpPocColor, setFrvpPocColor] = useState("#ff5252");
+
   // Coordinates
   const [startPrice, setStartPrice] = useState(0);
   const [endPrice, setEndPrice] = useState(0);
@@ -176,6 +183,15 @@ export function DrawingSettingsModal({
       );
     }
 
+    if (drawing.type === "fixed_range_volume_profile") {
+      setFrvpRows(drawing.frvpRows || 24);
+      setFrvpValueAreaPct(drawing.frvpValueAreaPct || 70);
+      setFrvpPlacement(drawing.frvpPlacement || "left");
+      setFrvpWidthPct(drawing.frvpWidthPct || 68);
+      setFrvpPocColor(drawing.frvpPocColor || "#ff5252");
+      setShowLabels(drawing.showLabels !== false);
+    }
+
     // Position tool levels (DEC-066)
     if (drawing.type === "long_position" || drawing.type === "short_position") {
       setProfitColor(drawing.profitColor || "#089981");
@@ -222,7 +238,12 @@ export function DrawingSettingsModal({
       stopOpacity: (drawing.type === "long_position" || drawing.type === "short_position") ? stopOpacity : undefined,
       accountSize: (drawing.type === "long_position" || drawing.type === "short_position") ? accountSize : undefined,
       riskPercent: (drawing.type === "long_position" || drawing.type === "short_position") ? riskPercent : undefined,
-      showLabels: (drawing.type === "long_position" || drawing.type === "short_position") ? showLabels : undefined,
+      showLabels: (drawing.type === "long_position" || drawing.type === "short_position" || drawing.type === "fixed_range_volume_profile") ? showLabels : undefined,
+      frvpRows: drawing.type === "fixed_range_volume_profile" ? frvpRows : undefined,
+      frvpValueAreaPct: drawing.type === "fixed_range_volume_profile" ? frvpValueAreaPct : undefined,
+      frvpPlacement: drawing.type === "fixed_range_volume_profile" ? frvpPlacement : undefined,
+      frvpWidthPct: drawing.type === "fixed_range_volume_profile" ? frvpWidthPct : undefined,
+      frvpPocColor: drawing.type === "fixed_range_volume_profile" ? frvpPocColor : undefined,
       fibLevels: (drawing.type === "fibonacci" || drawing.type === "trend_fib") ? fibLevels : undefined,
       text,
       fontSize,
@@ -261,7 +282,12 @@ export function DrawingSettingsModal({
       stopOpacity: (drawing.type === "long_position" || drawing.type === "short_position") ? stopOpacity : undefined,
       accountSize: (drawing.type === "long_position" || drawing.type === "short_position") ? accountSize : undefined,
       riskPercent: (drawing.type === "long_position" || drawing.type === "short_position") ? riskPercent : undefined,
-      showLabels: (drawing.type === "long_position" || drawing.type === "short_position") ? showLabels : undefined,
+      showLabels: (drawing.type === "long_position" || drawing.type === "short_position" || drawing.type === "fixed_range_volume_profile") ? showLabels : undefined,
+      frvpRows: drawing.type === "fixed_range_volume_profile" ? frvpRows : undefined,
+      frvpValueAreaPct: drawing.type === "fixed_range_volume_profile" ? frvpValueAreaPct : undefined,
+      frvpPlacement: drawing.type === "fixed_range_volume_profile" ? frvpPlacement : undefined,
+      frvpWidthPct: drawing.type === "fixed_range_volume_profile" ? frvpWidthPct : undefined,
+      frvpPocColor: drawing.type === "fixed_range_volume_profile" ? frvpPocColor : undefined,
       fibLevels: (drawing.type === "fibonacci" || drawing.type === "trend_fib") ? fibLevels : undefined,
       text,
       fontSize,
@@ -459,6 +485,7 @@ export function DrawingSettingsModal({
   const isExtensionApplicable =
     drawing.type === "trendline" ||
     drawing.type === "rectangle" ||
+    drawing.type === "fixed_range_volume_profile" ||
     isFibTool;
 
   const positionMetrics = isPositionTool
@@ -978,6 +1005,103 @@ export function DrawingSettingsModal({
                       />
                       <span>Show TP/SL Summary Cards & Price Tags</span>
                     </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Fixed Range Volume Profile (FRVP) Settings */}
+              {drawing.type === "fixed_range_volume_profile" && (
+                <div className="pt-3 border-t border-border flex flex-col gap-3">
+                  <span className="text-muted text-[11px] font-semibold uppercase tracking-wider">
+                    Fixed Range Volume Profile (FRVP):
+                  </span>
+                  <div className="grid grid-cols-2 gap-2.5 bg-surface-container-lowest p-2.5 rounded-lg border border-border/60">
+                    <label className="flex flex-col gap-1 text-muted text-[10px]">
+                      <span>Number of Rows ({frvpRows}):</span>
+                      <input
+                        type="range"
+                        min="8"
+                        max="80"
+                        value={frvpRows}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10) || 24;
+                          setFrvpRows(val);
+                          handleLiveChange({ frvpRows: val });
+                        }}
+                        className="accent-primary cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-muted text-[10px]">
+                      <span>Value Area ({frvpValueAreaPct}%):</span>
+                      <input
+                        type="range"
+                        min="40"
+                        max="95"
+                        value={frvpValueAreaPct}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10) || 70;
+                          setFrvpValueAreaPct(val);
+                          handleLiveChange({ frvpValueAreaPct: val });
+                        }}
+                        className="accent-primary cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-muted text-[10px]">
+                      <span>Box Width ({frvpWidthPct}%):</span>
+                      <input
+                        type="range"
+                        min="25"
+                        max="100"
+                        value={frvpWidthPct}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10) || 68;
+                          setFrvpWidthPct(val);
+                          handleLiveChange({ frvpWidthPct: val });
+                        }}
+                        className="accent-primary cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-muted text-[10px]">
+                      <span>Placement:</span>
+                      <select
+                        value={frvpPlacement}
+                        onChange={(e) => {
+                          const val = e.target.value as "left" | "right";
+                          setFrvpPlacement(val);
+                          handleLiveChange({ frvpPlacement: val });
+                        }}
+                        className="bg-surface px-2 py-1 rounded border border-border text-on-surface font-mono text-[11px]"
+                      >
+                        <option value="left">Left to Right</option>
+                        <option value="right">Right to Left</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 px-2.5 bg-surface rounded border border-border/60">
+                    <label className="flex items-center gap-2 text-on-surface cursor-pointer text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked={showLabels}
+                        onChange={(e) => {
+                          setShowLabels(e.target.checked);
+                          handleLiveChange({ showLabels: e.target.checked });
+                        }}
+                        className="accent-primary rounded"
+                      />
+                      <span>Show POC / VAH / VAL Price Labels</span>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted">POC Color:</span>
+                      <input
+                        type="color"
+                        value={frvpPocColor}
+                        onChange={(e) => {
+                          setFrvpPocColor(e.target.value);
+                          handleLiveChange({ frvpPocColor: e.target.value });
+                        }}
+                        className="w-5 h-5 rounded border border-border cursor-pointer bg-transparent"
+                      />
+                    </div>
                   </div>
                 </div>
               )}

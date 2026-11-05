@@ -21,6 +21,7 @@ import {
   LongPositionIcon,
   ShortPositionIcon,
   DateRangeIcon,
+  FixedRangeVolumeProfileIcon,
 } from "./drawing-icons";
 
 interface FavoritesToolbarProps {
@@ -38,6 +39,7 @@ const TOOL_ICONS: Record<DrawingToolType, React.ReactNode> = {
   long_position: <LongPositionIcon size={15} />,
   short_position: <ShortPositionIcon size={15} />,
   date_range: <DateRangeIcon size={15} />,
+  fixed_range_volume_profile: <FixedRangeVolumeProfileIcon size={15} />,
   rectangle: <RectangleIcon size={15} />,
   path: <PathIcon size={15} />,
   circle: <CircleIcon size={15} />,
@@ -57,6 +59,7 @@ const TOOL_NAMES: Record<DrawingToolType, string> = {
   long_position: "Long Position",
   short_position: "Short Position",
   date_range: "Date Range",
+  fixed_range_volume_profile: "Fixed Range Volume Profile",
   rectangle: "Rectangle",
   path: "Path Polyline",
   circle: "Circle",

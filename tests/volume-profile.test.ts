@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { calculateVisibleVolumeProfile } from "../src/lib/indicators/volume-profile";
+import {
+  calculateVisibleVolumeProfile,
+  calculateFixedRangeVolumeProfile,
+} from "../src/lib/indicators/volume-profile";
+import { formatDrawingObjectLabel, ChartDrawing } from "../src/lib/chart/drawing-math";
 import { CandlestickBar } from "../src/lib/mexc/types";
 
-describe("Visible Range Volume Profile (VPVR) Engine (DEC-071)", () => {
+describe("Visible Range & Fixed Range Volume Profile (VPVR & FRVP) Engine (DEC-071, DEC-121)", () => {
   const sampleBars: CandlestickBar[] = [
     { time: 1000, open: 68000, high: 68200, low: 67900, close: 68150, volume: 120 },
     { time: 2000, open: 68150, high: 68500, low: 68100, close: 68450, volume: 300 },
@@ -46,5 +50,47 @@ describe("Visible Range Volume Profile (VPVR) Engine (DEC-071)", () => {
         { time: 1000, open: 100, high: 100, low: 100, close: 100, volume: 50 },
       ])
     ).toBeNull();
+  });
+
+  it("computes Fixed Range Volume Profile (FRVP) for a sliced time interval and reverses start/end timestamps seamlessly", () => {
+    // Slice only bars at time 2000, 3000, 4000 (volumes: 300 + 950 + 820 = 2070)
+    const frvp = calculateFixedRangeVolumeProfile(sampleBars, 4000, 2000, 16, 0.7);
+    expect(frvp).not.toBeNull();
+    if (!frvp) return;
+
+    expect(frvp.barCount).toBe(3);
+    expect(frvp.startTime).toBe(2000);
+    expect(frvp.endTime).toBe(4000);
+    expect(frvp.minLow).toBe(68100);
+    expect(frvp.maxHigh).toBe(68600);
+    expect(frvp.totalVolume).toBeCloseTo(2070, 3);
+    expect(frvp.buckets).toHaveLength(16);
+    expect(frvp.pocPrice).toBeGreaterThanOrEqual(68350);
+    expect(frvp.pocPrice).toBeLessThanOrEqual(68600);
+    expect(frvp.vahPrice).toBeGreaterThanOrEqual(frvp.pocPrice);
+    expect(frvp.valPrice).toBeLessThanOrEqual(frvp.pocPrice);
+  });
+
+  it("snaps Fixed Range Volume Profile to nearest bar when startTime equals endTime during initial click", () => {
+    const frvp = calculateFixedRangeVolumeProfile(sampleBars, 3000, 3000, 10, 0.7);
+    expect(frvp).not.toBeNull();
+    if (!frvp) return;
+
+    expect(frvp.barCount).toBe(1);
+    expect(frvp.totalVolume).toBeCloseTo(950, 3);
+    expect(frvp.minLow).toBe(68350);
+    expect(frvp.maxHigh).toBe(68600);
+  });
+
+  it("formats Fixed Range Volume Profile object tree label properly", () => {
+    const drawing: ChartDrawing = {
+      id: "frvp-1",
+      type: "fixed_range_volume_profile",
+      startTime: 2000,
+      endTime: 5000,
+      startPrice: 68150,
+      endPrice: 68920,
+    };
+    expect(formatDrawingObjectLabel(drawing)).toBe("Fixed Range Volume Profile");
   });
 });

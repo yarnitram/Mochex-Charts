@@ -441,6 +441,11 @@ export default function WorkstationPage() {
 
   const handleApplyIndicator = (name: string) => {
     if (!name) return;
+    if (name === "Fixed Range Volume Profile (FRVP)") {
+      setActiveDrawingTool("fixed_range_volume_profile");
+      setIsIndicatorsModalOpen(false);
+      return;
+    }
     setActiveIndicators((prev) => {
       const isRemoving = prev.includes(name);
       const next = isRemoving ? prev.filter((i) => i !== name) : [...prev, name];

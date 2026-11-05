@@ -11,7 +11,7 @@ import { Activity, ShieldCheck, Layers, Settings, X, Trash2, Lock, Unlock, Setti
 import { DrawingToolType } from "../terminal/DrawingRail";
 import { BacktestPerformance, BacktestTrade } from "@/lib/strategy/types";
 import { PriceAlert, createAlertsFromDrawing } from "@/lib/alerts/alerts-engine";
-import { calculateVisibleVolumeProfile } from "@/lib/indicators/volume-profile";
+import { calculateVisibleVolumeProfile, calculateFixedRangeVolumeProfile } from "@/lib/indicators/volume-profile";
 import { matchChartShortcut, isTypingTarget } from "@/lib/ui/keyboard-shortcuts";
 import {
   PaperAccountState,
@@ -2752,6 +2752,205 @@ export function TradingViewContainer({
     []
   );
 
+const renderFixedRangeVolumeProfile = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      x1: number,
+      x2: number,
+      drawing: ChartDrawing,
+      canvasWidth: number,
+      canvasHeight: number
+    ) => {
+      const leftX = Math.min(x1, x2);
+      const rightX = Math.max(x1, x2);
+      const boxWidth = Math.max(24, rightX - leftX);
+
+      const rows = drawing.frvpRows || 24;
+      const vaPct = (drawing.frvpValueAreaPct || 70) / 100;
+      const placement = drawing.frvpPlacement || "left";
+      const widthPct = (drawing.frvpWidthPct || 68) / 100;
+      const pocColor = drawing.frvpPocColor || "#ff5252";
+      const vaColor = drawing.frvpVaColor || "#2962ff";
+      const borderColor = drawing.color || "#2962ff";
+
+      const frvp = calculateFixedRangeVolumeProfile(
+        barsRef.current,
+        drawing.startTime,
+        drawing.endTime,
+        rows,
+        vaPct
+      );
+
+      if (!frvp || frvp.maxBucketVolume <= 0) {
+        ctx.save();
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(leftX, 0);
+        ctx.lineTo(leftX, canvasHeight);
+        ctx.moveTo(rightX, 0);
+        ctx.lineTo(rightX, canvasHeight);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      const yMaxHigh = getSafeScreenY(frvp.maxHigh);
+      const yMinLow = getSafeScreenY(frvp.minLow);
+      const topY = yMaxHigh !== null && yMinLow !== null ? Math.min(yMaxHigh, yMinLow) : 20;
+      const bottomY = yMaxHigh !== null && yMinLow !== null ? Math.max(yMaxHigh, yMinLow) : canvasHeight - 40;
+      const rangeHeight = Math.max(12, bottomY - topY);
+
+      ctx.save();
+
+      // 1. Background Box & Value Area Shading
+      if (drawing.showBackground !== false) {
+        ctx.fillStyle = "rgba(41, 98, 255, 0.04)";
+        ctx.fillRect(leftX, topY, rightX - leftX, rangeHeight);
+
+        const yVah = getSafeScreenY(frvp.vahPrice);
+        const yVal = getSafeScreenY(frvp.valPrice);
+        if (yVah !== null && yVal !== null) {
+          const vaTop = Math.min(yVah, yVal);
+          const vaHeight = Math.abs(yVal - yVah);
+          ctx.fillStyle = "rgba(41, 98, 255, 0.09)";
+          ctx.fillRect(leftX, vaTop, rightX - leftX, vaHeight);
+        }
+      }
+
+      // 2. Left & Right Vertical Boundary Lines (TradingView FRVP anchors)
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = drawing.lineWidth || 1.5;
+      ctx.beginPath();
+      ctx.moveTo(leftX, topY);
+      ctx.lineTo(leftX, bottomY);
+      ctx.moveTo(rightX, topY);
+      ctx.lineTo(rightX, bottomY);
+      ctx.stroke();
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(41, 98, 255, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(leftX, topY);
+      ctx.lineTo(rightX, topY);
+      ctx.moveTo(leftX, bottomY);
+      ctx.lineTo(rightX, bottomY);
+      ctx.stroke();
+      ctx.restore();
+
+      // 3. Horizontal Volume Histogram Buckets (Buy + Sell split)
+      const maxBarWidth = boxWidth * widthPct;
+      for (const bucket of frvp.buckets) {
+        const yTop = getSafeScreenY(bucket.priceHigh);
+        const yBot = getSafeScreenY(bucket.priceLow);
+        if (yTop === null || yBot === null) continue;
+
+        const bTop = Math.min(yTop, yBot);
+        const bHeight = Math.max(1.5, Math.abs(yBot - yTop) - 0.8);
+        const totalW = (bucket.totalVolume / frvp.maxBucketVolume) * maxBarWidth;
+        const buyW =
+          bucket.totalVolume > 0
+            ? (bucket.buyVolume / bucket.totalVolume) * totalW
+            : 0;
+        const sellW = Math.max(0, totalW - buyW);
+
+        const alpha = bucket.isPoc ? 0.68 : bucket.isValueArea ? 0.46 : 0.18;
+
+        if (placement === "right") {
+          ctx.fillStyle = `rgba(255, 59, 48, ${alpha})`;
+          ctx.fillRect(rightX - sellW, bTop, sellW, bHeight);
+          ctx.fillStyle = `rgba(0, 192, 135, ${alpha})`;
+          ctx.fillRect(rightX - sellW - buyW, bTop, buyW, bHeight);
+          if (bucket.isPoc) {
+            ctx.strokeStyle = "#f59e0b";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(rightX - totalW, bTop, totalW, bHeight);
+          }
+        } else {
+          ctx.fillStyle = `rgba(0, 192, 135, ${alpha})`;
+          ctx.fillRect(leftX, bTop, buyW, bHeight);
+          ctx.fillStyle = `rgba(255, 59, 48, ${alpha})`;
+          ctx.fillRect(leftX + buyW, bTop, sellW, bHeight);
+          if (bucket.isPoc) {
+            ctx.strokeStyle = "#f59e0b";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(leftX, bTop, totalW, bHeight);
+          }
+        }
+      }
+
+      // 4. VAH, VAL, and POC Horizontal Lines & Price Badges
+      const lineEndX = drawing.extendRight ? canvasWidth : rightX;
+      const drawFrvpLevel = (
+        price: number,
+        label: string,
+        color: string,
+        dashed: boolean,
+        lw: number
+      ) => {
+        const y = getSafeScreenY(price);
+        if (y === null || y < 0 || y > canvasHeight) return;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        if (dashed) ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(leftX, y);
+        ctx.lineTo(lineEndX, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (drawing.showLabels !== false) {
+          const fmt = pricePrecision.formatPrice(price);
+          const tagText = `${label} ${fmt}`;
+          ctx.font = "bold 9px monospace";
+          const tw = ctx.measureText(tagText).width + 8;
+          const tx = Math.min(canvasWidth - tw - 70, rightX + 4);
+          ctx.fillStyle = "rgba(10, 20, 31, 0.92)";
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(tx, y - 8, tw, 16, 3);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = color;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(tagText, tx + 4, y + 0.5);
+        }
+        ctx.restore();
+      };
+
+      drawFrvpLevel(frvp.vahPrice, "VAH", vaColor, true, 1.2);
+      drawFrvpLevel(frvp.valPrice, "VAL", vaColor, true, 1.2);
+      drawFrvpLevel(frvp.pocPrice, "POC", pocColor, false, 1.85);
+
+      // 5. Anchor Circles on Left & Right Vertical Boundaries (TradingView style)
+      const anchorPts = [
+        { x: leftX, y: topY },
+        { x: leftX, y: bottomY },
+        { x: rightX, y: topY },
+        { x: rightX, y: bottomY },
+      ];
+      anchorPts.forEach((pt) => {
+        ctx.fillStyle = "#0a141f";
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    },
+    [getSafeScreenY, pricePrecision]
+  );
+
   const renderCircle = useCallback(
     (
       ctx: CanvasRenderingContext2D,
@@ -3232,9 +3431,25 @@ export function TradingViewContainer({
         return;
       }
 
-      // 4. Date Range handles (Left & Right boundary midpoints)
-      if (drawing.type === "date_range") {
-        const midY = (y1 + y2) / 2;
+      // 4. Date Range & Fixed Range Volume Profile handles (Left & Right boundary midpoints)
+      if (drawing.type === "date_range" || drawing.type === "fixed_range_volume_profile") {
+        let midY = (y1 + y2) / 2;
+        if (drawing.type === "fixed_range_volume_profile") {
+          const frvp = calculateFixedRangeVolumeProfile(
+            barsRef.current,
+            drawing.startTime,
+            drawing.endTime,
+            drawing.frvpRows || 24,
+            (drawing.frvpValueAreaPct || 70) / 100
+          );
+          if (frvp) {
+            const yh = getSafeScreenY(frvp.maxHigh);
+            const yl = getSafeScreenY(frvp.minLow);
+            if (yh !== null && yl !== null) {
+              midY = (yh + yl) / 2;
+            }
+          }
+        }
         [{ x: x1, y: midY }, { x: x2, y: midY }].forEach((h) => {
           ctx.fillStyle = "#ffffff";
           ctx.strokeStyle = "#2962ff";
@@ -3494,18 +3709,47 @@ export function TradingViewContainer({
           continue;
         }
 
-        // 7. Date Range handles (Left & Right boundary midpoints)
-        if (d.type === "date_range") {
-          const midY = (y1 + y2) / 2;
-          if (Math.hypot(x - x1, y - midY) <= 9) {
+                // 7. Date Range & Fixed Range Volume Profile handles (Left & Right boundary midpoints)
+        if (d.type === "date_range" || d.type === "fixed_range_volume_profile") {
+          let topY = Math.min(y1, y2);
+          let bottomY = Math.max(y1, y2);
+          if (d.type === "fixed_range_volume_profile") {
+            const frvp = calculateFixedRangeVolumeProfile(
+              barsRef.current,
+              d.startTime,
+              d.endTime,
+              d.frvpRows || 24,
+              (d.frvpValueAreaPct || 70) / 100
+            );
+            if (frvp) {
+              const yh = getSafeScreenY(frvp.maxHigh);
+              const yl = getSafeScreenY(frvp.minLow);
+              if (yh !== null && yl !== null) {
+                topY = Math.min(yh, yl);
+                bottomY = Math.max(yh, yl);
+              }
+            }
+          }
+          const midY = (topY + bottomY) / 2;
+          if (
+            Math.hypot(x - x1, y - midY) <= 10 ||
+            (d.type === "fixed_range_volume_profile" && Math.abs(x - x1) <= 6 && y >= topY - 8 && y <= bottomY + 8)
+          ) {
             return { drawing: d, handle: "dr_start" };
           }
-          if (Math.hypot(x - x2, y - midY) <= 9) {
+          if (
+            Math.hypot(x - x2, y - midY) <= 10 ||
+            (d.type === "fixed_range_volume_profile" && Math.abs(x - x2) <= 6 && y >= topY - 8 && y <= bottomY + 8)
+          ) {
             return { drawing: d, handle: "dr_end" };
           }
           const minX = Math.min(x1, x2);
           const maxX = Math.max(x1, x2);
-          if (x >= minX && x <= maxX) {
+          if (d.type === "fixed_range_volume_profile") {
+            if (x >= minX && x <= maxX && y >= topY - 4 && y <= bottomY + 4) {
+              return { drawing: d, handle: "body" as const };
+            }
+          } else if (x >= minX && x <= maxX) {
             return { drawing: d, handle: "body" as const };
           }
           continue;
@@ -4154,6 +4398,8 @@ export function TradingViewContainer({
           renderCircle(ctx, x1, y1, validX2, validY2, d);
         } else if (d.type === "date_range") {
           renderDateRange(ctx, x1, validX2, d, rect.height);
+        } else if (d.type === "fixed_range_volume_profile") {
+          renderFixedRangeVolumeProfile(ctx, x1, validX2, d, rect.width, rect.height);
         } else if (d.type === "long_position") {
           renderPositionBox(ctx, x1, y1, validX2, d, true);
         } else if (d.type === "short_position") {
@@ -4405,6 +4651,8 @@ export function TradingViewContainer({
           renderCircle(ctx, x1, y1, validX2, validY2, inFlightDrawing);
         } else if (inFlightDrawing.type === "date_range") {
           renderDateRange(ctx, x1, validX2, inFlightDrawing, rect.height);
+        } else if (inFlightDrawing.type === "fixed_range_volume_profile") {
+          renderFixedRangeVolumeProfile(ctx, x1, validX2, inFlightDrawing, rect.width, rect.height);
         } else if (inFlightDrawing.type === "long_position") {
           renderPositionBox(ctx, x1, y1, validX2, inFlightDrawing, true);
         } else if (inFlightDrawing.type === "short_position") {
@@ -4685,6 +4933,7 @@ export function TradingViewContainer({
     renderRectangle,
     renderCircle,
     renderDateRange,
+    renderFixedRangeVolumeProfile,
     renderPositionBox,
     renderTrendFib,
     renderGannBox,
@@ -5401,6 +5650,13 @@ export function TradingViewContainer({
           lineWidth: 2,
           lineStyle: "solid",
           fibLevels: activeDrawingTool === "fibonacci" ? DEFAULT_FIB_LEVELS : undefined,
+          frvpRows: activeDrawingTool === "fixed_range_volume_profile" ? 24 : undefined,
+          frvpValueAreaPct: activeDrawingTool === "fixed_range_volume_profile" ? 70 : undefined,
+          frvpPlacement: activeDrawingTool === "fixed_range_volume_profile" ? "left" : undefined,
+          frvpWidthPct: activeDrawingTool === "fixed_range_volume_profile" ? 68 : undefined,
+          frvpPocColor: activeDrawingTool === "fixed_range_volume_profile" ? "#ff5252" : undefined,
+          frvpVaColor: activeDrawingTool === "fixed_range_volume_profile" ? "#2962ff" : undefined,
+          showLabels: activeDrawingTool === "fixed_range_volume_profile" ? true : undefined,
           isLocked: isDrawingsLocked || false,
         };
         setInFlightDrawing(newDrawing);

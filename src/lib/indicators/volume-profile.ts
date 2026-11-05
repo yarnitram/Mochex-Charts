@@ -21,6 +21,14 @@ export interface VolumeProfileResult {
   totalVolume: number;
 }
 
+export interface FixedRangeVolumeProfileResult extends VolumeProfileResult {
+  startTime: number;
+  endTime: number;
+  minLow: number;
+  maxHigh: number;
+  barCount: number;
+}
+
 /**
  * Computes the TradingView-style Visible Range Volume Profile (VPVR) with
  * Buy/Sell split buckets, Point of Control (POC), Value Area High (VAH), and Value Area Low (VAL) (DEC-071).
@@ -143,5 +151,62 @@ export function calculateVisibleVolumeProfile(
     valPrice: buckets[lowerIdx].priceLow,
     maxBucketVolume,
     totalVolume: grandTotalVolume,
+  };
+}
+
+/**
+ * Computes the TradingView-style Fixed Range Volume Profile (FRVP) for a custom
+ * time interval [startTime, endTime], returning horizontal volume distribution buckets,
+ * Point of Control (POC), Value Area High (VAH), Value Area Low (VAL), and price bounds.
+ */
+export function calculateFixedRangeVolumeProfile(
+  bars: CandlestickBar[],
+  startTime: number,
+  endTime: number,
+  rowCount: number = 24,
+  valueAreaPercent: number = 0.7
+): FixedRangeVolumeProfileResult | null {
+  if (!Array.isArray(bars) || bars.length === 0) return null;
+
+  const tMin = Math.min(startTime, endTime);
+  const tMax = Math.max(startTime, endTime);
+
+  let rangeBars = bars.filter((b) => b.time >= tMin && b.time <= tMax);
+
+  // If the range is narrower than a single bar interval, snap to the nearest bar(s)
+  if (rangeBars.length === 0) {
+    let nearest = bars[0];
+    let minDiff = Math.abs(bars[0].time - tMin);
+    for (const b of bars) {
+      const diff = Math.abs(b.time - tMin);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearest = b;
+      }
+    }
+    rangeBars = [nearest];
+  }
+
+  let minLow = Infinity;
+  let maxHigh = -Infinity;
+  for (const b of rangeBars) {
+    if (Number.isFinite(b.low) && b.low < minLow) minLow = b.low;
+    if (Number.isFinite(b.high) && b.high > maxHigh) maxHigh = b.high;
+  }
+
+  if (!Number.isFinite(minLow) || !Number.isFinite(maxHigh) || maxHigh <= minLow) {
+    return null;
+  }
+
+  const profile = calculateVisibleVolumeProfile(rangeBars, rowCount, valueAreaPercent);
+  if (!profile) return null;
+
+  return {
+    ...profile,
+    startTime: rangeBars[0].time,
+    endTime: rangeBars[rangeBars.length - 1].time,
+    minLow,
+    maxHigh,
+    barCount: rangeBars.length,
   };
 }

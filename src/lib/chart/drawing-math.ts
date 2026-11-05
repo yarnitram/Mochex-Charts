@@ -74,6 +74,17 @@ export interface ChartDrawing {
   riskAmount?: number;
   quantity?: number;
   showLabels?: boolean;
+
+  // Fixed Range Volume Profile (FRVP) Customization
+  frvpRows?: number;
+  frvpValueAreaPct?: number;
+  frvpPlacement?: "left" | "right";
+  frvpWidthPct?: number;
+  frvpUpColor?: string;
+  frvpDownColor?: string;
+  frvpPocColor?: string;
+  frvpVaColor?: string;
+  showDevelopingPoc?: boolean;
 }
 
 export interface FibLevel {
@@ -745,6 +756,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   long_position: "Long Position",
   short_position: "Short Position",
   date_range: "Date Range",
+  fixed_range_volume_profile: "Fixed Range Volume Profile",
   ruler: "Price Range",
 };
 
@@ -763,6 +775,9 @@ export function formatDrawingObjectLabel(drawing: ChartDrawing): string {
     return `${typeLabel} · $${fmt(drawing.startPrice)}`;
   }
   if (drawing.type === "vertical_line") {
+    return `${typeLabel}`;
+  }
+  if (drawing.type === "fixed_range_volume_profile") {
     return `${typeLabel}`;
   }
   if (drawing.type === "text" && drawing.text) {

@@ -142,7 +142,7 @@ const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
     isVerified: true,
     code: DEFAULT_MACD_SCRIPT,
   },
-  {
+    {
     id: "volume-profile-session",
     name: "Volume Profile & Dynamic Point of Control (POC)",
     author: "Mochex Core",
@@ -151,6 +151,18 @@ const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
     rating: 4.9,
     usersCount: "35.1K",
     description: "High-density horizontal volume distribution rendering Value Area High (VAH), Value Area Low (VAL), and POC liquidity nodes.",
+    isVerified: true,
+    code: DEFAULT_STARTER_SCRIPT,
+  },
+  {
+    id: "fixed-range-volume-profile",
+    name: "Fixed Range Volume Profile (FRVP)",
+    author: "Mochex Core",
+    category: "volume",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "41.8K",
+    description: "TradingView-style interactive Fixed Range Volume Profile toolshape: click any two points on the chart to render horizontal Buy/Sell volume bars, POC, VAH, and VAL.",
     isVerified: true,
     code: DEFAULT_STARTER_SCRIPT,
   },
@@ -408,7 +420,7 @@ export function IndicatorsModal({
     { id: "strategies", label: "Quant Strategies", count: 1, icon: <Activity size={14} /> },
     { id: "community", label: "Global Community", count: 2, icon: <Sparkles size={14} /> },
     { id: "builtins", label: "Built-in Overlays", count: 2, icon: <TrendingUp size={14} /> },
-    { id: "volume", label: "Volume Profiles", count: 1, icon: <BarChart2 size={14} /> },
+    { id: "volume", label: "Volume Profiles", count: 2, icon: <BarChart2 size={14} /> },
   ];
 
   const filteredItems = allCatalogItems.filter((item) => {

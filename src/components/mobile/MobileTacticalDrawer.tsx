@@ -15,6 +15,7 @@ import {
   ArrowDownRight,
   Square,
   CalendarRange,
+  BarChart2,
   Magnet,
   Trash2,
 } from "lucide-react";
@@ -57,6 +58,7 @@ export function MobileTacticalDrawer({
     { id: "long_position", label: "Long Pos", icon: <ArrowUpRight size={18} /> },
     { id: "short_position", label: "Short Pos", icon: <ArrowDownRight size={18} /> },
     { id: "date_range", label: "Date Range", icon: <CalendarRange size={18} /> },
+    { id: "fixed_range_volume_profile", label: "Fixed Range VP", icon: <BarChart2 size={18} /> },
     { id: "fibonacci", label: "Fibonacci", icon: <Sliders size={18} /> },
     { id: "brush", label: "Brush", icon: <Brush size={18} /> },
     { id: "text", label: "Annotation", icon: <Type size={18} /> },

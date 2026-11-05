@@ -29,6 +29,7 @@ import {
   LongPositionIcon,
   ShortPositionIcon,
   DateRangeIcon,
+  FixedRangeVolumeProfileIcon,
 } from "./drawing-icons";
 
 export type DrawingToolType =
@@ -39,6 +40,7 @@ export type DrawingToolType =
   | "long_position"
   | "short_position"
   | "date_range"
+  | "fixed_range_volume_profile"
   | "rectangle"
   | "path"
   | "circle"
@@ -129,6 +131,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       { id: "long_position", label: "Long Position", shortcut: "L", icon: <LongPositionIcon size={16} /> },
       { id: "short_position", label: "Short Position", shortcut: "S", icon: <ShortPositionIcon size={16} /> },
       { id: "date_range", label: "Date Range Measure", shortcut: "D", icon: <DateRangeIcon size={16} /> },
+      { id: "fixed_range_volume_profile", label: "Fixed Range Volume Profile", shortcut: "P", icon: <FixedRangeVolumeProfileIcon size={16} /> },
     ],
   },
 ];
