@@ -47,6 +47,7 @@ import {
   saveStoredSandwichSettings,
   SandwichZone,
   SrZone,
+  renderSandwichZones,
 } from "../src/lib/indicators/sandwich";
 import { Bar } from "../src/types/tradingview.d";
 
@@ -669,5 +670,142 @@ describe("Sandwich Zones ++ Indicator Suite", () => {
     expect(retrieved.confluenceMode).toBe("any");
     expect(retrieved.mitigationMode).toBe("halfFill");
     expect(retrieved.plusColor).toBe("#fbc02d");
+  });
+  // 24. Capping of older historical unmitigated zones locally (DEC-127)
+  it("24. caps older historical unmitigated zones locally while extending recent active zones", () => {
+    // Generate 10 consecutive Bearish RGRR patterns
+    const bars: Bar[] = [];
+    let curTime = 100_000;
+    for (let p = 0; p < 8; p++) {
+      const basePrice = 1000 - p * 100;
+      bars.push({ time: curTime, open: basePrice, high: basePrice + 2, low: basePrice - 5, close: basePrice - 4 }); curTime += 60_000; // Red
+      bars.push({ time: curTime, open: basePrice - 4, high: basePrice + 15, low: basePrice - 5, close: basePrice + 10 }); curTime += 60_000; // Green (C2)
+      bars.push({ time: curTime, open: basePrice + 10, high: basePrice + 11, low: basePrice - 15, close: basePrice - 12 }); curTime += 60_000; // Red
+      bars.push({ time: curTime, open: basePrice - 12, high: basePrice - 10, low: basePrice - 25, close: basePrice - 22 }); curTime += 60_000; // Red (C4)
+      // Gap lower
+      bars.push({ time: curTime, open: basePrice - 22, high: basePrice - 20, low: basePrice - 30, close: basePrice - 28 }); curTime += 60_000;
+    }
+
+    const res = computeSandwichEngine({
+      symbol: "BTCUSDT",
+      chartResolution: "1",
+      chartBars: bars,
+      mtfBarsMap: new Map(),
+      settings: DEFAULT_SANDWICH_SETTINGS,
+    });
+
+    const activeBear = res.zones.filter((z) => z.direction === "bearish" && z.status === "active");
+    expect(activeBear.length).toBeGreaterThan(4);
+
+    // Sort descending by confirmedAt
+    const sorted = [...activeBear].sort((a, b) => b.confirmedAt - a.confirmedAt);
+    const recent4 = sorted.slice(0, 4);
+    const older = sorted.slice(4);
+
+    // Recent 4 active zones have no endTime (extend to current price)
+    for (const z of recent4) {
+      expect(z.endTime).toBeUndefined();
+    }
+
+    // Older historical zones have endTime capped locally
+    for (const z of older) {
+      expect(z.endTime).toBeDefined();
+      expect(z.endTime).toBe(z.confirmedAt + 25 * 60_000);
+    }
+  });
+
+  // 25. Canvas overlay renderer strictly starts at Candle 2 and never defaults to 0 (DEC-127)
+  it("25. canvas overlay strictly starts box at Candle 2 and skips when coordinate cannot be resolved", () => {
+    const filledRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      fillRect: (x: number, y: number, w: number, h: number) => {
+        filledRects.push({ x, y, w, h });
+      },
+      strokeRect: () => {},
+      fillText: () => {},
+      measureText: () => ({ width: 40 }),
+      setLineDash: () => {},
+    } as unknown as CanvasRenderingContext2D;
+
+    const mockZone: SandwichZone = {
+      id: "sz_test_1",
+      symbol: "BTCUSDT",
+      timeframe: "current",
+      timeframeLabel: "15M",
+      direction: "bullish",
+      pattern: "GRGG",
+      sourceCandleTime: 1_700_000_000_000, // Candle 2
+      confirmedAt: 1_700_000_180_000,
+      top: 105,
+      bottom: 95,
+      fvgTop: 108,
+      fvgBottom: 100,
+      fvgSize: 8,
+      isPlus: false,
+      matchedSRTimeframes: [],
+      status: "active",
+      mitigationMode: "firstTouch",
+    };
+
+    // 1. When Candle 2 coordinate is valid at x=350, box strictly starts at x=350
+    filledRects.length = 0;
+    renderSandwichZones({
+      ctx: mockCtx,
+      zones: [mockZone],
+      settings: DEFAULT_SANDWICH_SETTINGS,
+      timeToCoordinate: (time) => (time === mockZone.sourceCandleTime ? 350 : 800),
+      priceToCoordinate: (price) => (price === 105 ? 100 : 200),
+      chartWidth: 1000,
+      chartHeight: 600,
+      lastBarTimeMs: 1_700_000_500_000,
+    });
+
+    expect(filledRects.length).toBe(2); // Zone box + label badge pill
+    expect(filledRects[0].x).toBe(350); // Starts at Candle 2
+    expect(filledRects[0].w).toBeGreaterThan(0); // Extends to the right
+
+    // 2. When Candle 2 coordinate is null, box is skipped and NEVER defaults to x=0
+    filledRects.length = 0;
+    renderSandwichZones({
+      ctx: mockCtx,
+      zones: [mockZone],
+      settings: DEFAULT_SANDWICH_SETTINGS,
+      timeToCoordinate: () => null, // Coordinate cannot be resolved
+      priceToCoordinate: () => 100,
+      chartWidth: 1000,
+      chartHeight: 600,
+      lastBarTimeMs: 1_700_000_500_000,
+    });
+
+    // Must NOT draw any box starting at 0
+    expect(filledRects.length).toBe(0);
+
+    // 3. When S/R zone coordinate is null, it also NEVER defaults to x=0
+    filledRects.length = 0;
+    const mockSr: SrZone = {
+      id: "sr_1",
+      timeframe: "1h",
+      type: "support",
+      pivotTime: 1_600_000_000_000,
+      confirmedAt: 1_600_000_180_000,
+      top: 98,
+      bottom: 96,
+      pivotPrice: 97,
+    };
+
+    renderSandwichZones({
+      ctx: mockCtx,
+      zones: [],
+      srZones: [mockSr],
+      settings: { ...DEFAULT_SANDWICH_SETTINGS, enableSr: true, showSrBoxes: true },
+      timeToCoordinate: () => null,
+      priceToCoordinate: () => 100,
+      chartWidth: 1000,
+      chartHeight: 600,
+    });
+
+    expect(filledRects.length).toBe(0);
   });
 });

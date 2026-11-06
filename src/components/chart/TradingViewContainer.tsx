@@ -1982,11 +1982,37 @@ export function TradingViewContainer({
       const coord = chartRef.current.timeScale().timeToCoordinate(utcSec);
       if (coord !== null) return Number(coord);
 
-      // Continuous extrapolation for future whitespace or past history (DEC-045 & DEC-126)
+      // Direct logical search within loaded historical bars or extrapolation (DEC-045, DEC-126 & DEC-127)
       if (barsRef.current.length > 0) {
         const lastBar = barsRef.current[barsRef.current.length - 1];
         const firstBar = barsRef.current[0];
         const intervalMs = getResolutionMs(resolutionRef.current);
+
+        // Binary search within loaded bars for sub-interval or MTF timestamps
+        if (timeMs >= firstBar.time && timeMs <= lastBar.time) {
+          let low = 0;
+          let high = barsRef.current.length - 1;
+          let bestIdx = 0;
+          while (low <= high) {
+            const mid = (low + high) >> 1;
+            if (barsRef.current[mid].time <= timeMs) {
+              bestIdx = mid;
+              low = mid + 1;
+            } else {
+              high = mid - 1;
+            }
+          }
+          const curBar = barsRef.current[bestIdx];
+          const nextIdx = Math.min(barsRef.current.length - 1, bestIdx + 1);
+          const nextBar = barsRef.current[nextIdx];
+          const span = nextBar.time - curBar.time;
+          const frac = span > 0 ? (timeMs - curBar.time) / span : 0;
+          const targetLogical = bestIdx + Math.min(0.99, Math.max(0, frac));
+          const logicalCoord = chartRef.current.timeScale().logicalToCoordinate(targetLogical as any);
+          if (logicalCoord !== null && !isNaN(Number(logicalCoord))) {
+            return Number(logicalCoord);
+          }
+        }
 
         if (intervalMs > 0) {
           if (timeMs >= lastBar.time) {
@@ -1996,7 +2022,7 @@ export function TradingViewContainer({
             if (logicalCoord !== null && !isNaN(Number(logicalCoord))) {
               return Number(logicalCoord);
             }
-          } else {
+          } else if (timeMs < firstBar.time) {
             const deltaBars = (timeMs - firstBar.time) / intervalMs;
             const targetLogical = deltaBars;
             const logicalCoord = chartRef.current.timeScale().logicalToCoordinate(targetLogical as any);

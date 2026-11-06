@@ -55,6 +55,7 @@ export interface SandwichZone {
   status: ZoneStatus;
   mitigatedAt?: number; // Exact timestamp of earliest qualifying mitigation candle
   mitigationMode: MitigationMode;
+  endTime?: number; // Right boundary timestamp (capped locally for historical unmitigated zones)
 }
 
 export interface SandwichSettings {
