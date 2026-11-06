@@ -4155,6 +4155,26 @@ export function getStudioDraft(): { name: string; code: string; scriptId?: strin
   }
 }
 
+export const DEFAULT_SANDWICH_SCRIPT = `/**
+ * Sandwich Zones ++ (Multi-Timeframe)
+ *
+ * Detects 4-candle institutional Sandwich patterns:
+ * - Bearish RGRR: Red-Green-Red-Red with Bearish FVG on GRR (boxes Green Candle #2)
+ * - Bullish GRGG: Green-Red-Green-Green with Bullish FVG on RGG (boxes Red Candle #2)
+ *
+ * Features:
+ * - Multi-Timeframe support across 1m, 5m, 15m, 30m, 1h, 4h, 1d
+ * - Sandwich ++ Confluence upgrade when overlapping confirmed 1H, 4H, 1D S/R levels
+ * - Exact chronological touch mitigation with frozen gray borders
+ */
+function calculate(bars, inputs, ta, strategy, alertcondition) {
+  // Native execution handled by SandwichEngine & renderSandwichZones
+  return bars.map((bar) => ({
+    time: bar.time,
+    value: bar.close,
+  }));
+}`;
+
 export const DEFAULT_MTF_EMA_SCRIPT = `/**
  * MTF EMA — 20/50/100/200
  * Multi-Timeframe Exponential Moving Average Indicator
@@ -4273,8 +4293,10 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
  */
 export function resolveCatalogScriptCode(id?: string, name?: string): string {
   const n = ((id || "") + " " + (name || "")).toLowerCase();
-  if (
-    n.includes("mtf-ema") ||
+  if (n.includes("sandwich") || n.includes("rgrr") || n.includes("grgg")) {
+    return DEFAULT_SANDWICH_SCRIPT;
+  }
+  if (    n.includes("mtf-ema") ||
     n.includes("mtf ema") ||
     (n.includes("mtf") && n.includes("ema")) ||
     (n.includes("multi") && n.includes("timeframe")) ||

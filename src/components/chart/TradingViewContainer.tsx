@@ -55,6 +55,22 @@ import {
 } from "@/lib/indicators/mtf-ema";
 import { MtfEmaSettingsModal } from "./MtfEmaSettingsModal";
 import {
+  SandwichSettings,
+  SandwichZone,
+  DEFAULT_SANDWICH_SETTINGS,
+  getStoredSandwichSettings,
+  saveStoredSandwichSettings,
+  computeSandwichEngine,
+  renderSandwichZones,
+  SandwichTimeframeId,
+  SrTimeframeId,
+  ALL_SANDWICH_TIMEFRAMES,
+  ALL_SR_TIMEFRAMES,
+  isSandwichTimeframeDuplicate,
+  isSandwichTimeframeMatchingChart,
+} from "@/lib/indicators/sandwich";
+import { SandwichSettingsModal } from "./SandwichSettingsModal";
+import {
   ChartDrawing,
   calculateFibLevels,
   calculateTrendFibLevels,
@@ -464,6 +480,24 @@ export function TradingViewContainer({
   useEffect(() => {
     mtfCandlesCacheRef.current.clear();
     setMtfFetchVersion((v) => v + 1);
+  }, [symbol]);
+
+  // Sandwich Zones ++ Settings State
+  const [sandwichSettings, setSandwichSettings] = useState<SandwichSettings>(() => getStoredSandwichSettings());
+  const [isSandwichSettingsOpen, setIsSandwichSettingsOpen] = useState(false);
+  const sandwichMtfBarsRef = useRef<Map<string, Bar[]>>(new Map());
+  const [sandwichFetchVersion, setSandwichFetchVersion] = useState(0);
+
+  useEffect(() => {
+    const handleOpenSandwichSettings = () => setIsSandwichSettingsOpen(true);
+    window.addEventListener("mochex:open-sandwich-settings", handleOpenSandwichSettings);
+    return () => window.removeEventListener("mochex:open-sandwich-settings", handleOpenSandwichSettings);
+  }, []);
+
+  // Clear sandwich MTF candle cache on symbol change
+  useEffect(() => {
+    sandwichMtfBarsRef.current.clear();
+    setSandwichFetchVersion((v) => v + 1);
   }, [symbol]);
 
   // Undo / Redo History Engine Refs (DEC-068)
@@ -4106,6 +4140,84 @@ const renderFixedRangeVolumeProfile = useCallback(
     return seriesList;
   }, [hasMtfEma, mtfEmaSettings, bars, resolution, mtfFetchVersion]);
 
+  const isSandwichHidden =
+    hiddenIndicators.includes("Sandwich Zones ++ (Multi-Timeframe)") ||
+    hiddenIndicators.some((ind) => ind.toLowerCase().includes("sandwich"));
+  const hasSandwich =
+    (activeIndicators.includes("Sandwich Zones ++ (Multi-Timeframe)") ||
+      activeIndicators.some((ind) => ind.toLowerCase().includes("sandwich"))) &&
+    !isSandwichHidden;
+
+  // Multi-Timeframe candle fetcher for Sandwich Zones & S/R
+  useEffect(() => {
+    if (!hasSandwich || !sandwichSettings.showIndicator) return;
+
+    let isMounted = true;
+    const neededTfs = new Set<string>();
+
+    const activeTfs = (Object.keys(sandwichSettings.timeframes) as SandwichTimeframeId[]).filter(
+      (tfId) =>
+        tfId !== "current" &&
+        sandwichSettings.timeframes[tfId] &&
+        !isSandwichTimeframeDuplicate(tfId, resolution, sandwichSettings.timeframes.current)
+    );
+    for (const t of activeTfs) neededTfs.add(t);
+
+    if (sandwichSettings.enableSr) {
+      const srTfs: SrTimeframeId[] = ["1h", "4h", "1d"];
+      for (const srTf of srTfs) {
+        if (sandwichSettings.srTimeframes[srTf] && !isSandwichTimeframeMatchingChart(srTf, resolution)) {
+          neededTfs.add(srTf);
+        }
+      }
+    }
+
+    const missing = Array.from(neededTfs).filter((tfId) => !sandwichMtfBarsRef.current.has(tfId));
+    if (missing.length === 0) return;
+
+    (async () => {
+      for (const tfId of missing) {
+        if (!isMounted) break;
+        try {
+          const meta =
+            ALL_SANDWICH_TIMEFRAMES.find((t) => t.id === tfId) ||
+            ALL_SR_TIMEFRAMES.find((t) => t.id === tfId);
+          if (!meta) continue;
+          const fetchedBars = await mexcClient.getKlines({
+            symbol,
+            resolution: meta.resolution,
+            limit: 500,
+          });
+          if (isMounted && fetchedBars && fetchedBars.length > 0) {
+            sandwichMtfBarsRef.current.set(tfId, fetchedBars);
+            setSandwichFetchVersion((v) => v + 1);
+          }
+        } catch (err) {
+          console.warn("[Sandwich Zones] Failed to fetch candles for " + tfId + ":", err);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasSandwich, sandwichSettings.showIndicator, sandwichSettings.timeframes, sandwichSettings.enableSr, sandwichSettings.srTimeframes, resolution, symbol]);
+
+  // Compute Sandwich Zones & S/R
+  const sandwichResult = useMemo(() => {
+    if (!hasSandwich || !sandwichSettings.showIndicator || bars.length === 0) {
+      return null;
+    }
+    return computeSandwichEngine({
+      symbol,
+      chartResolution: resolution,
+      chartBars: bars,
+      mtfBarsMap: sandwichMtfBarsRef.current,
+      settings: sandwichSettings,
+      tickSize: 0.01,
+    });
+  }, [hasSandwich, sandwichSettings, bars, resolution, symbol, sandwichFetchVersion]);
+
   const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
   const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
 
@@ -4624,6 +4736,21 @@ const renderFixedRangeVolumeProfile = useCallback(
         chartHeight: rect.height,
         barSpacingPx: getBarSpacingPx(),
         currentResolution: resolutionRef.current,
+        lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
+      });
+    }
+
+    // Sandwich Zones ++ Canvas Rendering
+    if (hasSandwich && sandwichResult && sandwichResult.zones.length > 0) {
+      renderSandwichZones({
+        ctx,
+        zones: sandwichResult.zones,
+        srZones: sandwichResult.srZones,
+        settings: sandwichSettings,
+        timeToCoordinate,
+        priceToCoordinate,
+        chartWidth: rect.width,
+        chartHeight: rect.height,
         lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
       });
     }
@@ -7245,6 +7372,44 @@ const renderFixedRangeVolumeProfile = useCallback(
               </div>
             )}
 
+            {hasSandwich && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#ffd700] animate-pulse" />
+                <span className="font-semibold text-on-surface">Sandwich Zones ++</span>
+                {sandwichResult && (
+                  <span className="text-muted text-[9px]">
+                    ({sandwichResult.activeCount} Active · {sandwichResult.mitigatedCount} Mit · {sandwichResult.plusCount} ++)
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onToggleIndicatorVisibility?.("Sandwich Zones ++ (Multi-Timeframe)")}
+                  title={isSandwichHidden ? "Show Sandwich Zones" : "Hide Sandwich Zones"}
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer ml-0.5"
+                >
+                  {isSandwichHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSandwichSettingsOpen(true)}
+                  title="Sandwich Zones Settings"
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer"
+                >
+                  <Settings size={11} />
+                </button>
+                {onToggleIndicator && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleIndicator("Sandwich Zones ++ (Multi-Timeframe)")}
+                    title="Remove Sandwich Zones from chart"
+                    className="text-muted hover:text-error p-0.5 cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {hasMtfEma && (
               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2962ff] animate-pulse" />
@@ -7667,6 +7832,18 @@ const renderFixedRangeVolumeProfile = useCallback(
               onSaveSettings={(newSettings) => {
                 saveStoredMtfEmaSettings(newSettings);
                 setMtfEmaSettings(newSettings);
+                renderDrawingCanvas();
+              }}
+            />
+
+            {/* Sandwich Zones ++ Settings Modal */}
+            <SandwichSettingsModal
+              isOpen={isSandwichSettingsOpen}
+              onClose={() => setIsSandwichSettingsOpen(false)}
+              settings={sandwichSettings}
+              onSaveSettings={(newSettings) => {
+                saveStoredSandwichSettings(newSettings);
+                setSandwichSettings(newSettings);
                 renderDrawingCanvas();
               }}
             />

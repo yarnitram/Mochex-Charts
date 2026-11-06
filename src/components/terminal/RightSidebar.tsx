@@ -1711,6 +1711,14 @@ export function RightSidebar({
                             >
                               <Settings2 size={11} />
                             </button>
+                          ) : indName.toLowerCase().includes("sandwich") || indName.toLowerCase().includes("rgrr") ? (
+                            <button
+                              onClick={() => window.dispatchEvent(new CustomEvent("mochex:open-sandwich-settings"))}
+                              title="Sandwich Zones Settings"
+                              className="p-1 rounded text-muted hover:text-on-surface hover:bg-surface cursor-pointer transition-colors"
+                            >
+                              <Settings2 size={11} />
+                            </button>
                           ) : null}
                           {onToggleIndicatorVisibility && (
                             <button
