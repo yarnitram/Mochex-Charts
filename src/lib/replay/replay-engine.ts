@@ -67,13 +67,18 @@ export class BarReplayEngine {
   }
 
   public getVisibleBars(): Bar[] {
-    if (this.state === "IDLE" || this.cursorIndex < 0) {
+    if (this.state === "IDLE" || this.state === "SELECTING" || this.cursorIndex < 0) {
       return [...this.allBars];
     }
     return this.allBars.slice(0, this.cursorIndex + 1);
   }
 
   public loadHistory(bars: Bar[], targetTimestamp?: number): void {
+    const prevCutoffTime =
+      this.cursorIndex >= 0 && this.cursorIndex < this.allBars.length
+        ? this.allBars[this.cursorIndex].time
+        : null;
+
     this.allBars = [...bars].sort((a, b) => a.time - b.time);
 
     if (targetTimestamp !== undefined && this.state !== "IDLE" && this.allBars.length > 0) {
@@ -96,7 +101,18 @@ export class BarReplayEngine {
       return;
     }
 
-    if (this.cursorIndex >= this.allBars.length) {
+    if (prevCutoffTime !== null && this.allBars.length > 0) {
+      let bestIdx = 0;
+      let minDiff = Infinity;
+      for (let i = 0; i < this.allBars.length; i++) {
+        const diff = Math.abs(this.allBars[i].time - prevCutoffTime);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = i;
+        }
+      }
+      this.cursorIndex = Math.max(0, Math.min(this.allBars.length - 1, bestIdx));
+    } else if (this.cursorIndex >= this.allBars.length) {
       this.cursorIndex = this.allBars.length - 1;
     }
   }

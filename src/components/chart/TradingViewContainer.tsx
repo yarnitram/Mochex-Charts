@@ -735,45 +735,53 @@ export function TradingViewContainer({
             return;
           }
 
-          const merged = mergeAndDeduplicateBars(olderBars, currentBars);
-          const addedCount = merged.length - currentBars.length;
+          const fullBase =
+            replayEngine.getState() !== "IDLE" && replayEngine.getTotalBars() > currentBars.length
+              ? (replayEngine.getAllBars() as CandlestickBar[])
+              : currentBars;
+          const merged = mergeAndDeduplicateBars(olderBars, fullBase);
+          const addedCount = merged.length - fullBase.length;
 
           if (addedCount > 0) {
-            barsRef.current = merged;
-            setBars(merged);
-            onBarsLoadedRef.current?.(merged);
-            if (replayEngine.getState() === "IDLE") {
-              replayEngine.loadHistory(merged as Bar[]);
-            }
+            const prevRange = chart.timeScale().getVisibleLogicalRange();
+            replayEngine.loadHistory(merged as Bar[]);
+
+            const seriesBars =
+              replayEngine.getState() === "PAUSED" || replayEngine.getState() === "PLAYING"
+                ? (replayEngine.getVisibleBars() as CandlestickBar[])
+                : merged;
+
+            barsRef.current = seriesBars;
+            setBars(seriesBars);
+            onBarsLoadedRef.current?.(seriesBars);
 
             // Re-populate series with merged dataset
-            candleSeries.setData(formatCandlestickData(merged));
-            volumeSeries.setData(formatVolumeData(merged));
-            ema20Series.setData(buildEmaLineData(merged, 20));
-            ema50Series.setData(buildEmaLineData(merged, 50));
-            ema100Series.setData(buildEmaLineData(merged, 100));
-            ema200Series.setData(buildEmaLineData(merged, 200));
-            const bbData = buildBollingerBandsData(merged, 20, 2);
+            candleSeries.setData(formatCandlestickData(seriesBars));
+            volumeSeries.setData(formatVolumeData(seriesBars));
+            ema20Series.setData(buildEmaLineData(seriesBars, 20));
+            ema50Series.setData(buildEmaLineData(seriesBars, 50));
+            ema100Series.setData(buildEmaLineData(seriesBars, 100));
+            ema200Series.setData(buildEmaLineData(seriesBars, 200));
+            const bbData = buildBollingerBandsData(seriesBars, 20, 2);
             bbUpperSeries.setData(bbData.upper);
             bbMiddleSeries.setData(bbData.middle);
             bbLowerSeries.setData(bbData.lower);
 
             if (rsiSeriesRef.current) {
-              rsiSeriesRef.current.setData(buildRsiData(merged, rsiPeriod));
+              rsiSeriesRef.current.setData(buildRsiData(seriesBars, rsiPeriod));
             }
             if (macdLineSeriesRef.current && macdSignalSeriesRef.current && macdHistSeriesRef.current) {
-              const macdData = buildMacdData(merged, macdFast, macdSlow, macdSignal);
+              const macdData = buildMacdData(seriesBars, macdFast, macdSlow, macdSignal);
               macdLineSeriesRef.current.setData(macdData.macd);
               macdSignalSeriesRef.current.setData(macdData.signal);
               macdHistSeriesRef.current.setData(macdData.histogram);
             }
 
             // Maintain viewport offset seamlessly without jump
-            const curRange = chart.timeScale().getVisibleLogicalRange();
-            if (curRange) {
+            if (prevRange) {
               chart.timeScale().setVisibleLogicalRange({
-                from: curRange.from + addedCount,
-                to: curRange.to + addedCount,
+                from: prevRange.from + addedCount,
+                to: prevRange.to + addedCount,
               });
             }
           } else {
@@ -856,39 +864,46 @@ export function TradingViewContainer({
           return currentBars;
         }
 
-        const merged = mergeAndDeduplicateBars(olderBars, currentBars);
-        const addedCount = merged.length - currentBars.length;
+        const fullBase =
+          replayEngine.getState() !== "IDLE" && replayEngine.getTotalBars() > currentBars.length
+            ? (replayEngine.getAllBars() as CandlestickBar[])
+            : currentBars;
+        const merged = mergeAndDeduplicateBars(olderBars, fullBase);
+        const addedCount = merged.length - fullBase.length;
 
         if (addedCount > 0) {
-          barsRef.current = merged;
-          setBars(merged);
-          onBarsLoadedRef.current?.(merged);
-          if (replayEngine.getState() === "IDLE") {
-            replayEngine.loadHistory(merged as Bar[]);
-          }
-
           const prevRange = chartRef.current?.timeScale().getVisibleLogicalRange();
+          replayEngine.loadHistory(merged as Bar[]);
 
-          candleSeriesRef.current?.setData(formatCandlestickData(merged));
-          volumeSeriesRef.current?.setData(formatVolumeData(merged));
-          ema20SeriesRef.current?.setData(buildEmaLineData(merged, 20));
-          ema50SeriesRef.current?.setData(buildEmaLineData(merged, 50));
-          ema100SeriesRef.current?.setData(buildEmaLineData(merged, 100));
-          ema200SeriesRef.current?.setData(buildEmaLineData(merged, 200));
-          const bbData = buildBollingerBandsData(merged, 20, 2);
+          const seriesBars =
+            replayEngine.getState() === "PAUSED" || replayEngine.getState() === "PLAYING"
+              ? (replayEngine.getVisibleBars() as CandlestickBar[])
+              : merged;
+
+          barsRef.current = seriesBars;
+          setBars(seriesBars);
+          onBarsLoadedRef.current?.(seriesBars);
+
+          candleSeriesRef.current?.setData(formatCandlestickData(seriesBars));
+          volumeSeriesRef.current?.setData(formatVolumeData(seriesBars));
+          ema20SeriesRef.current?.setData(buildEmaLineData(seriesBars, 20));
+          ema50SeriesRef.current?.setData(buildEmaLineData(seriesBars, 50));
+          ema100SeriesRef.current?.setData(buildEmaLineData(seriesBars, 100));
+          ema200SeriesRef.current?.setData(buildEmaLineData(seriesBars, 200));
+          const bbData = buildBollingerBandsData(seriesBars, 20, 2);
           bbUpperSeriesRef.current?.setData(bbData.upper);
           bbMiddleSeriesRef.current?.setData(bbData.middle);
           bbLowerSeriesRef.current?.setData(bbData.lower);
 
           if (rsiSeriesRef.current) {
-            rsiSeriesRef.current.setData(buildRsiData(merged, rsiPeriod));
+            rsiSeriesRef.current.setData(buildRsiData(seriesBars, rsiPeriod));
           }
           if (
             macdLineSeriesRef.current &&
             macdSignalSeriesRef.current &&
             macdHistSeriesRef.current
           ) {
-            const macdData = buildMacdData(merged, macdFast, macdSlow, macdSignal);
+            const macdData = buildMacdData(seriesBars, macdFast, macdSlow, macdSignal);
             macdLineSeriesRef.current.setData(macdData.macd);
             macdSignalSeriesRef.current.setData(macdData.signal);
             macdHistSeriesRef.current.setData(macdData.histogram);
@@ -1307,21 +1322,51 @@ export function TradingViewContainer({
       onStateChange: (newState) => {
         setReplayState(newState);
         if (newState === "IDLE" || newState === "SELECTING") {
+          if (barsRef.current.length > replayEngine.getTotalBars()) {
+            replayEngine.loadHistory(barsRef.current as Bar[]);
+          }
           const fullBars = replayEngine.getAllBars() as CandlestickBar[];
           if (fullBars.length > 0) {
+            const prevVisibleTimeRange = chartRef.current?.timeScale().getVisibleRange();
+            const prevLogicalRange = chartRef.current?.timeScale().getVisibleLogicalRange();
+            const prevCutoffTime = replayEngine.getCutoffTime();
+
             applyBarsToChartSeries(fullBars);
-            const last = fullBars[fullBars.length - 1];
-            setCurrentPrice(last.close);
-            onPriceUpdateRef.current?.({
-              price: last.close,
-              change:
-                fullBars[0].open > 0
-                  ? ((last.close - fullBars[0].open) / fullBars[0].open) * 100
-                  : 0,
-              high: Math.max(...fullBars.map((b) => b.high)),
-              low: Math.min(...fullBars.map((b) => b.low)),
-              volume: fullBars.reduce((acc, b) => acc + b.volume, 0),
-            });
+
+            if (newState === "SELECTING" && chartRef.current) {
+              // Preserve user's historical viewport when entering "Click Bar to Cut" mode
+              if (prevVisibleTimeRange && prevVisibleTimeRange.from && prevVisibleTimeRange.to) {
+                try {
+                  chartRef.current.timeScale().setVisibleRange(prevVisibleTimeRange);
+                } catch {}
+              } else if (prevCutoffTime) {
+                try {
+                  const resSec = Math.max(60, Math.floor(getResolutionMs(resolutionRef.current) / 1000));
+                  const cutoffSec = Number(toUtcTimestamp(prevCutoffTime));
+                  chartRef.current.timeScale().setVisibleRange({
+                    from: Math.max(Number(toUtcTimestamp(fullBars[0].time)), cutoffSec - 75 * resSec) as any,
+                    to: (cutoffSec + 25 * resSec) as any,
+                  });
+                } catch {}
+              } else if (prevLogicalRange) {
+                try {
+                  chartRef.current.timeScale().setVisibleLogicalRange(prevLogicalRange);
+                } catch {}
+              }
+            } else if (newState === "IDLE") {
+              const last = fullBars[fullBars.length - 1];
+              setCurrentPrice(last.close);
+              onPriceUpdateRef.current?.({
+                price: last.close,
+                change:
+                  fullBars[0].open > 0
+                    ? ((last.close - fullBars[0].open) / fullBars[0].open) * 100
+                    : 0,
+                high: Math.max(...fullBars.map((b) => b.high)),
+                low: Math.min(...fullBars.map((b) => b.low)),
+                volume: fullBars.reduce((acc, b) => acc + b.volume, 0),
+              });
+            }
           }
         }
       },
@@ -1329,6 +1374,21 @@ export function TradingViewContainer({
         setCurrentPrice(replayBar.close);
         const visibleBars = replayEngine.getVisibleBars() as CandlestickBar[];
         applyBarsToChartSeries(visibleBars);
+        if (!isForwardStep && chartRef.current && visibleBars.length > 0) {
+          try {
+            const resSec = Math.max(60, Math.floor(getResolutionMs(resolutionRef.current) / 1000));
+            const cutoffSec = Number(toUtcTimestamp(replayBar.time));
+            const fromSec = Math.max(
+              Number(toUtcTimestamp(visibleBars[0].time)),
+              cutoffSec - 75 * resSec
+            );
+            const toSec = cutoffSec + 25 * resSec;
+            chartRef.current.timeScale().setVisibleRange({
+              from: fromSec as any,
+              to: toSec as any,
+            });
+          } catch {}
+        }
         if (visibleBars.length > 0) {
           onPriceUpdateRef.current?.({
             price: replayBar.close,
@@ -1871,6 +1931,13 @@ export function TradingViewContainer({
       const t = chartRef.current.timeScale().coordinateToTime(x);
       if (t !== null && typeof t === "number") {
         return t * 1000;
+      }
+      const logical = chartRef.current.timeScale().coordinateToLogical(x);
+      if (logical !== null && typeof logical === "number" && barsRef.current.length > 0) {
+        const clampedIdx = Math.max(0, Math.min(barsRef.current.length - 1, Math.round(logical)));
+        if (barsRef.current[clampedIdx]) {
+          return barsRef.current[clampedIdx].time;
+        }
       }
       // Continuous extrapolation for future whitespace or past history (DEC-045)
       if (barsRef.current.length > 0) {
