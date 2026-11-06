@@ -123,4 +123,44 @@ describe("BarReplayEngine State Machine, Scissor-Cut & Intrabar Path (DEC-073)",
     expect(engine.getVisibleBars().length).toBe(6); // bars 0 to 5
     expect(engine.getVisibleBars()[5].time).toBe(3000);
   });
+
+  it("syncs prepended older historical bars during SELECTING and PAUSED states without jumping to present price", () => {
+    // 1. User enters SELECTING ("Click Bar to Cut") and scrolls back into past dates, prepending older bars
+    engine.startSelecting();
+    expect(engine.getState()).toBe("SELECTING");
+
+    const olderAndCurrentBars: Bar[] = [
+      { time: 200, open: 6, high: 7, low: 5, close: 6.5, volume: 70 },
+      { time: 400, open: 6.5, high: 8, low: 6, close: 7.5, volume: 80 },
+      { time: 600, open: 7.5, high: 9, low: 7, close: 8.5, volume: 90 },
+      ...mockBars,
+    ];
+    engine.loadHistory(olderAndCurrentBars);
+    expect(engine.getTotalBars()).toBe(8);
+    expect(engine.getVisibleBars().length).toBe(8);
+
+    // 2. User clicks on a past bar at time 400 to cut
+    engine.setCutoffTime(400);
+    expect(engine.getState()).toBe("PAUSED");
+    expect(engine.getCursorIndex()).toBe(1);
+    expect(engine.getCurrentBar()?.time).toBe(400);
+    expect(engine.getVisibleBars().map((b) => b.time)).toEqual([200, 400]);
+
+    // 3. Even more older bars are backfilled while PAUSED at time 400
+    const deeperBars: Bar[] = [
+      { time: 100, open: 5, high: 6, low: 4, close: 5.5, volume: 60 },
+      ...olderAndCurrentBars,
+    ];
+    engine.loadHistory(deeperBars);
+    expect(engine.getState()).toBe("PAUSED");
+    expect(engine.getCursorIndex()).toBe(2); // Remapped from index 1 to index 2 (still time 400!)
+    expect(engine.getCurrentBar()?.time).toBe(400);
+    expect(engine.getVisibleBars().map((b) => b.time)).toEqual([100, 200, 400]);
+
+    // 4. Re-entering SELECTING ("Click Bar to Cut") preserves cutoff reference at time 400
+    engine.startSelecting();
+    expect(engine.getState()).toBe("SELECTING");
+    expect(engine.getCutoffTime()).toBe(400);
+    expect(engine.getVisibleBars().length).toBe(9);
+  });
 });

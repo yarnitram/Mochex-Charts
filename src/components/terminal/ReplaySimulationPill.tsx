@@ -84,15 +84,9 @@ export function ReplaySimulationPill({ onClose }: ReplaySimulationPillProps) {
   }, [state]);
 
   const handleToggleSelecting = () => {
-    if (state === "SELECTING") {
-      if (cursor >= 0) {
-        replayEngine.setCursorIndex(cursor);
-      } else if (total > 0) {
-        replayEngine.setCursorIndex(Math.max(0, total - 30));
-      }
-    } else {
-      replayEngine.startSelecting();
-    }
+    // Always keep or enter SELECTING mode without jumping to total - 30 (present price)
+    // so users scrolled into past dates stay at their historical viewport to click a candle.
+    replayEngine.startSelecting();
   };
 
   const handlePlayPause = () => {
