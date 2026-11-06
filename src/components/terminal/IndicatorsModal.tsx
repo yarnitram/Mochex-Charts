@@ -40,6 +40,7 @@ import {
   DEFAULT_ADAM_EVE_SCRIPT,
   DEFAULT_HEAD_SHOULDERS_SCRIPT,
   DEFAULT_MTF_EMA_SCRIPT,
+  DEFAULT_SANDWICH_SCRIPT,
   resolveCatalogScriptCode,
 } from "@/lib/indicators/custom-scripts-store";
 import { IndicatorSandbox } from "@/lib/indicators/sandbox";
@@ -59,6 +60,18 @@ export interface IndicatorCatalogItem {
 }
 
 const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
+  {
+    id: "sandwich-zones",
+    name: "Sandwich Zones ++ (Multi-Timeframe)",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "38.2K",
+    description: "4-candle institutional Sandwich pattern engine (Bearish RGRR & Bullish GRGG) with Fair Value Gap filtering, Multi-Timeframe mapping (1m-1D), confirmed Higher-Timeframe S/R confluence upgrades (Sandwich ++ Gold), and exact chronological touch mitigation.",
+    isVerified: true,
+    code: DEFAULT_SANDWICH_SCRIPT,
+  },
   {
     id: "mtf-ema",
     name: "MTF EMA — 20/50/100/200",
