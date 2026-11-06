@@ -4155,6 +4155,31 @@ export function getStudioDraft(): { name: string; code: string; scriptId?: strin
   }
 }
 
+export const DEFAULT_MTF_EMA_SCRIPT = `/**
+ * MTF EMA — 20/50/100/200
+ * Multi-Timeframe Exponential Moving Average Indicator
+ * Supports EMA 20, 50, 100, and 200 across Current, 1m, 5m, 15m, 1h, 2h, 4h, 1d, 1w timeframes.
+ * Features:
+ * - Independent display checkboxes for all timeframes
+ * - Current chart custom colors: EMA 20 (#ffffff), EMA 50 (#2962ff), EMA 100 (#f5ac37), EMA 200 (#ff7043)
+ * - Single custom color per additional timeframe with progressive line thickness (1px -> 4px)
+ * - Step-like Higher Timeframe alignment (zero lookahead bias)
+ * - Optional provisional developing HTF mode
+ * - Right-edge price labels with smart collision avoidance
+ */
+function calculate(bars, inputs, ta, strategy, alertcondition) {
+  const closes = bars.map(b => b.close);
+  const ema20 = ta.ema(closes, 20);
+  const ema50 = ta.ema(closes, 50);
+  const ema100 = ta.ema(closes, 100);
+  const ema200 = ta.ema(closes, 200);
+
+  return bars.map((bar, i) => ({
+    time: bar.time,
+    value: ema20[i] !== undefined ? ema20[i] : bar.close
+  }));
+}`;
+
 export const DEFAULT_EMA_RIBBON_SCRIPT = `/**
  * 4 EMA Ribbon (20, 50, 100, 200)
  * Line Styling:
@@ -4248,6 +4273,15 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
  */
 export function resolveCatalogScriptCode(id?: string, name?: string): string {
   const n = ((id || "") + " " + (name || "")).toLowerCase();
+  if (
+    n.includes("mtf-ema") ||
+    n.includes("mtf ema") ||
+    (n.includes("mtf") && n.includes("ema")) ||
+    (n.includes("multi") && n.includes("timeframe")) ||
+    n.includes("20/50/100/200")
+  ) {
+    return DEFAULT_MTF_EMA_SCRIPT;
+  }
   if (n.includes("adam") || n.includes("eve")) {
     return DEFAULT_ADAM_EVE_SCRIPT;
   }

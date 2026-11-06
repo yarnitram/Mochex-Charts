@@ -35,6 +35,26 @@ import {
 } from "@/lib/indicators/candle-structure";
 import { CandleStructureSettingsModal } from "./CandleStructureSettingsModal";
 import {
+  MtfEmaSettings,
+  MtfEmaSeriesData,
+  MtfTimeframeId,
+  MtfEmaPoint,
+  DEFAULT_MTF_EMA_SETTINGS,
+  getStoredMtfEmaSettings,
+  saveStoredMtfEmaSettings,
+  calculateEma,
+  alignCurrentEmaToChartBars,
+  alignHtfEmaToChartBars,
+  alignLtfEmaToChartBars,
+  isTimeframeDuplicate,
+  getTimeframeMeta,
+  resolutionToMs,
+  aggregate1hTo2hBars,
+  ALL_EMA_PERIODS,
+  renderMtfEma,
+} from "@/lib/indicators/mtf-ema";
+import { MtfEmaSettingsModal } from "./MtfEmaSettingsModal";
+import {
   ChartDrawing,
   calculateFibLevels,
   calculateTrendFibLevels,
@@ -427,6 +447,24 @@ export function TradingViewContainer({
     window.addEventListener("mochex:open-candle-structure-settings", handleOpenCandleSettings);
     return () => window.removeEventListener("mochex:open-candle-structure-settings", handleOpenCandleSettings);
   }, []);
+
+  // Multi-Timeframe EMA 20/50/100/200 Settings & State
+  const [mtfEmaSettings, setMtfEmaSettings] = useState<MtfEmaSettings>(() => getStoredMtfEmaSettings());
+  const [isMtfEmaSettingsOpen, setIsMtfEmaSettingsOpen] = useState(false);
+  const mtfCandlesCacheRef = useRef<Map<string, Bar[]>>(new Map());
+  const [mtfFetchVersion, setMtfFetchVersion] = useState(0);
+
+  useEffect(() => {
+    const handleOpenMtfEmaSettings = () => setIsMtfEmaSettingsOpen(true);
+    window.addEventListener("mochex:open-mtf-ema-settings", handleOpenMtfEmaSettings);
+    return () => window.removeEventListener("mochex:open-mtf-ema-settings", handleOpenMtfEmaSettings);
+  }, []);
+
+  // Clear MTF candle cache on symbol change
+  useEffect(() => {
+    mtfCandlesCacheRef.current.clear();
+    setMtfFetchVersion((v) => v + 1);
+  }, [symbol]);
 
   // Undo / Redo History Engine Refs (DEC-068)
   const drawingsRef = useRef<ChartDrawing[]>([]);
@@ -3918,6 +3956,156 @@ const renderFixedRangeVolumeProfile = useCallback(
     return computeCandleMarketStructure(bars, candleStructureSettings);
   }, [hasCandleStructure, bars, candleStructureSettings]);
 
+  const isMtfEmaHidden =
+    hiddenIndicators.includes("MTF EMA — 20/50/100/200") ||
+    hiddenIndicators.some((ind) => ind.toLowerCase().includes("mtf ema") || ind.toLowerCase().includes("mtf-ema"));
+  const hasMtfEma =
+    (activeIndicators.includes("MTF EMA — 20/50/100/200") ||
+      activeIndicators.some((ind) => ind.toLowerCase().includes("mtf ema") || ind.toLowerCase().includes("mtf-ema"))) &&
+    !isMtfEmaHidden;
+
+  // Multi-Timeframe candle fetcher
+  useEffect(() => {
+    if (!hasMtfEma || !mtfEmaSettings.showIndicator) return;
+
+    let isMounted = true;
+    const activeTfs = (Object.keys(mtfEmaSettings.timeframes) as MtfTimeframeId[]).filter(
+      (tfId) =>
+        tfId !== "current" &&
+        mtfEmaSettings.timeframes[tfId] &&
+        !isTimeframeDuplicate(tfId, resolution, mtfEmaSettings.timeframes.current)
+    );
+
+    const needed = activeTfs.filter((tfId) => !mtfCandlesCacheRef.current.has(tfId));
+    if (needed.length === 0) return;
+
+    (async () => {
+      for (const tfId of needed) {
+        if (!isMounted) break;
+        try {
+          if (tfId === "2h") {
+            const hourlyBars = await mexcClient.getKlines({
+              symbol,
+              resolution: "60",
+              limit: 1000,
+            });
+            if (isMounted && hourlyBars && hourlyBars.length > 0) {
+              const twoHrBars = aggregate1hTo2hBars(hourlyBars);
+              mtfCandlesCacheRef.current.set(tfId, twoHrBars);
+              setMtfFetchVersion((v) => v + 1);
+            }
+          } else {
+            const meta = getTimeframeMeta(tfId);
+            if (!meta) continue;
+            const fetchedBars = await mexcClient.getKlines({
+              symbol,
+              resolution: meta.resolution,
+              limit: 500,
+            });
+            if (isMounted && fetchedBars && fetchedBars.length > 0) {
+              mtfCandlesCacheRef.current.set(tfId, fetchedBars);
+              setMtfFetchVersion((v) => v + 1);
+            }
+          }
+        } catch (err) {
+          console.warn("[MTF EMA] Error fetching candles for " + tfId + ":", err);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasMtfEma, mtfEmaSettings.showIndicator, mtfEmaSettings.timeframes, resolution, symbol]);
+
+  // Compute MTF EMA series data
+  const mtfEmaSeriesList = useMemo<MtfEmaSeriesData[]>(() => {
+    if (!hasMtfEma || !mtfEmaSettings.showIndicator || bars.length === 0) {
+      return [];
+    }
+
+    const seriesList: MtfEmaSeriesData[] = [];
+    const chartDurationMs = resolutionToMs(resolution);
+    const activePeriods = ALL_EMA_PERIODS.filter((p) => mtfEmaSettings.periods[p]);
+    if (activePeriods.length === 0) return [];
+
+    // Current chart EMAs
+    if (mtfEmaSettings.timeframes.current) {
+      const currentCloses = bars.map((b) => b.close);
+      for (const p of activePeriods) {
+        const emaVals = calculateEma(currentCloses, p);
+        const pts = alignCurrentEmaToChartBars(bars, emaVals);
+        const latestVal = pts.length > 0 ? pts[pts.length - 1].value : null;
+        seriesList.push({
+          timeframeId: "current",
+          timeframeLabel: resolution.toUpperCase(),
+          period: p,
+          color: mtfEmaSettings.currentColors[p],
+          lineWidth: mtfEmaSettings.lineWidths[p],
+          points: pts,
+          latestValue: latestVal,
+          label: `${resolution.toUpperCase()} EMA ${p}`,
+          shortLabel: `${resolution.toUpperCase()} E${p}`,
+        });
+      }
+    }
+
+    // Additional Timeframes
+    const tfKeys = (Object.keys(mtfEmaSettings.timeframes) as MtfTimeframeId[]).filter(
+      (k): k is Exclude<MtfTimeframeId, "current"> => k !== "current"
+    );
+
+    for (const tfId of tfKeys) {
+      if (!mtfEmaSettings.timeframes[tfId]) continue;
+      if (isTimeframeDuplicate(tfId, resolution, mtfEmaSettings.timeframes.current)) {
+        continue;
+      }
+
+      const sourceBars = mtfCandlesCacheRef.current.get(tfId);
+      if (!sourceBars || sourceBars.length === 0) continue;
+
+      const meta = getTimeframeMeta(tfId);
+      if (!meta) continue;
+
+      const sourceCloses = sourceBars.map((b) => b.close);
+      const isHtf = meta.durationMs > chartDurationMs;
+
+      for (const p of activePeriods) {
+        const sourceEmaVals = calculateEma(sourceCloses, p);
+        let pts: MtfEmaPoint[] = [];
+
+        if (isHtf) {
+          pts = alignHtfEmaToChartBars(
+            bars,
+            sourceBars,
+            sourceEmaVals,
+            meta.durationMs,
+            p,
+            mtfEmaSettings.showDevelopingHtf
+          );
+        } else {
+          pts = alignLtfEmaToChartBars(bars, chartDurationMs, sourceBars, sourceEmaVals);
+        }
+
+        const latestVal = pts.length > 0 ? pts[pts.length - 1].value : null;
+        const tfLabel = meta.label.split(" ")[0].toUpperCase();
+        seriesList.push({
+          timeframeId: tfId,
+          timeframeLabel: tfLabel,
+          period: p,
+          color: mtfEmaSettings.timeframeColors[tfId],
+          lineWidth: mtfEmaSettings.lineWidths[p],
+          points: pts,
+          latestValue: latestVal,
+          label: `${tfLabel} EMA ${p}`,
+          shortLabel: `${tfLabel} E${p}`,
+        });
+      }
+    }
+
+    return seriesList;
+  }, [hasMtfEma, mtfEmaSettings, bars, resolution, mtfFetchVersion]);
+
   const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
   const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
 
@@ -4422,6 +4610,22 @@ const renderFixedRangeVolumeProfile = useCallback(
           }
         });
       }
+    }
+
+    // MTF EMA — 20/50/100/200 Canvas Rendering
+    if (hasMtfEma && mtfEmaSeriesList.length > 0) {
+      renderMtfEma({
+        ctx,
+        seriesList: mtfEmaSeriesList,
+        settings: mtfEmaSettings,
+        timeToCoordinate,
+        priceToCoordinate,
+        chartWidth: rect.width,
+        chartHeight: rect.height,
+        barSpacingPx: getBarSpacingPx(),
+        currentResolution: resolutionRef.current,
+        lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
+      });
     }
 
     // 1. Render all persistent drawings if not hidden (DEC-040 & DEC-044 & DEC-070)
@@ -7041,6 +7245,40 @@ const renderFixedRangeVolumeProfile = useCallback(
               </div>
             )}
 
+            {hasMtfEma && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2962ff] animate-pulse" />
+                <span className="font-semibold text-on-surface">MTF EMA (20/50/100/200)</span>
+                <span className="text-muted text-[9px]">({mtfEmaSeriesList.length} Lines)</span>
+                <button
+                  type="button"
+                  onClick={() => onToggleIndicatorVisibility?.("MTF EMA — 20/50/100/200")}
+                  title={isMtfEmaHidden ? "Show MTF EMA" : "Hide MTF EMA"}
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer ml-0.5"
+                >
+                  {isMtfEmaHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMtfEmaSettingsOpen(true)}
+                  title="MTF EMA Settings"
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer"
+                >
+                  <Settings size={11} />
+                </button>
+                {onToggleIndicator && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleIndicator("MTF EMA — 20/50/100/200")}
+                    title="Remove MTF EMA from chart"
+                    className="text-muted hover:text-error p-0.5 cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {hasCandleStructure && (
               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#00c087] animate-pulse" />
@@ -7418,6 +7656,18 @@ const renderFixedRangeVolumeProfile = useCallback(
               onSaveSettings={(newSettings) => {
                 saveCandleStructureSettings(newSettings);
                 setCandleStructureSettings(newSettings);
+              }}
+            />
+
+            {/* MTF EMA Settings Modal */}
+            <MtfEmaSettingsModal
+              isOpen={isMtfEmaSettingsOpen}
+              onClose={() => setIsMtfEmaSettingsOpen(false)}
+              settings={mtfEmaSettings}
+              onSaveSettings={(newSettings) => {
+                saveStoredMtfEmaSettings(newSettings);
+                setMtfEmaSettings(newSettings);
+                renderDrawingCanvas();
               }}
             />
 

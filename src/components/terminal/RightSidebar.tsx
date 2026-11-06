@@ -1703,6 +1703,14 @@ export function RightSidebar({
                             >
                               <Settings2 size={11} />
                             </button>
+                          ) : indName.toLowerCase().includes("mtf ema") || indName.toLowerCase().includes("mtf-ema") ? (
+                            <button
+                              onClick={() => window.dispatchEvent(new CustomEvent("mochex:open-mtf-ema-settings"))}
+                              title="MTF EMA Settings"
+                              className="p-1 rounded text-muted hover:text-on-surface hover:bg-surface cursor-pointer transition-colors"
+                            >
+                              <Settings2 size={11} />
+                            </button>
                           ) : null}
                           {onToggleIndicatorVisibility && (
                             <button
