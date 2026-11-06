@@ -39,6 +39,7 @@ import {
   DEFAULT_MACD_SCRIPT,
   DEFAULT_ADAM_EVE_SCRIPT,
   DEFAULT_HEAD_SHOULDERS_SCRIPT,
+  DEFAULT_MTF_EMA_SCRIPT,
   resolveCatalogScriptCode,
 } from "@/lib/indicators/custom-scripts-store";
 import { IndicatorSandbox } from "@/lib/indicators/sandbox";
@@ -58,6 +59,18 @@ export interface IndicatorCatalogItem {
 }
 
 const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
+  {
+    id: "mtf-ema",
+    name: "MTF EMA — 20/50/100/200",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "41.5K",
+    description: "Production-ready Multi-Timeframe EMA suite (20, 50, 100, 200) across 1m, 5m, 15m, 1h, 2h, 4h, 1d, 1w timeframes with step-like HTF alignment, duplicate suppression, independent colors, and smart collision-avoidance labels.",
+    isVerified: true,
+    code: DEFAULT_MTF_EMA_SCRIPT,
+  },
   {
     id: "market-structure-substructure",
     name: "True Market Structure & Substructure",
