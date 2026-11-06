@@ -1974,7 +1974,7 @@ export function TradingViewContainer({
     return 8;
   }, []);
 
-  // Coordinate Projection Helpers (DEC-040 & DEC-045)
+  // Coordinate Projection Helpers (DEC-040, DEC-045, DEC-123 & DEC-126)
   const timeToCoordinate = useCallback(
     (timeMs: number): number | null => {
       if (!chartRef.current) return null;
@@ -1982,11 +1982,32 @@ export function TradingViewContainer({
       const coord = chartRef.current.timeScale().timeToCoordinate(utcSec);
       if (coord !== null) return Number(coord);
 
-      // Continuous extrapolation for future whitespace or past history (DEC-045)
+      // Continuous extrapolation for future whitespace or past history (DEC-045 & DEC-126)
       if (barsRef.current.length > 0) {
         const lastBar = barsRef.current[barsRef.current.length - 1];
-        const lastX = chartRef.current.timeScale().timeToCoordinate(toUtcTimestamp(lastBar.time));
+        const firstBar = barsRef.current[0];
         const intervalMs = getResolutionMs(resolutionRef.current);
+
+        if (intervalMs > 0) {
+          if (timeMs >= lastBar.time) {
+            const deltaBars = (timeMs - lastBar.time) / intervalMs;
+            const targetLogical = (barsRef.current.length - 1) + deltaBars;
+            const logicalCoord = chartRef.current.timeScale().logicalToCoordinate(targetLogical as any);
+            if (logicalCoord !== null && !isNaN(Number(logicalCoord))) {
+              return Number(logicalCoord);
+            }
+          } else {
+            const deltaBars = (timeMs - firstBar.time) / intervalMs;
+            const targetLogical = deltaBars;
+            const logicalCoord = chartRef.current.timeScale().logicalToCoordinate(targetLogical as any);
+            if (logicalCoord !== null && !isNaN(Number(logicalCoord))) {
+              return Number(logicalCoord);
+            }
+          }
+        }
+
+        // Pixel-based extrapolation fallback (DEC-045)
+        const lastX = chartRef.current.timeScale().timeToCoordinate(toUtcTimestamp(lastBar.time));
         const barSpacing = getBarSpacingPx();
         if (lastX !== null && barSpacing > 0 && intervalMs > 0) {
           return extrapolateTimeToCoordinate(timeMs, lastBar.time, Number(lastX), barSpacing, intervalMs);
@@ -2006,12 +2027,24 @@ export function TradingViewContainer({
       }
       const logical = chartRef.current.timeScale().coordinateToLogical(x);
       if (logical !== null && typeof logical === "number" && barsRef.current.length > 0) {
-        const clampedIdx = Math.max(0, Math.min(barsRef.current.length - 1, Math.round(logical)));
-        if (barsRef.current[clampedIdx]) {
-          return barsRef.current[clampedIdx].time;
+        const roundedIdx = Math.round(logical);
+        if (roundedIdx >= 0 && roundedIdx < barsRef.current.length && barsRef.current[roundedIdx]) {
+          return barsRef.current[roundedIdx].time;
+        }
+        const intervalMs = getResolutionMs(resolutionRef.current);
+        if (intervalMs > 0) {
+          if (roundedIdx >= barsRef.current.length) {
+            const deltaBars = logical - (barsRef.current.length - 1);
+            const lastBar = barsRef.current[barsRef.current.length - 1];
+            return Math.round(lastBar.time + deltaBars * intervalMs);
+          }
+          if (roundedIdx < 0) {
+            const firstBar = barsRef.current[0];
+            return Math.round(firstBar.time + logical * intervalMs);
+          }
         }
       }
-      // Continuous extrapolation for future whitespace or past history (DEC-045)
+      // Continuous extrapolation for future whitespace or past history (DEC-045 & DEC-126)
       if (barsRef.current.length > 0) {
         const lastBar = barsRef.current[barsRef.current.length - 1];
         const lastX = chartRef.current.timeScale().timeToCoordinate(toUtcTimestamp(lastBar.time));

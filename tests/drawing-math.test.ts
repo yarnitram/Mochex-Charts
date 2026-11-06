@@ -600,4 +600,76 @@ describe("Geometric Drawing Math Engine (DEC-040 to DEC-055)", () => {
     expect(vertLock.deltaTime).toBe(0); // Time locked
     expect(vertLock.deltaPrice).toBe(45);
   });
+
+  it("should project trendline coordinates and timestamps into future whitespace past the current bar (DEC-126)", () => {
+    const bars = [
+      { time: 1_700_000_000_000, open: 100, high: 105, low: 95, close: 102, volume: 10 },
+      { time: 1_700_060_000_000, open: 102, high: 108, low: 101, close: 106, volume: 15 },
+      { time: 1_700_120_000_000, open: 106, high: 110, low: 104, close: 108, volume: 20 },
+    ];
+    const lastBar = bars[bars.length - 1];
+    const firstBar = bars[0];
+    const intervalMs = 60_000;
+
+    // Simulate projection logic:
+    const projectCoordinateToTime = (logical: number): number => {
+      const roundedIdx = Math.round(logical);
+      if (roundedIdx >= 0 && roundedIdx < bars.length && bars[roundedIdx]) {
+        return bars[roundedIdx].time;
+      }
+      if (intervalMs > 0) {
+        if (roundedIdx >= bars.length) {
+          const deltaBars = logical - (bars.length - 1);
+          return Math.round(lastBar.time + deltaBars * intervalMs);
+        }
+        if (roundedIdx < 0) {
+          return Math.round(firstBar.time + logical * intervalMs);
+        }
+      }
+      return lastBar.time;
+    };
+
+    const projectTimeToLogical = (timeMs: number): number => {
+      if (timeMs >= lastBar.time) {
+        const deltaBars = (timeMs - lastBar.time) / intervalMs;
+        return (bars.length - 1) + deltaBars;
+      } else if (timeMs <= firstBar.time) {
+        const deltaBars = (timeMs - firstBar.time) / intervalMs;
+        return deltaBars;
+      }
+      const deltaBars = (timeMs - firstBar.time) / intervalMs;
+      return deltaBars;
+    };
+
+    // 1. Cursor over historical bar 1 (index 1)
+    expect(projectCoordinateToTime(1)).toBe(bars[1].time);
+
+    // 2. Cursor in future whitespace: 5 bars ahead of last bar (logical = 7)
+    const futureTime = projectCoordinateToTime(7);
+    expect(futureTime).toBe(lastBar.time + 5 * intervalMs);
+    expect(futureTime).toBeGreaterThan(lastBar.time);
+
+    // 3. Round-trip future time back to logical index
+    const roundTripLogical = projectTimeToLogical(futureTime);
+    expect(roundTripLogical).toBe(7);
+
+    // 4. Cursor in past whitespace: 2 bars before first bar (logical = -2)
+    const pastTime = projectCoordinateToTime(-2);
+    expect(pastTime).toBe(firstBar.time - 2 * intervalMs);
+    expect(pastTime).toBeLessThan(firstBar.time);
+
+    // 5. Round-trip past time back to logical index
+    expect(projectTimeToLogical(pastTime)).toBe(-2);
+
+    // 6. Trendline with future end time: verify segment hit test across future coordinates
+    // Trendline starts at bar 0 (x=100, y=100) and extends to future logical=7 (x=500, y=150)
+    const trendlineStartX = 100;
+    const trendlineStartY = 100;
+    const trendlineEndX = 500;
+    const trendlineEndY = 150;
+    // Test point along future segment at x=400 (y = 100 + (150-100)*(300/400) = 137.5)
+    expect(isPointNearSegment(400, 137.5, trendlineStartX, trendlineStartY, trendlineEndX, trendlineEndY, 5)).toBe(true);
+    // Test point far from future segment
+    expect(isPointNearSegment(400, 200, trendlineStartX, trendlineStartY, trendlineEndX, trendlineEndY, 5)).toBe(false);
+  });
 });
