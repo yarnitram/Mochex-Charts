@@ -20,6 +20,7 @@ import {
   SrTimeframeId,
   SrZone,
 } from "./types";
+import { getResolutionMs } from "@/lib/chart/drawing-math";
 import { detectAllSandwichPatterns } from "./detector";
 import { detectSrZones } from "./sr-detector";
 import { applyConfluenceToZones } from "./confluence";
@@ -211,6 +212,31 @@ export function computeSandwichEngine(options: ComputeSandwichOptions): Sandwich
         settings.mitigationMode
       );
       rawZones[z] = updatedZones[0];
+    }
+  }
+
+  // 4.5. Cap older historical unmitigated zones locally (DEC-120, DEC-122 & DEC-127)
+  // Only the 4 most recent unmitigated Bullish and 4 most recent unmitigated Bearish zones
+  // per timeframe project forward to present price; older historical unmitigated zones are capped locally.
+  const activeBull = rawZones.filter((z) => z.direction === "bullish" && z.status === "active");
+  const activeBear = rawZones.filter((z) => z.direction === "bearish" && z.status === "active");
+
+  const maxActiveProjecting = 4;
+  const recentBullish = new Set(
+    [...activeBull].sort((a, b) => b.confirmedAt - a.confirmedAt).slice(0, maxActiveProjecting)
+  );
+  const recentBearish = new Set(
+    [...activeBear].sort((a, b) => b.confirmedAt - a.confirmedAt).slice(0, maxActiveProjecting)
+  );
+
+  for (const z of rawZones) {
+    if (z.status === "active") {
+      const isRecent = z.direction === "bullish" ? recentBullish.has(z) : recentBearish.has(z);
+      if (!isRecent) {
+        const tfMeta = ALL_SANDWICH_TIMEFRAMES.find((t) => t.id === z.timeframe);
+        const resMs = tfMeta ? getResolutionMs(tfMeta.resolution) : getResolutionMs(chartResolution);
+        z.endTime = z.confirmedAt + 25 * resMs;
+      }
     }
   }
 

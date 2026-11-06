@@ -67,9 +67,11 @@ export function renderSandwichZones(params: RenderSandwichParams): void {
       const y1 = priceToCoordinate(sr.top);
       const y2 = priceToCoordinate(sr.bottom);
 
-      if (y1 === null || y2 === null) continue;
-      const startX = x1 !== null ? x1 : 0;
+      if (x1 === null || isNaN(x1) || y1 === null || y2 === null) continue;
+      const startX = x1;
       const endX = defaultRightX;
+      if (endX <= startX) continue;
+      if (endX < 0 || startX > chartWidth + 50) continue;
       const boxW = Math.max(10, endX - startX);
       const boxY = Math.min(y1, y2);
       const boxH = Math.max(2, Math.abs(y2 - y1));
@@ -108,9 +110,10 @@ export function renderSandwichZones(params: RenderSandwichParams): void {
     const yTop = priceToCoordinate(zone.top);
     const yBottom = priceToCoordinate(zone.bottom);
 
-    if (yTop === null || yBottom === null) continue;
+    // Box must strictly start at Candle 2; never default to 0 or left screen edge (DEC-127)
+    if (x1 === null || isNaN(x1) || yTop === null || yBottom === null) continue;
 
-    const startX = x1 !== null ? x1 : 0;
+    const startX = x1;
 
     let endX: number;
     const isMitigated = zone.status === "mitigated";
@@ -118,6 +121,9 @@ export function renderSandwichZones(params: RenderSandwichParams): void {
     if (isMitigated && zone.mitigatedAt) {
       const mitX = timeToCoordinate(zone.mitigatedAt);
       endX = mitX !== null ? mitX : startX + 40;
+    } else if (zone.endTime) {
+      const eX = timeToCoordinate(zone.endTime);
+      endX = eX !== null ? eX : startX + 60;
     } else {
       if (lastBarTimeMs !== undefined) {
         const lastX = timeToCoordinate(lastBarTimeMs);
@@ -126,6 +132,14 @@ export function renderSandwichZones(params: RenderSandwichParams): void {
         endX = defaultRightX;
       }
     }
+
+    // Ensure the box extends to the right of Candle 2
+    if (endX <= startX) {
+      endX = startX + 24;
+    }
+
+    // If completely outside the visible chart viewport, skip rendering
+    if (endX < 0 || startX > chartWidth + 50) continue;
 
     const boxW = Math.max(6, endX - startX);
     const boxY = Math.min(yTop, yBottom);
@@ -184,7 +198,7 @@ export function renderSandwichZones(params: RenderSandwichParams): void {
       const badgeH = 14;
       const badgeW = textW + padX * 2;
 
-      const labelX = Math.max(8, startX + 6);
+      const labelX = Math.max(startX + 6, Math.min(chartWidth - badgeW - 10, startX + 6));
       const labelY = Math.max(14, Math.min(chartHeight - 14, boxY + boxH / 2));
 
       // Draw subtle pill background behind text for maximum legibility
