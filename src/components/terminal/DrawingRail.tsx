@@ -106,10 +106,11 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     groupId: "shapes",
-    name: "Geometric Shapes",
+    name: "Geometric Shapes & Profiles",
     defaultTool: "rectangle",
     variants: [
       { id: "rectangle", label: "Rectangle / Order Block", shortcut: "R", icon: <RectangleIcon size={16} /> },
+      { id: "fixed_range_volume_profile", label: "Fixed Range Volume Profile", shortcut: "P", icon: <FixedRangeVolumeProfileIcon size={16} /> },
       { id: "circle", label: "Circle", shortcut: "C", icon: <CircleIcon size={16} /> },
       { id: "path", label: "Path (Polyline)", shortcut: "W", icon: <PathIcon size={16} /> },
       { id: "brush", label: "Brush (Freehand)", shortcut: "B", icon: <BrushIcon size={16} /> },
@@ -171,6 +172,18 @@ export function DrawingRail({
   const flyoutRef = useRef<HTMLDivElement>(null);
   const trashRef = useRef<HTMLDivElement>(null);
 
+  // Keep active variant synchronized when tool is chosen externally (DEC-128)
+  useEffect(() => {
+    if (activeTool === "fixed_range_volume_profile") {
+      setSelectedVariants((prev) => {
+        if (prev.shapes === "fixed_range_volume_profile" || prev.prediction === "fixed_range_volume_profile") {
+          return prev;
+        }
+        return { ...prev, shapes: "fixed_range_volume_profile" };
+      });
+    }
+  }, [activeTool]);
+
   const isLocked = controlledLocked !== undefined ? controlledLocked : localLocked;
   const isHidden = controlledHidden !== undefined ? controlledHidden : localHidden;
   const isMagnetActive = controlledMagnet !== undefined ? controlledMagnet : localMagnet;
@@ -221,7 +234,15 @@ export function DrawingRail({
           const activeVariantId = selectedVariants[group.groupId] || group.defaultTool;
           const currentVariant =
             group.variants.find((v) => v.id === activeVariantId) || group.variants[0];
-          const isGroupActive = group.variants.some((v) => v.id === activeTool);
+          const isGroupActive =
+            activeTool !== "none" &&
+            (selectedVariants[group.groupId] === activeTool ||
+              (group.variants.some((v) => v.id === activeTool) &&
+                !TOOL_GROUPS.some(
+                  (other) =>
+                    other.groupId !== group.groupId &&
+                    selectedVariants[other.groupId] === activeTool
+                )));
           const isFlyoutOpen = openFlyoutGroupId === group.groupId;
 
           return (

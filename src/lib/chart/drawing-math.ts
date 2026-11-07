@@ -84,6 +84,11 @@ export interface ChartDrawing {
   frvpDownColor?: string;
   frvpPocColor?: string;
   frvpVaColor?: string;
+  frvpVahColor?: string;
+  frvpValColor?: string;
+  frvpShowBackground?: boolean;
+  frvpBackgroundColor?: string;
+  frvpBackgroundOpacity?: number;
   showDevelopingPoc?: boolean;
 }
 

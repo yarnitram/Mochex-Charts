@@ -93,4 +93,50 @@ describe("Visible Range & Fixed Range Volume Profile (VPVR & FRVP) Engine (DEC-0
     };
     expect(formatDrawingObjectLabel(drawing)).toBe("Fixed Range Volume Profile");
   });
+
+  it("supports customized line colors (VAH, POC/POI, VAL) and background shading configuration (DEC-128)", () => {
+    const customFrvpDrawing: ChartDrawing = {
+      id: "frvp-custom",
+      type: "fixed_range_volume_profile",
+      startTime: 2000,
+      endTime: 5000,
+      startPrice: 68150,
+      endPrice: 68920,
+      frvpRows: 48,
+      frvpValueAreaPct: 68,
+      frvpWidthPct: 75,
+      frvpPlacement: "right",
+      frvpPocColor: "#ff007f", // Custom POC / POI color
+      frvpVahColor: "#00e676", // Custom VAH color
+      frvpValColor: "#ff9100", // Custom VAL color
+      frvpShowBackground: true,
+      frvpBackgroundColor: "#1e293b",
+      frvpBackgroundOpacity: 0.25,
+      showLabels: true,
+    };
+
+    expect(customFrvpDrawing.frvpRows).toBe(48);
+    expect(customFrvpDrawing.frvpValueAreaPct).toBe(68);
+    expect(customFrvpDrawing.frvpWidthPct).toBe(75);
+    expect(customFrvpDrawing.frvpPocColor).toBe("#ff007f");
+    expect(customFrvpDrawing.frvpVahColor).toBe("#00e676");
+    expect(customFrvpDrawing.frvpValColor).toBe("#ff9100");
+    expect(customFrvpDrawing.frvpShowBackground).toBe(true);
+    expect(customFrvpDrawing.frvpBackgroundColor).toBe("#1e293b");
+    expect(customFrvpDrawing.frvpBackgroundOpacity).toBe(0.25);
+  });
+
+  it("allows disabling background shading completely (DEC-128)", () => {
+    const noBgFrvpDrawing: ChartDrawing = {
+      id: "frvp-no-bg",
+      type: "fixed_range_volume_profile",
+      startTime: 1000,
+      endTime: 4000,
+      startPrice: 68000,
+      endPrice: 68600,
+      frvpShowBackground: false,
+    };
+
+    expect(noBgFrvpDrawing.frvpShowBackground).toBe(false);
+  });
 });
