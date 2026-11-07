@@ -40,8 +40,9 @@ export function calculateVisibleVolumeProfile(
 ): VolumeProfileResult | null {
   if (!Array.isArray(bars) || bars.length === 0) return null;
 
-  const safeRows = Math.max(4, Math.min(100, Math.floor(rowCount)));
-  const safeVaPct = Math.max(0.1, Math.min(0.99, valueAreaPercent));
+  // Removed artificial 100-row limit to allow high-resolution volume profiles (300+ rows) (DEC-129)
+  const safeRows = Math.max(2, Math.floor(rowCount));
+  const safeVaPct = Math.max(0.01, Math.min(1.0, valueAreaPercent > 1 ? valueAreaPercent / 100 : valueAreaPercent));
 
   let minLow = Infinity;
   let maxHigh = -Infinity;

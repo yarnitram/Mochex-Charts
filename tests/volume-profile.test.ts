@@ -139,4 +139,32 @@ describe("Visible Range & Fixed Range Volume Profile (VPVR & FRVP) Engine (DEC-0
 
     expect(noBgFrvpDrawing.frvpShowBackground).toBe(false);
   });
+
+  it("supports high-resolution volume profiles up to and beyond 300 rows without clamping (DEC-129)", () => {
+    const profile300 = calculateVisibleVolumeProfile(sampleBars, 300, 0.7);
+    expect(profile300).not.toBeNull();
+    if (!profile300) return;
+    expect(profile300.buckets).toHaveLength(300);
+
+    const frvp300 = calculateFixedRangeVolumeProfile(sampleBars, 4000, 2000, 300, 0.7);
+    expect(frvp300).not.toBeNull();
+    if (!frvp300) return;
+    expect(frvp300.buckets).toHaveLength(300);
+  });
+
+  it("supports box width and rows configured to 300% and 300 rows on ChartDrawing (DEC-129)", () => {
+    const drawing300: ChartDrawing = {
+      id: "frvp-300",
+      type: "fixed_range_volume_profile",
+      startTime: 2000,
+      endTime: 5000,
+      startPrice: 68150,
+      endPrice: 68920,
+      frvpRows: 300,
+      frvpWidthPct: 300,
+      frvpValueAreaPct: 70,
+    };
+    expect(drawing300.frvpRows).toBe(300);
+    expect(drawing300.frvpWidthPct).toBe(300);
+  });
 });

@@ -1046,29 +1046,44 @@ export function DrawingSettingsModal({
                     Fixed Range Volume Profile (FRVP) Settings
                   </span>
 
-                  {/* Number of Rows, Value Area %, Box Width %, Placement Inputs */}
+                  {/* Number of Rows, Value Area %, Box Width %, Placement Inputs (DEC-129) */}
                   <div className="grid grid-cols-2 gap-2.5 bg-surface-container-lowest p-2.5 rounded-lg border border-border/60">
                     <div className="flex flex-col gap-1.5 text-muted text-[10px]">
                       <div className="flex items-center justify-between">
                         <span>Number of Rows:</span>
                         <input
                           type="number"
-                          min="4"
-                          max="200"
-                          value={frvpRows}
+                          min="1"
+                          value={frvpRows || ""}
+                          placeholder="24"
                           onChange={(e) => {
-                            const val = Math.max(4, Math.min(200, parseInt(e.target.value, 10) || 24));
-                            setFrvpRows(val);
-                            handleLiveChange({ frvpRows: val });
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setFrvpRows(0);
+                              return;
+                            }
+                            const val = parseInt(raw, 10);
+                            if (!isNaN(val)) {
+                              setFrvpRows(val);
+                              if (val >= 1) {
+                                handleLiveChange({ frvpRows: val });
+                              }
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!frvpRows || frvpRows < 1) {
+                              setFrvpRows(24);
+                              handleLiveChange({ frvpRows: 24 });
+                            }
                           }}
                           className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
                         />
                       </div>
                       <input
                         type="range"
-                        min="4"
-                        max="120"
-                        value={frvpRows}
+                        min="2"
+                        max="300"
+                        value={Math.min(300, Math.max(2, frvpRows || 24))}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10) || 24;
                           setFrvpRows(val);
@@ -1084,21 +1099,36 @@ export function DrawingSettingsModal({
                         <input
                           type="number"
                           min="1"
-                          max="100"
-                          value={frvpValueAreaPct}
+                          value={frvpValueAreaPct || ""}
+                          placeholder="70"
                           onChange={(e) => {
-                            const val = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 70));
-                            setFrvpValueAreaPct(val);
-                            handleLiveChange({ frvpValueAreaPct: val });
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setFrvpValueAreaPct(0);
+                              return;
+                            }
+                            const val = parseInt(raw, 10);
+                            if (!isNaN(val)) {
+                              setFrvpValueAreaPct(val);
+                              if (val >= 1) {
+                                handleLiveChange({ frvpValueAreaPct: val });
+                              }
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!frvpValueAreaPct || frvpValueAreaPct < 1) {
+                              setFrvpValueAreaPct(70);
+                              handleLiveChange({ frvpValueAreaPct: 70 });
+                            }
                           }}
                           className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
                         />
                       </div>
                       <input
                         type="range"
-                        min="10"
+                        min="1"
                         max="100"
-                        value={frvpValueAreaPct}
+                        value={Math.min(100, Math.max(1, frvpValueAreaPct || 70))}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10) || 70;
                           setFrvpValueAreaPct(val);
@@ -1113,22 +1143,37 @@ export function DrawingSettingsModal({
                         <span>Box Width (%):</span>
                         <input
                           type="number"
-                          min="10"
-                          max="100"
-                          value={frvpWidthPct}
+                          min="1"
+                          value={frvpWidthPct || ""}
+                          placeholder="68"
                           onChange={(e) => {
-                            const val = Math.max(10, Math.min(100, parseInt(e.target.value, 10) || 68));
-                            setFrvpWidthPct(val);
-                            handleLiveChange({ frvpWidthPct: val });
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setFrvpWidthPct(0);
+                              return;
+                            }
+                            const val = parseInt(raw, 10);
+                            if (!isNaN(val)) {
+                              setFrvpWidthPct(val);
+                              if (val >= 1) {
+                                handleLiveChange({ frvpWidthPct: val });
+                              }
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!frvpWidthPct || frvpWidthPct < 1) {
+                              setFrvpWidthPct(68);
+                              handleLiveChange({ frvpWidthPct: 68 });
+                            }
                           }}
                           className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
                         />
                       </div>
                       <input
                         type="range"
-                        min="10"
-                        max="100"
-                        value={frvpWidthPct}
+                        min="5"
+                        max="300"
+                        value={Math.min(300, Math.max(5, frvpWidthPct || 68))}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10) || 68;
                           setFrvpWidthPct(val);
