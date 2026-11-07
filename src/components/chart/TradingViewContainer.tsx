@@ -2969,6 +2969,8 @@ const renderFixedRangeVolumeProfile = useCallback(
       const widthPct = (drawing.frvpWidthPct || 68) / 100;
       const pocColor = drawing.frvpPocColor || "#ff5252";
       const vaColor = drawing.frvpVaColor || "#2962ff";
+      const vahColor = drawing.frvpVahColor || vaColor;
+      const valColor = drawing.frvpValColor || vaColor;
       const borderColor = drawing.color || "#2962ff";
 
       const frvp = calculateFixedRangeVolumeProfile(
@@ -3002,18 +3004,37 @@ const renderFixedRangeVolumeProfile = useCallback(
 
       ctx.save();
 
-      // 1. Background Box & Value Area Shading
-      if (drawing.showBackground !== false) {
-        ctx.fillStyle = "rgba(41, 98, 255, 0.04)";
+      // 1. Background Box & Value Area Shading (DEC-128)
+      const showBg =
+        drawing.frvpShowBackground !== undefined
+          ? drawing.frvpShowBackground
+          : drawing.showBackground !== false;
+
+      if (showBg) {
+        const bgCol = drawing.frvpBackgroundColor || drawing.fillColor || "#2962ff";
+        const bgOp =
+          drawing.frvpBackgroundOpacity !== undefined
+            ? drawing.frvpBackgroundOpacity
+            : drawing.fillOpacity !== undefined
+            ? drawing.fillOpacity
+            : 0.12;
+
+        ctx.save();
+        ctx.fillStyle = bgCol;
+        ctx.globalAlpha = Math.max(0, Math.min(1, bgOp * 0.45));
         ctx.fillRect(leftX, topY, rightX - leftX, rangeHeight);
+        ctx.restore();
 
         const yVah = getSafeScreenY(frvp.vahPrice);
         const yVal = getSafeScreenY(frvp.valPrice);
         if (yVah !== null && yVal !== null) {
           const vaTop = Math.min(yVah, yVal);
           const vaHeight = Math.abs(yVal - yVah);
-          ctx.fillStyle = "rgba(41, 98, 255, 0.09)";
+          ctx.save();
+          ctx.fillStyle = bgCol;
+          ctx.globalAlpha = Math.max(0, Math.min(1, bgOp));
           ctx.fillRect(leftX, vaTop, rightX - leftX, vaHeight);
+          ctx.restore();
         }
       }
 
@@ -3123,8 +3144,8 @@ const renderFixedRangeVolumeProfile = useCallback(
         ctx.restore();
       };
 
-      drawFrvpLevel(frvp.vahPrice, "VAH", vaColor, true, 1.2);
-      drawFrvpLevel(frvp.valPrice, "VAL", vaColor, true, 1.2);
+      drawFrvpLevel(frvp.vahPrice, "VAH", vahColor, true, 1.2);
+      drawFrvpLevel(frvp.valPrice, "VAL", valColor, true, 1.2);
       drawFrvpLevel(frvp.pocPrice, "POC", pocColor, false, 1.85);
 
       // 5. Anchor Circles on Left & Right Vertical Boundaries (TradingView style)
@@ -6120,6 +6141,11 @@ const renderFixedRangeVolumeProfile = useCallback(
           frvpWidthPct: activeDrawingTool === "fixed_range_volume_profile" ? 68 : undefined,
           frvpPocColor: activeDrawingTool === "fixed_range_volume_profile" ? "#ff5252" : undefined,
           frvpVaColor: activeDrawingTool === "fixed_range_volume_profile" ? "#2962ff" : undefined,
+          frvpVahColor: activeDrawingTool === "fixed_range_volume_profile" ? "#2962ff" : undefined,
+          frvpValColor: activeDrawingTool === "fixed_range_volume_profile" ? "#2962ff" : undefined,
+          frvpShowBackground: activeDrawingTool === "fixed_range_volume_profile" ? true : undefined,
+          frvpBackgroundColor: activeDrawingTool === "fixed_range_volume_profile" ? "#2962ff" : undefined,
+          frvpBackgroundOpacity: activeDrawingTool === "fixed_range_volume_profile" ? 0.12 : undefined,
           showLabels: activeDrawingTool === "fixed_range_volume_profile" ? true : undefined,
           isLocked: isDrawingsLocked || false,
         };

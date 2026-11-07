@@ -93,12 +93,17 @@ export function DrawingSettingsModal({
   const [riskPercent, setRiskPercent] = useState(1.0);
   const [showLabels, setShowLabels] = useState(true);
 
-  // Fixed Range Volume Profile (FRVP) parameters
+  // Fixed Range Volume Profile (FRVP) parameters (DEC-128)
   const [frvpRows, setFrvpRows] = useState(24);
   const [frvpValueAreaPct, setFrvpValueAreaPct] = useState(70);
   const [frvpPlacement, setFrvpPlacement] = useState<"left" | "right">("left");
   const [frvpWidthPct, setFrvpWidthPct] = useState(68);
   const [frvpPocColor, setFrvpPocColor] = useState("#ff5252");
+  const [frvpVahColor, setFrvpVahColor] = useState("#2962ff");
+  const [frvpValColor, setFrvpValColor] = useState("#2962ff");
+  const [frvpShowBackground, setFrvpShowBackground] = useState(true);
+  const [frvpBackgroundColor, setFrvpBackgroundColor] = useState("#2962ff");
+  const [frvpBackgroundOpacity, setFrvpBackgroundOpacity] = useState(12);
 
   // Coordinates
   const [startPrice, setStartPrice] = useState(0);
@@ -189,6 +194,21 @@ export function DrawingSettingsModal({
       setFrvpPlacement(drawing.frvpPlacement || "left");
       setFrvpWidthPct(drawing.frvpWidthPct || 68);
       setFrvpPocColor(drawing.frvpPocColor || "#ff5252");
+      setFrvpVahColor(drawing.frvpVahColor || drawing.frvpVaColor || "#2962ff");
+      setFrvpValColor(drawing.frvpValColor || drawing.frvpVaColor || "#2962ff");
+      setFrvpShowBackground(
+        drawing.frvpShowBackground !== undefined
+          ? drawing.frvpShowBackground
+          : drawing.showBackground !== false
+      );
+      setFrvpBackgroundColor(drawing.frvpBackgroundColor || drawing.fillColor || "#2962ff");
+      setFrvpBackgroundOpacity(
+        drawing.frvpBackgroundOpacity !== undefined
+          ? Math.round(drawing.frvpBackgroundOpacity * 100)
+          : drawing.fillOpacity !== undefined
+          ? Math.round(drawing.fillOpacity * 100)
+          : 12
+      );
       setShowLabels(drawing.showLabels !== false);
     }
 
@@ -244,6 +264,11 @@ export function DrawingSettingsModal({
       frvpPlacement: drawing.type === "fixed_range_volume_profile" ? frvpPlacement : undefined,
       frvpWidthPct: drawing.type === "fixed_range_volume_profile" ? frvpWidthPct : undefined,
       frvpPocColor: drawing.type === "fixed_range_volume_profile" ? frvpPocColor : undefined,
+      frvpVahColor: drawing.type === "fixed_range_volume_profile" ? frvpVahColor : undefined,
+      frvpValColor: drawing.type === "fixed_range_volume_profile" ? frvpValColor : undefined,
+      frvpShowBackground: drawing.type === "fixed_range_volume_profile" ? frvpShowBackground : undefined,
+      frvpBackgroundColor: drawing.type === "fixed_range_volume_profile" ? frvpBackgroundColor : undefined,
+      frvpBackgroundOpacity: drawing.type === "fixed_range_volume_profile" ? frvpBackgroundOpacity / 100 : undefined,
       fibLevels: (drawing.type === "fibonacci" || drawing.type === "trend_fib") ? fibLevels : undefined,
       text,
       fontSize,
@@ -288,6 +313,11 @@ export function DrawingSettingsModal({
       frvpPlacement: drawing.type === "fixed_range_volume_profile" ? frvpPlacement : undefined,
       frvpWidthPct: drawing.type === "fixed_range_volume_profile" ? frvpWidthPct : undefined,
       frvpPocColor: drawing.type === "fixed_range_volume_profile" ? frvpPocColor : undefined,
+      frvpVahColor: drawing.type === "fixed_range_volume_profile" ? frvpVahColor : undefined,
+      frvpValColor: drawing.type === "fixed_range_volume_profile" ? frvpValColor : undefined,
+      frvpShowBackground: drawing.type === "fixed_range_volume_profile" ? frvpShowBackground : undefined,
+      frvpBackgroundColor: drawing.type === "fixed_range_volume_profile" ? frvpBackgroundColor : undefined,
+      frvpBackgroundOpacity: drawing.type === "fixed_range_volume_profile" ? frvpBackgroundOpacity / 100 : undefined,
       fibLevels: (drawing.type === "fibonacci" || drawing.type === "trend_fib") ? fibLevels : undefined,
       text,
       fontSize,
@@ -1009,48 +1039,94 @@ export function DrawingSettingsModal({
                 </div>
               )}
 
-              {/* Fixed Range Volume Profile (FRVP) Settings */}
+              {/* Fixed Range Volume Profile (FRVP) Settings (DEC-128) */}
               {drawing.type === "fixed_range_volume_profile" && (
                 <div className="pt-3 border-t border-border flex flex-col gap-3">
                   <span className="text-muted text-[11px] font-semibold uppercase tracking-wider">
-                    Fixed Range Volume Profile (FRVP):
+                    Fixed Range Volume Profile (FRVP) Settings
                   </span>
+
+                  {/* Number of Rows, Value Area %, Box Width %, Placement Inputs */}
                   <div className="grid grid-cols-2 gap-2.5 bg-surface-container-lowest p-2.5 rounded-lg border border-border/60">
-                    <label className="flex flex-col gap-1 text-muted text-[10px]">
-                      <span>Number of Rows ({frvpRows}):</span>
+                    <div className="flex flex-col gap-1.5 text-muted text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span>Number of Rows:</span>
+                        <input
+                          type="number"
+                          min="4"
+                          max="200"
+                          value={frvpRows}
+                          onChange={(e) => {
+                            const val = Math.max(4, Math.min(200, parseInt(e.target.value, 10) || 24));
+                            setFrvpRows(val);
+                            handleLiveChange({ frvpRows: val });
+                          }}
+                          className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
+                        />
+                      </div>
                       <input
                         type="range"
-                        min="8"
-                        max="80"
+                        min="4"
+                        max="120"
                         value={frvpRows}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10) || 24;
                           setFrvpRows(val);
                           handleLiveChange({ frvpRows: val });
                         }}
-                        className="accent-primary cursor-pointer"
+                        className="accent-primary cursor-pointer w-full"
                       />
-                    </label>
-                    <label className="flex flex-col gap-1 text-muted text-[10px]">
-                      <span>Value Area ({frvpValueAreaPct}%):</span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 text-muted text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span>Value Area (%):</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={frvpValueAreaPct}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 70));
+                            setFrvpValueAreaPct(val);
+                            handleLiveChange({ frvpValueAreaPct: val });
+                          }}
+                          className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
+                        />
+                      </div>
                       <input
                         type="range"
-                        min="40"
-                        max="95"
+                        min="10"
+                        max="100"
                         value={frvpValueAreaPct}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10) || 70;
                           setFrvpValueAreaPct(val);
                           handleLiveChange({ frvpValueAreaPct: val });
                         }}
-                        className="accent-primary cursor-pointer"
+                        className="accent-primary cursor-pointer w-full"
                       />
-                    </label>
-                    <label className="flex flex-col gap-1 text-muted text-[10px]">
-                      <span>Box Width ({frvpWidthPct}%):</span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 text-muted text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span>Box Width (%):</span>
+                        <input
+                          type="number"
+                          min="10"
+                          max="100"
+                          value={frvpWidthPct}
+                          onChange={(e) => {
+                            const val = Math.max(10, Math.min(100, parseInt(e.target.value, 10) || 68));
+                            setFrvpWidthPct(val);
+                            handleLiveChange({ frvpWidthPct: val });
+                          }}
+                          className="w-16 bg-surface px-1.5 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
+                        />
+                      </div>
                       <input
                         type="range"
-                        min="25"
+                        min="10"
                         max="100"
                         value={frvpWidthPct}
                         onChange={(e) => {
@@ -1058,11 +1134,12 @@ export function DrawingSettingsModal({
                           setFrvpWidthPct(val);
                           handleLiveChange({ frvpWidthPct: val });
                         }}
-                        className="accent-primary cursor-pointer"
+                        className="accent-primary cursor-pointer w-full"
                       />
-                    </label>
-                    <label className="flex flex-col gap-1 text-muted text-[10px]">
-                      <span>Placement:</span>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 text-muted text-[10px]">
+                      <span className="leading-tight">Histogram Placement:</span>
                       <select
                         value={frvpPlacement}
                         onChange={(e) => {
@@ -1070,15 +1147,75 @@ export function DrawingSettingsModal({
                           setFrvpPlacement(val);
                           handleLiveChange({ frvpPlacement: val });
                         }}
-                        className="bg-surface px-2 py-1 rounded border border-border text-on-surface font-mono text-[11px]"
+                        className="bg-surface px-2 py-1 rounded border border-border text-on-surface font-mono text-[11px] h-[28px] focus:border-primary outline-none"
                       >
                         <option value="left">Left to Right</option>
                         <option value="right">Right to Left</option>
                       </select>
-                    </label>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 px-2.5 bg-surface rounded border border-border/60">
-                    <label className="flex items-center gap-2 text-on-surface cursor-pointer text-[11px]">
+
+                  {/* Key Profile Lines (VAH, POI / POC, VAL) Customization */}
+                  <div className="flex flex-col gap-2 bg-surface-container-lowest p-2.5 rounded-lg border border-border/60">
+                    <span className="text-muted text-[10px] font-semibold uppercase tracking-wider">
+                      Lines & Level Colors (VAH, POI / POC, VAL):
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {/* POC / POI */}
+                      <div className="flex flex-col items-center justify-between p-2 rounded bg-surface border border-border/60 gap-1.5">
+                        <span className="text-[10px] text-muted font-medium">POC / POI</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={frvpPocColor}
+                            onChange={(e) => {
+                              setFrvpPocColor(e.target.value);
+                              handleLiveChange({ frvpPocColor: e.target.value });
+                            }}
+                            className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent p-0"
+                            title="Point of Control / Point of Interest line color"
+                          />
+                        </div>
+                      </div>
+
+                      {/* VAH */}
+                      <div className="flex flex-col items-center justify-between p-2 rounded bg-surface border border-border/60 gap-1.5">
+                        <span className="text-[10px] text-muted font-medium">VAH Line</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={frvpVahColor}
+                            onChange={(e) => {
+                              setFrvpVahColor(e.target.value);
+                              handleLiveChange({ frvpVahColor: e.target.value });
+                            }}
+                            className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent p-0"
+                            title="Value Area High line color"
+                          />
+                        </div>
+                      </div>
+
+                      {/* VAL */}
+                      <div className="flex flex-col items-center justify-between p-2 rounded bg-surface border border-border/60 gap-1.5">
+                        <span className="text-[10px] text-muted font-medium">VAL Line</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={frvpValColor}
+                            onChange={(e) => {
+                              setFrvpValColor(e.target.value);
+                              handleLiveChange({ frvpValColor: e.target.value });
+                            }}
+                            className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent p-0"
+                            title="Value Area Low line color"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Show Labels Toggle */}
+                    <label className="flex items-center justify-between pt-1 text-on-surface cursor-pointer text-[11px]">
+                      <span>Show Price Badges & Labels</span>
                       <input
                         type="checkbox"
                         checked={showLabels}
@@ -1088,20 +1225,94 @@ export function DrawingSettingsModal({
                         }}
                         className="accent-primary rounded"
                       />
-                      <span>Show POC / VAH / VAL Price Labels</span>
                     </label>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-muted">POC Color:</span>
-                      <input
-                        type="color"
-                        value={frvpPocColor}
-                        onChange={(e) => {
-                          setFrvpPocColor(e.target.value);
-                          handleLiveChange({ frvpPocColor: e.target.value });
-                        }}
-                        className="w-5 h-5 rounded border border-border cursor-pointer bg-transparent"
-                      />
+                  </div>
+
+                  {/* Background Fill & Opacity Controls */}
+                  <div className="flex flex-col gap-2.5 bg-surface-container-lowest p-2.5 rounded-lg border border-border/60">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-on-surface cursor-pointer text-[11px] font-medium">
+                        <input
+                          type="checkbox"
+                          checked={frvpShowBackground}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setFrvpShowBackground(val);
+                            handleLiveChange({
+                              frvpShowBackground: val,
+                              showBackground: val,
+                            });
+                          }}
+                          className="accent-primary rounded"
+                        />
+                        <span>Enable Background Box Shading</span>
+                      </label>
+                      <span className="text-[10px] text-muted">
+                        {frvpShowBackground ? "Visible" : "Hidden (Removed)"}
+                      </span>
                     </div>
+
+                    {frvpShowBackground && (
+                      <div className="flex flex-col gap-2 pt-1 border-t border-border/50">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted text-[10px]">Background Color:</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="color"
+                              value={frvpBackgroundColor}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFrvpBackgroundColor(val);
+                                handleLiveChange({
+                                  frvpBackgroundColor: val,
+                                  fillColor: val,
+                                });
+                              }}
+                              className="w-5 h-5 rounded border border-border bg-surface cursor-pointer p-0"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1 text-muted text-[10px]">
+                          <div className="flex items-center justify-between">
+                            <span>Background Opacity:</span>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={frvpBackgroundOpacity}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0));
+                                  setFrvpBackgroundOpacity(val);
+                                  handleLiveChange({
+                                    frvpBackgroundOpacity: val / 100,
+                                    fillOpacity: val / 100,
+                                  });
+                                }}
+                                className="w-14 bg-surface px-1 py-0.5 rounded border border-border text-on-surface text-center font-mono text-xs focus:border-primary outline-none"
+                              />
+                              <span className="text-[10px] text-muted">%</span>
+                            </div>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={frvpBackgroundOpacity}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10) || 0;
+                              setFrvpBackgroundOpacity(val);
+                              handleLiveChange({
+                                frvpBackgroundOpacity: val / 100,
+                                fillOpacity: val / 100,
+                              });
+                            }}
+                            className="accent-primary cursor-pointer w-full"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
