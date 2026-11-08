@@ -115,7 +115,7 @@ export default function RadarPage() {
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [poiCategoryFilter, setPoiCategoryFilter] = useState<"ALL" | PoiCategory>("ALL");
+  const [poiCategoryFilter, setPoiCategoryFilter] = useState<"ALL" | "sweep" | PoiCategory>("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
   const [sortBy, setSortBy] = useState<"proximity" | "volume" | "change" | "winrate">("proximity");
@@ -425,6 +425,9 @@ export default function RadarPage() {
           selectedPoi = data?.nearestSandwich || null;
         } else if (poiCategoryFilter === "fvg") {
           selectedPoi = data?.nearestFvg || null;
+        } else if (poiCategoryFilter === "sweep") {
+          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
+          selectedPoi = allPoisForCoin.find((p) => p.sweep || p.status === "sweep") || (data?.nearestPoi?.sweep ? data.nearestPoi : null);
         } else {
           selectedPoi = data?.nearestPoi || null;
         }
@@ -442,6 +445,11 @@ export default function RadarPage() {
           const matchSym = coin.symbol.toLowerCase().includes(q);
           const matchName = coin.name.toLowerCase().includes(q);
           if (!matchSym && !matchName) return false;
+        }
+
+        // Sweep filter
+        if (poiCategoryFilter === "sweep") {
+          if (!selectedPoi || (!selectedPoi.sweep && selectedPoi.status !== "sweep")) return false;
         }
 
         // Direction filter
@@ -562,6 +570,7 @@ export default function RadarPage() {
 
   // Partition filtered coins into Kanban Lanes
   const kanbanLanes = useMemo(() => {
+    const sweeps: typeof filteredCoins = [];
     const testing: typeof filteredCoins = [];
     const approaching: typeof filteredCoins = [];
     const fresh: typeof filteredCoins = [];
@@ -571,7 +580,9 @@ export default function RadarPage() {
       const poi = item.selectedPoi;
       if (!poi) return;
 
-      if (poi.isInsideZone || poi.status === "testing") {
+      if (poi.status === "sweep" || Boolean(poi.sweep)) {
+        sweeps.push(item);
+      } else if (poi.isInsideZone || poi.status === "testing") {
         testing.push(item);
       } else if (poi.status === "mitigated") {
         mitigated.push(item);
@@ -583,6 +594,14 @@ export default function RadarPage() {
     });
 
     return [
+      {
+        id: "sweeps",
+        title: "🧹 Liquidity Sweeps",
+        subtitle: "Fakeouts & Reversal Traps",
+        accent: "#a855f7",
+        bgBadge: "bg-purple-500/15 text-purple-400 border border-purple-500/30",
+        items: sweeps,
+      },
       {
         id: "testing",
         title: "Testing In-Zone",
@@ -881,6 +900,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
+              <option value="sweep">🧹 Liquidity Sweeps Only</option>
               <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
               <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
               <option value="order_block">📦 Validated Order Blocks Only</option>
@@ -1161,6 +1181,13 @@ export default function RadarPage() {
                                     <span>++ S/R</span>
                                   </span>
                                 )}
+
+                                {/* Sweep Badge (DEC-145) */}
+                                {selectedPoi.sweep && (
+                                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[8px] font-bold flex items-center gap-0.5 animate-pulse">
+                                    <span>🧹 SWEEP ({selectedPoi.sweep.rejectionWickPct.toFixed(0)}% Wick)</span>
+                                  </span>
+                                )}
                               </div>
 
                               <span className="text-[9px] text-[#848e9c] flex items-center gap-1">
@@ -1209,7 +1236,11 @@ export default function RadarPage() {
                         <td className="py-3.5 px-4 font-mono">
                           {selectedPoi ? (
                             <div className="flex flex-col gap-1 min-w-[100px]">
-                              {selectedPoi.isInsideZone ? (
+                              {selectedPoi.sweep ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold text-[10px] animate-pulse">
+                                  <span>🧹 SWEEP REVERSAL</span>
+                                </span>
+                              ) : selectedPoi.isInsideZone ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#00c087]/20 text-[#00c087] border border-[#00c087]/40 font-bold text-[10px] animate-pulse">
                                   <span>TESTING ZONE</span>
                                 </span>
@@ -1478,18 +1509,31 @@ export default function RadarPage() {
                                   <span>++</span>
                                 </span>
                               )}
+
+                              {selectedPoi.sweep && (
+                                <span
+                                  className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[8px] font-bold flex items-center gap-0.5 animate-pulse"
+                                  title={`Liquidity Sweep: ${selectedPoi.sweep.type === "BULLISH_SWEEP" ? "Bullish Reversal Trap" : "Bearish Reversal Trap"} (${selectedPoi.sweep.rejectionWickPct.toFixed(0)}% wick rejection)`}
+                                >
+                                  <span>🧹 SWEEP ({selectedPoi.sweep.rejectionWickPct.toFixed(0)}%)</span>
+                                </span>
+                              )}
                             </div>
 
                             <span
                               className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                selectedPoi.isInsideZone
+                                selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
+                                  ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse"
+                                  : selectedPoi.isInsideZone
                                   ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse"
                                   : selectedPoi.distanceToEntryPct <= 1.5
                                   ? "bg-[#00c087]/20 text-[#00c087] border border-[#00c087]/40"
                                   : "bg-[#172233] text-[#848e9c]"
                               }`}
                             >
-                              {selectedPoi.isInsideZone
+                              {selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
+                                ? "🧹 SWEPT"
+                                : selectedPoi.isInsideZone
                                 ? "IN ZONE"
                                 : `${selectedPoi.distanceToEntryPct.toFixed(2)}%`}
                             </span>

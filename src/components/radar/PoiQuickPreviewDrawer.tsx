@@ -195,6 +195,18 @@ export function PoiQuickPreviewDrawer({
             title: "Zone Boundary",
           });
 
+          // 4. Sweep Extreme Price Line (DEC-145)
+          if (poi.sweep) {
+            candleSeries.createPriceLine({
+              price: poi.sweep.sweepPrice,
+              color: "#a855f7",
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: "🧹 Sweep Extreme",
+            });
+          }
+
           chart.timeScale().fitContent();
         } else {
           setLoadError("No candle data available");
@@ -388,6 +400,24 @@ export function PoiQuickPreviewDrawer({
               <div className="text-[10px] text-[#848e9c]">
                 <span>{poi.metrics.wins} wins / {poi.metrics.losses} losses</span>
                 <span className="ml-1 text-white font-semibold">({poi.metrics.avgRr}R avg)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Institutional Liquidity Sweep Banner (DEC-145) */}
+          {poi.sweep && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold text-[10px] flex items-center gap-1">
+                  <span>🧹 LIQUIDITY SWEEP</span>
+                </span>
+                <span className="text-[10px] text-purple-200 font-medium">
+                  {poi.sweep.label}
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-right">
+                <span className="text-purple-400">Extreme: ${poi.sweep.sweepPrice.toFixed(2)}</span>
+                <span className="text-purple-300/70 ml-1.5">({poi.sweep.sweepDepthPct}% depth)</span>
               </div>
             </div>
           )}

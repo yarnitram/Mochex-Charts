@@ -22,10 +22,14 @@ import {
   PoiHistoricalMetrics,
   calculateHistoricalPoiMetrics,
 } from "./poi-backtest-metrics";
+import {
+  LiquiditySweepInfo,
+  detectPoiLiquiditySweep,
+} from "./liquidity-sweep-engine";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
-export type PoiStatus = "fresh" | "testing" | "mitigated" | "broken";
+export type PoiStatus = "fresh" | "testing" | "sweep" | "mitigated" | "broken";
 
 export interface RadarPoiItem {
   id: string;
@@ -55,6 +59,8 @@ export interface RadarPoiItem {
   exchangeLabel?: string;
   // Historical reaction backtest metrics (DEC-144)
   metrics?: PoiHistoricalMetrics;
+  // Real-time Liquidity Sweep / Fakeout (DEC-145)
+  sweep?: LiquiditySweepInfo | null;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -95,10 +101,34 @@ export function computeRadarPois(
   const orderBlocks = computeValidatedOrderBlocks(bars, symbol, timeframe, {
     minGapPct: 0.05,
     includeMitigated: true,
+    includeBroken: true,
   });
 
   for (const ob of orderBlocks) {
     const poiId = exchange !== "mexc" ? `${exchange}-${ob.id}` : ob.id;
+    const isBullish = ob.type === "BULLISH";
+    const isBroken = isBullish ? currentPrice < ob.bottom : currentPrice > ob.top;
+
+    const sweep = detectPoiLiquiditySweep(bars, {
+      type: ob.type,
+      top: ob.top,
+      bottom: ob.bottom,
+      meanThreshold: ob.meanThreshold,
+      candleTime: ob.fvgTime || ob.obTime,
+    });
+
+    const status: PoiStatus = isBroken
+      ? "broken"
+      : sweep
+      ? "sweep"
+      : ob.isInsideZone
+      ? "testing"
+      : ob.status === "mitigated"
+      ? "mitigated"
+      : "fresh";
+
+    if (status === "broken") continue;
+
     items.push({
       id: poiId,
       symbol: ob.symbol,
@@ -112,7 +142,7 @@ export function computeRadarPois(
       entryPrice: ob.entryPrice,
       fullRetestPrice: ob.fullRetestPrice,
       fvgGapPct: ob.fvgGapPct,
-      status: ob.status,
+      status,
       isInsideZone: ob.isInsideZone,
       distanceToEntryPct: ob.distanceToEntryPct,
       distanceToMtPct: ob.distanceToMtPct,
@@ -121,6 +151,7 @@ export function computeRadarPois(
       exchange,
       exchangeLabel,
       metrics: historicalMetrics,
+      sweep: sweep || null,
     });
   }
 
@@ -177,10 +208,21 @@ export function computeRadarPois(
           (Math.abs(currentPrice - meanThreshold) / currentPrice) * 100;
 
         const isBroken = isBullish ? currentPrice < bottom : currentPrice > top;
+        const poiDirection: PoiDirection = isBullish ? "BULLISH" : "BEARISH";
+
+        const sweep = detectPoiLiquiditySweep(bars, {
+          type: poiDirection,
+          top,
+          bottom,
+          meanThreshold,
+          candleTime: sz.confirmedAt || sz.sourceCandleTime,
+        });
 
         const status: PoiStatus =
           isBroken
             ? "broken"
+            : sweep
+            ? "sweep"
             : isInsideZone
             ? "testing"
             : sz.status === "mitigated"
@@ -192,7 +234,6 @@ export function computeRadarPois(
           continue;
         }
 
-        const type: PoiDirection = isBullish ? "BULLISH" : "BEARISH";
         const zoneTitle = isBullish ? "Demand Sandwich (GRGG)" : "Supply Sandwich (RGRR)";
         const label = sz.isPlus ? `${zoneTitle} ++` : zoneTitle;
         const poiId = exchange !== "mexc" ? `${exchange}-${sz.id}` : sz.id;
@@ -202,7 +243,7 @@ export function computeRadarPois(
           symbol: symbol.toUpperCase(),
           timeframe,
           category: "sandwich_zone",
-          type,
+          type: poiDirection,
           label,
           pattern: sz.pattern,
           isPlus: sz.isPlus,
@@ -220,6 +261,7 @@ export function computeRadarPois(
           exchange,
           exchangeLabel,
           metrics: historicalMetrics,
+          sweep: sweep || null,
         });
       }
     }
@@ -255,9 +297,19 @@ export function computeRadarPois(
 
       const isBroken = isBullish ? currentPrice < bottom : currentPrice > top;
 
+      const sweep = detectPoiLiquiditySweep(bars, {
+        type: isBullish ? "BULLISH" : "BEARISH",
+        top,
+        bottom,
+        meanThreshold,
+        candleTime: fvg.endTime || fvg.startTime,
+      });
+
       const status: PoiStatus =
         isBroken
           ? "broken"
+          : sweep
+          ? "sweep"
           : isInsideZone
           ? "testing"
           : "fresh";
@@ -291,6 +343,7 @@ export function computeRadarPois(
         exchange,
         exchangeLabel,
         metrics: historicalMetrics,
+        sweep: sweep || null,
       });
     }
   } catch (err) {

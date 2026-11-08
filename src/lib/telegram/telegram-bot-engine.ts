@@ -126,6 +126,8 @@ export function formatTelegramRadarReport(
 
   if (categoryFilter === "inzone") {
     filtered = filtered.filter((p) => p.isInsideZone || p.status === "testing");
+  } else if (categoryFilter === "sweep") {
+    filtered = filtered.filter((p) => p.status === "sweep" || Boolean(p.sweep));
   } else if (categoryFilter === "sandwich") {
     filtered = filtered.filter((p) => p.category === "sandwich_zone");
   } else if (categoryFilter === "ob") {
@@ -141,7 +143,9 @@ export function formatTelegramRadarReport(
     : `📡 <b>MOCHEX INSTITUTIONAL POI RADAR</b>`;
 
   const subHeader =
-    categoryFilter === "inzone"
+    categoryFilter === "sweep"
+      ? `🧹 <b>Institutional Liquidity Sweeps / Fakeouts</b>`
+      : categoryFilter === "inzone"
       ? `🚨 <b>Active In-Zone Breaches</b>`
       : categoryFilter === "sandwich"
       ? `🥪 <b>Sandwich Zones ++ (Supply & Demand)</b>`
@@ -162,12 +166,15 @@ export function formatTelegramRadarReport(
     for (const p of displayList) {
       const typeEmoji = p.type === "BULLISH" ? "🟢" : "🔴";
       const plusTag = p.isPlus ? " ⭐++" : "";
+      const distPct = typeof p.distanceToEntryPct === "number" ? p.distanceToEntryPct : 0;
       const statusTag =
-        p.isInsideZone || p.status === "testing"
+        p.sweep || p.status === "sweep"
+          ? `🧹 <b>SWEEP REVERSAL (${p.sweep?.rejectionWickPct ?? 30}% Wick)</b>`
+          : p.isInsideZone || p.status === "testing"
           ? "🚨 <b>IN-ZONE</b>"
-          : p.distanceToEntryPct <= 1.5
-          ? `⚡ <b>${p.distanceToEntryPct.toFixed(2)}% away</b>`
-          : `<i>${p.distanceToEntryPct.toFixed(2)}% away</i>`;
+          : distPct <= 1.5
+          ? `⚡ <b>${distPct.toFixed(2)}% away</b>`
+          : `<i>${distPct.toFixed(2)}% away</i>`;
 
       const pEntry = p.entryPrice >= 1 ? p.entryPrice.toFixed(2) : p.entryPrice.toFixed(4);
       const pMt = p.meanThreshold >= 1 ? p.meanThreshold.toFixed(2) : p.meanThreshold.toFixed(4);
@@ -191,6 +198,7 @@ export function formatTelegramRadarReport(
     inline_keyboard: [
       [
         { text: "🚨 In-Zone", callback_data: "cmd:radar:inzone" },
+        { text: "🧹 Sweeps", callback_data: "cmd:radar:sweep" },
         { text: "💎 Fresh", callback_data: "cmd:radar:fresh" },
       ],
       [
