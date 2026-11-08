@@ -1,22 +1,33 @@
 /**
- * Institutional Procedural Sound Effects & Radar Audio Engine
+ * Institutional Procedural Sound Effects & Radar Audio Engine (DEC-140, DEC-147)
  *
- * Synthesizes high-fidelity audio chimes directly via Web Audio API.
- * Requires 0 network bandwidth, 0 external audio assets, and operates 100% offline.
+ * Synthesizes high-fidelity audio chimes directly via Web Audio API,
+ * and plays custom user-uploaded .wav/.mp3 audio assets from IndexedDB/Cloud.
+ * Operates 100% offline with zero external CDN dependencies.
  */
+
+import {
+  playCustomAudio,
+  CUSTOM_AUDIO_STORAGE_KEY,
+  CustomSoundAsset,
+} from "./custom-audio-store";
 
 export type RadarChimeType =
   | "radar_ping"
   | "institutional_chime"
   | "cyber_blip"
   | "sonar_pulse"
-  | "urgent_alarm";
+  | "urgent_alarm"
+  | (string & {});
 
 export interface RadarAudioSettings {
   soundType: RadarChimeType;
   volume: number; // 0.0 to 1.0 (default 0.7)
   enabled: boolean; // default true
   chimeOnZoneEntry: boolean; // default true
+  customSoundId?: string;
+  customSoundDataUrl?: string;
+  customSoundName?: string;
 }
 
 export const RADAR_AUDIO_SETTINGS_STORAGE_KEY = "mochex:radar_audio_settings";
@@ -75,7 +86,7 @@ export function getRadarAudioSettings(): RadarAudioSettings {
     if (!raw) return { ...DEFAULT_RADAR_AUDIO_SETTINGS };
 
     const parsed = JSON.parse(raw);
-    const validSoundTypes: RadarChimeType[] = [
+    const validSoundTypes: string[] = [
       "radar_ping",
       "institutional_chime",
       "cyber_blip",
@@ -83,9 +94,13 @@ export function getRadarAudioSettings(): RadarAudioSettings {
       "urgent_alarm",
     ];
 
-    const soundType = validSoundTypes.includes(parsed.soundType)
-      ? (parsed.soundType as RadarChimeType)
-      : DEFAULT_RADAR_AUDIO_SETTINGS.soundType;
+    const isCustomSound =
+      typeof parsed.soundType === "string" && parsed.soundType.startsWith("custom:");
+
+    const soundType =
+      validSoundTypes.includes(parsed.soundType) || isCustomSound
+        ? (parsed.soundType as RadarChimeType)
+        : DEFAULT_RADAR_AUDIO_SETTINGS.soundType;
 
     const volume =
       typeof parsed.volume === "number" && !isNaN(parsed.volume)
@@ -96,7 +111,15 @@ export function getRadarAudioSettings(): RadarAudioSettings {
     const chimeOnZoneEntry =
       typeof parsed.chimeOnZoneEntry === "boolean" ? parsed.chimeOnZoneEntry : true;
 
-    return { soundType, volume, enabled, chimeOnZoneEntry };
+    return {
+      soundType,
+      volume,
+      enabled,
+      chimeOnZoneEntry,
+      customSoundId: parsed.customSoundId,
+      customSoundDataUrl: parsed.customSoundDataUrl,
+      customSoundName: parsed.customSoundName,
+    };
   } catch {
     return { ...DEFAULT_RADAR_AUDIO_SETTINGS };
   }
@@ -123,7 +146,7 @@ export function saveRadarAudioSettings(settings: RadarAudioSettings): void {
 }
 
 /**
- * Procedurally synthesizes and plays the specified chime using Web Audio API.
+ * Procedurally synthesizes and plays the specified chime using Web Audio API or custom audio asset.
  * Respects volume and enabled settings.
  */
 export function playRadarChime(customSettings?: Partial<RadarAudioSettings>): void {
@@ -139,6 +162,35 @@ export function playRadarChime(customSettings?: Partial<RadarAudioSettings>): vo
     return;
   }
 
+  // 1. Check if custom audio asset is selected
+  const isCustom =
+    Boolean(settings.customSoundDataUrl) ||
+    (typeof settings.soundType === "string" && settings.soundType.startsWith("custom:"));
+
+  if (isCustom) {
+    let dataUrl = settings.customSoundDataUrl;
+
+    if (!dataUrl && typeof settings.soundType === "string" && settings.soundType.startsWith("custom:")) {
+      const soundId = settings.soundType.replace("custom:", "");
+      try {
+        const raw = localStorage.getItem(CUSTOM_AUDIO_STORAGE_KEY);
+        if (raw) {
+          const sounds: CustomSoundAsset[] = JSON.parse(raw);
+          const found = sounds.find((s) => s.id === soundId);
+          if (found) {
+            dataUrl = found.dataUrl;
+          }
+        }
+      } catch {}
+    }
+
+    if (dataUrl) {
+      playCustomAudio(dataUrl, settings.volume);
+      return;
+    }
+  }
+
+  // 2. Procedural Web Audio API synthesis
   try {
     const AudioCtx =
       window.AudioContext ||
