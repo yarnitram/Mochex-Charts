@@ -73,6 +73,13 @@ import {
 import { mexcWsManager, MiniTickerCallback } from "@/lib/mexc/websocket";
 import { useAuth } from "@/lib/auth/use-auth";
 
+function formatZonePrice(val: number): string {
+  if (val >= 100) return val.toFixed(2);
+  if (val >= 1) return val.toFixed(2);
+  if (val >= 0.01) return val.toFixed(4);
+  return val.toFixed(6);
+}
+
 interface RadarCoinData {
   symbol: string;
   price: number;
@@ -999,7 +1006,11 @@ export default function RadarPage() {
       </section>
 
       {/* 4. POI RADAR CONTENT (TABLE OR KANBAN) */}
-      <main className="flex-1 px-4 sm:px-6 pb-12 max-w-7xl mx-auto w-full">
+      <main
+        className={`flex-1 px-4 sm:px-6 pb-12 w-full mx-auto transition-all duration-300 ${
+          viewMode === "kanban" ? "max-w-[1920px]" : "max-w-7xl"
+        }`}
+      >
         {viewMode === "table" ? (
           <div className="bg-[#0e141f] border border-[#1b2535] rounded-xl overflow-hidden shadow-2xl">
             <div className="overflow-x-auto">
@@ -1354,7 +1365,7 @@ export default function RadarPage() {
         </div>
         ) : (
           /* KANBAN BOARD VIEW */
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5 items-start">
             {kanbanLanes.map((lane) => (
               <div
                 key={lane.id}
@@ -1544,7 +1555,7 @@ export default function RadarPage() {
                             <div>
                               <span className="text-[#848e9c] text-[9px] block">Entry Level</span>
                               <span className="text-white font-semibold">
-                                ${selectedPoi.entryPrice.toFixed(2)}
+                                ${formatZonePrice(selectedPoi.entryPrice)}
                               </span>
                             </div>
                             <div>
@@ -1552,7 +1563,7 @@ export default function RadarPage() {
                                 {isFvg ? "50% CE" : "50% MT"}
                               </span>
                               <span className="text-[#b6c4ff] font-semibold">
-                                ${selectedPoi.meanThreshold.toFixed(2)}
+                                ${formatZonePrice(selectedPoi.meanThreshold)}
                               </span>
                             </div>
                           </div>
