@@ -15,6 +15,7 @@ import {
   Music,
   Trash2,
   FileAudio,
+  Zap,
 } from "lucide-react";
 import {
   RadarPoiItem,
@@ -66,6 +67,7 @@ export function PoiAlarmModal({
   // Notification delivery preferences
   const [notifyDiscord, setNotifyDiscord] = useState(true);
   const [notifyTelegram, setNotifyTelegram] = useState(true);
+  const [notifyTradingWebhook, setNotifyTradingWebhook] = useState(true);
 
   // Audio chime selection & custom sounds (DEC-147)
   const [audioTab, setAudioTab] = useState<"presets" | "custom">("presets");
@@ -208,6 +210,7 @@ export function PoiAlarmModal({
           createdAt: now,
           notifyDiscord,
           notifyTelegram,
+          notifyTradingWebhook,
           soundType: alarmChime,
         };
 
@@ -455,7 +458,7 @@ export function PoiAlarmModal({
                 24/7 Cloud Offline Ready
               </span>
             </label>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
                 <input
                   type="checkbox"
@@ -477,6 +480,18 @@ export function PoiAlarmModal({
                 />
                 <span className="flex items-center gap-1 text-[#229ED9] font-semibold">
                   <TelegramIcon size={14} /> Telegram Bot
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={notifyTradingWebhook}
+                  onChange={(e) => setNotifyTradingWebhook(e.target.checked)}
+                  className="accent-[#00c087] rounded cursor-pointer"
+                />
+                <span className="flex items-center gap-1 text-[#00c087] font-semibold">
+                  <Zap size={13} className="fill-current text-[#00c087]" /> Trading Bot (3Commas / Cornix)
                 </span>
               </label>
             </div>

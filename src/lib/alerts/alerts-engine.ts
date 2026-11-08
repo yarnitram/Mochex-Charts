@@ -54,9 +54,15 @@ export interface PriceAlert {
   triggeredCount: number;
   lastTriggeredAt?: number;
   createdAt: number;
-  /** Optional channel delivery overrides (DEC-130) */
+  /** Optional channel delivery overrides (DEC-130, DEC-148) */
   notifyDiscord?: boolean;
   notifyTelegram?: boolean;
+  notifyTradingWebhook?: boolean;
+  tradingWebhookOverride?: {
+    platform?: "3commas" | "cornix" | "custom";
+    webhookUrl?: string;
+    customTemplate?: string;
+  };
   /** Optional custom chime sound preset (DEC-140) */
   soundType?: string;
 }

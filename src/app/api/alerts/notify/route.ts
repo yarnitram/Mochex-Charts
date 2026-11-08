@@ -5,6 +5,8 @@ import {
   isValidDiscordWebhookUrl,
   isValidTelegramBotToken,
   isValidTelegramChatId,
+  isValidTradingWebhookUrl,
+  formatTradingWebhookPayload,
 } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "@/lib/alerts/alerts-engine";
 
@@ -12,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 interface NotifyRequestBody {
   action?: "test" | "dispatch";
-  channel?: "discord" | "telegram";
+  channel?: "discord" | "telegram" | "trading_webhook";
   config?: AlertWebhookConfig;
   alert?: PriceAlert;
   log?: AlertLogEntry;
@@ -146,6 +148,85 @@ export async function POST(req: NextRequest) {
           const err = fetchErr as Error;
           return NextResponse.json(
             { success: false, error: `Failed to reach Telegram: ${err.message}` },
+            { status: 502 }
+          );
+        }
+      }
+
+      if (channel === "trading_webhook") {
+        const tradingConfig = config.tradingWebhook;
+        if (!tradingConfig || !isValidTradingWebhookUrl(tradingConfig.webhookUrl)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Invalid Automated Trading Webhook URL. Please provide a valid http:// or https:// URL.",
+            },
+            { status: 400 }
+          );
+        }
+
+        const mockAlert: PriceAlert = {
+          id: "alert-test-webhook",
+          symbol: "BTCUSDT",
+          targetPrice: 76500,
+          condition: "crossing_down",
+          frequency: "only_once",
+          sourceType: "indicator_condition",
+          label: "BTC 4H Bullish OB (Zone Entry)",
+          active: true,
+          triggeredCount: 1,
+          createdAt: Date.now(),
+          notifyTradingWebhook: true,
+        };
+
+        const mockLog: AlertLogEntry = {
+          id: "log-test-webhook",
+          alertId: "alert-test-webhook",
+          symbol: "BTCUSDT",
+          triggerPrice: 76480.25,
+          targetPrice: 76500,
+          condition: "crossing_down",
+          sourceType: "indicator_condition",
+          label: "BTC 4H Bullish OB (Zone Entry)",
+          message: "Test automated trading webhook dispatch from Mochex POI Radar",
+          triggeredAt: Date.now(),
+        };
+
+        const { payload, headers } = formatTradingWebhookPayload(tradingConfig, mockAlert, mockLog);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+        try {
+          const res = await fetch(tradingConfig.webhookUrl!, {
+            method: "POST",
+            headers,
+            body: typeof payload === "string" ? payload : JSON.stringify(payload),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!res.ok) {
+            const errText = await res.text();
+            return NextResponse.json(
+              {
+                success: false,
+                error: `${tradingConfig.platform || "Webhook"} endpoint responded with HTTP ${res.status}: ${errText.slice(0, 200)}`,
+              },
+              { status: res.status }
+            );
+          }
+
+          return NextResponse.json({
+            success: true,
+            message: `Test trade signal sent to ${tradingConfig.platform || "trading"} webhook!`,
+            payload,
+          });
+        } catch (fetchErr: unknown) {
+          clearTimeout(timeoutId);
+          const err = fetchErr as Error;
+          return NextResponse.json(
+            { success: false, error: `Failed to reach webhook: ${err.message}` },
             { status: 502 }
           );
         }

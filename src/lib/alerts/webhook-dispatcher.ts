@@ -5,12 +5,26 @@
 
 import { PriceAlert, AlertLogEntry } from "./alerts-engine";
 
+export type TradingWebhookPlatform = "3commas" | "cornix" | "custom";
+
+export interface TradingWebhookConfig {
+  enabled?: boolean;
+  platform?: TradingWebhookPlatform;
+  webhookUrl?: string;
+  secretToken?: string; // 3Commas email_token or Cornix secret
+  botId?: string; // 3Commas bot_id
+  headers?: Record<string, string>; // optional custom headers
+  customTemplate?: string; // custom JSON payload template with {{tokens}}
+}
+
 export interface AlertWebhookConfig {
   discordWebhookUrl?: string;
   discordEnabled?: boolean;
   telegramBotToken?: string;
   telegramChatId?: string;
   telegramEnabled?: boolean;
+  // DEC-148: Automated Trading Webhook Integration
+  tradingWebhook?: TradingWebhookConfig;
 }
 
 export interface DiscordEmbedField {
@@ -46,6 +60,53 @@ export interface TelegramSendMessagePayload {
 export interface DispatchNotificationResult {
   discord?: { ok: boolean; status?: number; error?: string };
   telegram?: { ok: boolean; status?: number; error?: string };
+  tradingWebhook?: { ok: boolean; status?: number; platform?: string; error?: string };
+}
+
+export const DEFAULT_3COMMAS_TEMPLATE = `{
+  "message_type": "bot",
+  "bot_id": "{{bot_id}}",
+  "email_token": "{{secret_token}}",
+  "delay_seconds": 0,
+  "pair": "{{pair_underscore}}",
+  "action": "{{action_lower}}"
+}`;
+
+export const DEFAULT_CORNIX_TEMPLATE = `{
+  "secret": "{{secret_token}}",
+  "symbol": "{{pair_slash}}",
+  "action": "{{action_lower}}",
+  "type": "limit",
+  "price": {{price}},
+  "stopLoss": {{stop_loss}},
+  "takeProfits": [{{take_profit_2r}}, {{take_profit_3r}}]
+}`;
+
+export const DEFAULT_CUSTOM_TRADING_TEMPLATE = `{
+  "ticker": "{{symbol}}",
+  "action": "{{action_upper}}",
+  "sentiment": "{{sentiment}}",
+  "price": {{price}},
+  "targetPrice": {{target_price}},
+  "poi": "{{poi_label}}",
+  "timeframe": "{{timeframe}}",
+  "entry": {{price}},
+  "stopLoss": {{stop_loss}},
+  "takeProfit": {{take_profit_2r}},
+  "source": "Mochex POI Radar",
+  "timestamp": "{{timestamp}}"
+}`;
+
+export function getDefaultTradingWebhookTemplate(platform?: TradingWebhookPlatform): string {
+  switch (platform) {
+    case "3commas":
+      return DEFAULT_3COMMAS_TEMPLATE;
+    case "cornix":
+      return DEFAULT_CORNIX_TEMPLATE;
+    case "custom":
+    default:
+      return DEFAULT_CUSTOM_TRADING_TEMPLATE;
+  }
 }
 
 /**
@@ -77,6 +138,18 @@ export function isValidTelegramChatId(chatId?: string): boolean {
   if (!chatId || typeof chatId !== "string") return false;
   const trimmed = chatId.trim();
   return trimmed.length > 0 && (/^-?\d+$/.test(trimmed) || trimmed.startsWith("@"));
+}
+
+/**
+ * Validates Automated Trading Webhook URL structure (DEC-148)
+ */
+export function isValidTradingWebhookUrl(url?: string): boolean {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  return (
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("http://")
+  );
 }
 
 /**
@@ -197,7 +270,95 @@ export function formatTelegramMessage(
 }
 
 /**
- * Direct server-side or worker dispatch to Discord Webhook and/or Telegram Bot
+ * Builds an automated trading webhook payload (3Commas, Cornix, TradingView) with dynamic token interpolation (DEC-148)
+ */
+export function formatTradingWebhookPayload(
+  config: TradingWebhookConfig,
+  alert: PriceAlert,
+  log: AlertLogEntry
+): { payload: any; headers: Record<string, string>; rawBody: string } {
+  const isBullish =
+    log.condition === "crossing_down" ||
+    alert.condition === "crossing_down" ||
+    log.label.toLowerCase().includes("bullish") ||
+    (log.message && log.message.toLowerCase().includes("bullish"));
+
+  const action = isBullish ? "buy" : "sell";
+  const actionUpper = action.toUpperCase();
+  const sentiment = isBullish ? "bullish" : "bearish";
+
+  const rawSymbol = log.symbol.toUpperCase();
+  const base = rawSymbol.replace(/USDT$/, "");
+  const quote = "USDT";
+  const pairSlash = `${base}/${quote}`;
+  const pairUnderscore = `${quote}_${base}`; // 3Commas convention e.g. USDT_BTC
+
+  const price = log.triggerPrice || log.targetPrice || alert.targetPrice;
+  const stopLoss = isBullish ? price * 0.985 : price * 1.015;
+  const risk = Math.abs(price - stopLoss);
+  const tp2 = isBullish ? price + risk * 2 : price - risk * 2;
+  const tp3 = isBullish ? price + risk * 3 : price - risk * 3;
+
+  const tfMatch = log.label.match(/\b(15m|1h|4h|1d)\b/i);
+  const timeframe = tfMatch ? tfMatch[0].toUpperCase() : "4H";
+
+  const numPrice = Number(price.toFixed(price >= 1 ? 2 : 4));
+  const numTargetPrice = Number(log.targetPrice.toFixed(log.targetPrice >= 1 ? 2 : 4));
+  const numStopLoss = Number(stopLoss.toFixed(price >= 1 ? 2 : 4));
+  const numTp2 = Number(tp2.toFixed(price >= 1 ? 2 : 4));
+  const numTp3 = Number(tp3.toFixed(price >= 1 ? 2 : 4));
+
+  const replacements: Record<string, string | number> = {
+    symbol: rawSymbol,
+    pair: pairSlash,
+    pair_slash: pairSlash,
+    pair_underscore: pairUnderscore,
+    base,
+    quote,
+    action,
+    action_lower: action,
+    action_upper: actionUpper,
+    sentiment,
+    price: numPrice,
+    target_price: numTargetPrice,
+    stop_loss: numStopLoss,
+    take_profit_2r: numTp2,
+    take_profit_3r: numTp3,
+    bot_id: config.botId || "0",
+    secret_token: config.secretToken || "",
+    poi_label: log.label || alert.label || "POI",
+    timeframe,
+    timestamp: new Date(log.triggeredAt || Date.now()).toISOString(),
+  };
+
+  const platform = alert.tradingWebhookOverride?.platform || config.platform || "custom";
+  const template =
+    alert.tradingWebhookOverride?.customTemplate ||
+    config.customTemplate ||
+    getDefaultTradingWebhookTemplate(platform);
+
+  let rawBody = template;
+  for (const [key, val] of Object.entries(replacements)) {
+    rawBody = rawBody.replaceAll(`{{${key}}}`, String(val));
+  }
+
+  let payload: any = rawBody;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // If template is plain text signal, keep as string
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(config.headers || {}),
+  };
+
+  return { payload, headers, rawBody };
+}
+
+/**
+ * Direct server-side or worker dispatch to Discord Webhook, Telegram Bot, and Automated Trading Webhook (DEC-130, DEC-148)
  */
 export async function dispatchDirectWebhooks(
   config: AlertWebhookConfig,
@@ -215,12 +376,19 @@ export async function dispatchDirectWebhooks(
     isValidTelegramChatId(config.telegramChatId) &&
     alert.notifyTelegram !== false;
 
-  if (!allowDiscord && !allowTelegram) {
+  const tradingUrl = alert.tradingWebhookOverride?.webhookUrl || config.tradingWebhook?.webhookUrl;
+  const allowTrading =
+    Boolean(config.tradingWebhook?.enabled) &&
+    isValidTradingWebhookUrl(tradingUrl) &&
+    alert.notifyTradingWebhook !== false;
+
+  if (!allowDiscord && !allowTelegram && !allowTrading) {
     return {};
   }
 
   const results: DispatchNotificationResult = {};
 
+  // 1. Discord Webhook
   if (allowDiscord && config.discordWebhookUrl) {
     const payload = formatDiscordPayload(alert, log);
     const controller = new AbortController();
@@ -248,6 +416,7 @@ export async function dispatchDirectWebhooks(
     }
   }
 
+  // 2. Telegram Bot
   if (
     allowTelegram &&
     config.telegramBotToken &&
@@ -285,11 +454,45 @@ export async function dispatchDirectWebhooks(
     }
   }
 
+  // 3. Automated Trading Webhook (3Commas, Cornix, TradingView - DEC-148)
+  if (allowTrading && tradingUrl && config.tradingWebhook) {
+    const { payload, headers, rawBody } = formatTradingWebhookPayload(
+      config.tradingWebhook,
+      alert,
+      log
+    );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(tradingUrl, {
+        method: "POST",
+        headers,
+        body: typeof payload === "string" ? payload : JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      results.tradingWebhook = {
+        ok: res.ok,
+        status: res.status,
+        platform: config.tradingWebhook.platform || "custom",
+        error: !res.ok ? await res.text() : undefined,
+      };
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      results.tradingWebhook = {
+        ok: false,
+        platform: config.tradingWebhook.platform || "custom",
+        error: err instanceof Error ? err.message : "Network error",
+      };
+    }
+  }
+
   return results;
 }
 
 /**
- * Client helper to dispatch notifications to Discord/Telegram via /api/alerts/notify
+ * Client helper to dispatch notifications to Discord, Telegram, and Trading Webhook via /api/alerts/notify
  */
 export async function sendAlertNotifications(
   config: AlertWebhookConfig,
@@ -308,7 +511,13 @@ export async function sendAlertNotifications(
     isValidTelegramChatId(config.telegramChatId) &&
     alert.notifyTelegram !== false;
 
-  if (!allowDiscord && !allowTelegram) {
+  const tradingUrl = alert.tradingWebhookOverride?.webhookUrl || config.tradingWebhook?.webhookUrl;
+  const allowTrading =
+    Boolean(config.tradingWebhook?.enabled) &&
+    isValidTradingWebhookUrl(tradingUrl) &&
+    alert.notifyTradingWebhook !== false;
+
+  if (!allowDiscord && !allowTelegram && !allowTrading) {
     return {};
   }
 
@@ -324,6 +533,7 @@ export async function sendAlertNotifications(
           telegramBotToken: allowTelegram ? config.telegramBotToken : undefined,
           telegramChatId: allowTelegram ? config.telegramChatId : undefined,
           telegramEnabled: allowTelegram,
+          tradingWebhook: allowTrading ? config.tradingWebhook : undefined,
         },
         alert,
         log,
@@ -334,6 +544,7 @@ export async function sendAlertNotifications(
       return {
         discord: allowDiscord ? { ok: false, error: `HTTP ${res.status}` } : undefined,
         telegram: allowTelegram ? { ok: false, error: `HTTP ${res.status}` } : undefined,
+        tradingWebhook: allowTrading ? { ok: false, error: `HTTP ${res.status}` } : undefined,
       };
     }
 
@@ -344,6 +555,7 @@ export async function sendAlertNotifications(
     return {
       discord: allowDiscord ? { ok: false, error: errorMsg } : undefined,
       telegram: allowTelegram ? { ok: false, error: errorMsg } : undefined,
+      tradingWebhook: allowTrading ? { ok: false, error: errorMsg } : undefined,
     };
   }
 }

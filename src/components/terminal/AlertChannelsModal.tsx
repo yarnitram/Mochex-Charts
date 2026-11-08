@@ -1,12 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Send, CheckCircle2, AlertCircle, Loader2, ExternalLink } from "lucide-react";
+import {
+  X,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  ExternalLink,
+  Zap,
+  RotateCcw,
+  Code,
+  Cpu,
+} from "lucide-react";
 import {
   AlertWebhookConfig,
+  TradingWebhookPlatform,
+  TradingWebhookConfig,
   isValidDiscordWebhookUrl,
   isValidTelegramBotToken,
   isValidTelegramChatId,
+  isValidTradingWebhookUrl,
+  getDefaultTradingWebhookTemplate,
 } from "@/lib/alerts/webhook-dispatcher";
 
 export function DiscordIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
@@ -49,7 +64,92 @@ export function AlertChannelsModal({
   const [telegramTesting, setTelegramTesting] = useState(false);
   const [telegramStatus, setTelegramStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // DEC-148: Automated Trading Webhook Configuration (3Commas, Cornix, TradingView)
+  const [tradingEnabled, setTradingEnabled] = useState(initialConfig.tradingWebhook?.enabled ?? false);
+  const [tradingPlatform, setTradingPlatform] = useState<TradingWebhookPlatform>(
+    initialConfig.tradingWebhook?.platform || "3commas"
+  );
+  const [tradingWebhookUrl, setTradingWebhookUrl] = useState(initialConfig.tradingWebhook?.webhookUrl || "");
+  const [tradingSecretToken, setTradingSecretToken] = useState(initialConfig.tradingWebhook?.secretToken || "");
+  const [tradingBotId, setTradingBotId] = useState(initialConfig.tradingWebhook?.botId || "");
+  const [tradingCustomTemplate, setTradingCustomTemplate] = useState(
+    initialConfig.tradingWebhook?.customTemplate ||
+      getDefaultTradingWebhookTemplate(initialConfig.tradingWebhook?.platform || "3commas")
+  );
+  const [tradingTesting, setTradingTesting] = useState(false);
+  const [tradingStatus, setTradingStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
   if (!isOpen) return null;
+
+  const handleSelectPlatform = (platform: TradingWebhookPlatform) => {
+    setTradingPlatform(platform);
+    setTradingStatus(null);
+    setTradingCustomTemplate(getDefaultTradingWebhookTemplate(platform));
+    if (!tradingWebhookUrl && platform === "3commas") {
+      setTradingWebhookUrl("https://app.3commas.io/trade_signal/v2");
+    } else if (!tradingWebhookUrl && platform === "cornix") {
+      setTradingWebhookUrl("https://trading.cornix.io/api/v1/tradingview-webhook");
+    }
+  };
+
+  const handleInsertToken = (token: string) => {
+    setTradingCustomTemplate((prev) => `${prev} {{${token}}}`);
+  };
+
+  const handleResetTemplate = () => {
+    setTradingCustomTemplate(getDefaultTradingWebhookTemplate(tradingPlatform));
+  };
+
+  const handleTestTradingWebhook = async () => {
+    if (!isValidTradingWebhookUrl(tradingWebhookUrl)) {
+      setTradingStatus({
+        ok: false,
+        msg: "Please enter a valid webhook URL (https://... or http://...)",
+      });
+      return;
+    }
+
+    setTradingTesting(true);
+    setTradingStatus(null);
+
+    try {
+      const res = await fetch("/api/alerts/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          channel: "trading_webhook",
+          config: {
+            tradingWebhook: {
+              enabled: true,
+              platform: tradingPlatform,
+              webhookUrl: tradingWebhookUrl.trim(),
+              secretToken: tradingSecretToken.trim(),
+              botId: tradingBotId.trim(),
+              customTemplate: tradingCustomTemplate,
+            },
+          },
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTradingStatus({ ok: true, msg: data.message || "Test signal delivered to trading webhook!" });
+      } else {
+        setTradingStatus({
+          ok: false,
+          msg: data.error || `Trading webhook error (HTTP ${res.status})`,
+        });
+      }
+    } catch (err: unknown) {
+      setTradingStatus({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Failed to reach server",
+      });
+    } finally {
+      setTradingTesting(false);
+    }
+  };
 
   const handleTestDiscord = async () => {
     if (!isValidDiscordWebhookUrl(discordWebhookUrl)) {
@@ -149,7 +249,16 @@ export function AlertChannelsModal({
       discordEnabled: discordEnabled && discordWebhookUrl.trim().length > 0,
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
-      telegramEnabled: telegramEnabled && telegramBotToken.trim().length > 0 && telegramChatId.trim().length > 0,
+      telegramEnabled:
+        telegramEnabled && telegramBotToken.trim().length > 0 && telegramChatId.trim().length > 0,
+      tradingWebhook: {
+        enabled: tradingEnabled && tradingWebhookUrl.trim().length > 0,
+        platform: tradingPlatform,
+        webhookUrl: tradingWebhookUrl.trim(),
+        secretToken: tradingSecretToken.trim(),
+        botId: tradingBotId.trim(),
+        customTemplate: tradingCustomTemplate,
+      },
     };
 
     try {
@@ -354,6 +463,233 @@ export function AlertChannelsModal({
               >
                 {telegramStatus.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
                 <span>{telegramStatus.msg}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 3. AUTOMATED TRADING WEBHOOK (3COMMAS / CORNIX / TRADINGVIEW - DEC-148) */}
+          <div className="p-3 rounded-lg border border-border bg-surface-container-low flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30">
+                  <Zap size={16} />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-on-surface flex items-center gap-2">
+                    <span>Automated Trading Webhooks</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30">
+                      BOT EXECUTION
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-muted">
+                    Execute live trades on 3Commas, Cornix, or custom webhook bridges on POI touch
+                  </div>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <button
+                type="button"
+                onClick={() => setTradingEnabled(!tradingEnabled)}
+                className={`w-9 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
+                  tradingEnabled ? "bg-[#00c087]" : "bg-border"
+                }`}
+              >
+                <div
+                  className={`bg-white w-3 h-3 rounded-full shadow-md transform transition-transform ${
+                    tradingEnabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Platform Selector Pills */}
+            <div className="flex items-center gap-1.5 bg-surface p-1 rounded-lg border border-border text-[10px]">
+              {(["3commas", "cornix", "custom"] as TradingWebhookPlatform[]).map((platform) => {
+                const isSel = tradingPlatform === platform;
+                const label =
+                  platform === "3commas"
+                    ? "3Commas Bot"
+                    : platform === "cornix"
+                    ? "Cornix Auto-Trader"
+                    : "Custom / TradingView";
+                return (
+                  <button
+                    key={platform}
+                    type="button"
+                    onClick={() => handleSelectPlatform(platform)}
+                    className={`flex-1 py-1 rounded font-semibold transition-colors cursor-pointer text-center ${
+                      isSel
+                        ? "bg-[#00c087] text-white shadow-xs"
+                        : "text-muted hover:text-on-surface hover:bg-surface-container"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Webhook URL Input */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted flex items-center justify-between">
+                <span>Webhook Destination URL:</span>
+                <span className="text-[9px] text-muted/70">HTTPS required</span>
+              </label>
+              <input
+                type="text"
+                value={tradingWebhookUrl}
+                onChange={(e) => {
+                  setTradingWebhookUrl(e.target.value);
+                  setTradingStatus(null);
+                }}
+                placeholder={
+                  tradingPlatform === "3commas"
+                    ? "https://app.3commas.io/trade_signal/v2"
+                    : tradingPlatform === "cornix"
+                    ? "https://trading.cornix.io/api/v1/tradingview-webhook"
+                    : "https://your-trading-bridge.com/webhook"
+                }
+                className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#00c087] outline-none"
+              />
+            </div>
+
+            {/* Platform Specific Fields */}
+            {tradingPlatform === "3commas" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-muted">3Commas Bot ID:</label>
+                  <input
+                    type="text"
+                    value={tradingBotId}
+                    onChange={(e) => {
+                      setTradingBotId(e.target.value);
+                      setTradingStatus(null);
+                    }}
+                    placeholder="12345678"
+                    className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#00c087] outline-none"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-muted">Email Token / Secret:</label>
+                  <input
+                    type="password"
+                    value={tradingSecretToken}
+                    onChange={(e) => {
+                      setTradingSecretToken(e.target.value);
+                      setTradingStatus(null);
+                    }}
+                    placeholder="a1b2c3d4-e5f6-..."
+                    className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#00c087] outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {tradingPlatform === "cornix" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted">Cornix Secret Passphrase / Token:</label>
+                <input
+                  type="password"
+                  value={tradingSecretToken}
+                  onChange={(e) => {
+                    setTradingSecretToken(e.target.value);
+                    setTradingStatus(null);
+                  }}
+                  placeholder="your-cornix-tradingview-secret"
+                  className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#00c087] outline-none"
+                />
+              </div>
+            )}
+
+            {/* Payload Template Editor */}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted font-semibold flex items-center gap-1">
+                  <Code size={11} className="text-[#00c087]" />
+                  <span>Payload Template (JSON)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetTemplate}
+                  className="text-[9px] text-[#00c087] hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw size={9} />
+                  <span>Reset Default</span>
+                </button>
+              </div>
+              <textarea
+                rows={5}
+                value={tradingCustomTemplate}
+                onChange={(e) => {
+                  setTradingCustomTemplate(e.target.value);
+                  setTradingStatus(null);
+                }}
+                className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[10px] leading-relaxed placeholder:text-muted/40 focus:border-[#00c087] outline-none resize-y"
+              />
+            </div>
+
+            {/* Available Template Variables */}
+            <div className="flex flex-col gap-1 bg-surface/50 p-2 rounded border border-border/40">
+              <span className="text-[9px] text-muted font-bold">Dynamic Tokens (Click to Insert):</span>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  "symbol",
+                  "pair_slash",
+                  "pair_underscore",
+                  "action",
+                  "price",
+                  "stop_loss",
+                  "take_profit_2r",
+                  "take_profit_3r",
+                  "timeframe",
+                  "poi_label",
+                ].map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    onClick={() => handleInsertToken(token)}
+                    className="px-1.5 py-0.5 rounded bg-surface hover:bg-[#00c087]/20 border border-border hover:border-[#00c087]/40 text-muted hover:text-[#00c087] text-[9px] font-mono cursor-pointer transition-colors"
+                  >
+                    {`{{${token}}}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Test & Actions */}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[9px] text-muted/70">Dispatched automatically on 24/7 cloud alert</span>
+              <button
+                type="button"
+                onClick={handleTestTradingWebhook}
+                disabled={tradingTesting || !tradingWebhookUrl.trim()}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#00c087]/20 hover:bg-[#00c087] text-[#00c087] hover:text-white border border-[#00c087]/40 transition-colors text-[10px] font-semibold cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+              >
+                {tradingTesting ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" />
+                    <span>Executing Test Signal...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap size={11} />
+                    <span>Send Test Trade Signal</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {tradingStatus && (
+              <div
+                className={`p-2 rounded text-[10px] flex items-center gap-1.5 border ${
+                  tradingStatus.ok
+                    ? "bg-green-500/10 border-green-500/30 text-green-400"
+                    : "bg-red-500/10 border-red-500/30 text-red-400"
+                }`}
+              >
+                {tradingStatus.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                <span>{tradingStatus.msg}</span>
               </div>
             )}
           </div>
