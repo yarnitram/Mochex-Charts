@@ -47,7 +47,11 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login") {
     if (authenticated) {
       // If already logged in, redirect to workstation
-      const callbackUrl = request.nextUrl.searchParams.get("callbackUrl") || "/chart";
+      let callbackUrl = request.nextUrl.searchParams.get("callbackUrl") || "/chart";
+      // Prevent infinite redirect loops to /login
+      if (!callbackUrl || callbackUrl.startsWith("/login") || !callbackUrl.startsWith("/")) {
+        callbackUrl = "/chart";
+      }
       return NextResponse.redirect(new URL(callbackUrl, request.url));
     }
     return NextResponse.next();
@@ -56,7 +60,6 @@ export async function middleware(request: NextRequest) {
   // 4. Protected Workstation Terminal ("/chart" and all other application routes)
   if (!authenticated) {
     // If it's an API route (other than /api/auth/* which was bypassed above), return 401
-    // Note: Allow public market data read routes like /api/mexc/* if needed, or protect everything else
     if (pathname.startsWith("/api/")) {
       // Allow public MEXC read-only price feeds if necessary, or keep strict
       if (pathname.startsWith("/api/mexc")) {
@@ -67,7 +70,7 @@ export async function middleware(request: NextRequest) {
 
     // For any page other than "/" and "/login", redirect to "/login"
     const loginUrl = new URL("/login", request.url);
-    const callbackTarget = pathname + search;
+    const callbackTarget = pathname.startsWith("/login") ? "/chart" : pathname + search;
     loginUrl.searchParams.set("callbackUrl", callbackTarget);
 
     const response = NextResponse.redirect(loginUrl);

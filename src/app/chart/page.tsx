@@ -63,14 +63,14 @@ export default function WorkstationPage() {
   // Route protection - unauthenticated users cannot visit chart terminal
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push("/login?callbackUrl=/chart");
+      window.location.href = "/login?callbackUrl=/chart";
     }
-  }, [isLoading, user, router]);
+  }, [isLoading, user]);
 
   const handleLogout = useCallback(async () => {
     await logout();
-    router.push("/login");
-  }, [logout, router]);
+    window.location.href = "/login";
+  }, [logout]);
 
   // Multi-Chart Split-Screen Workspace State & Resizable Split Fractions (DEC-075 & DEC-077)
   const [gridState, setGridState] = useState<MultiChartWorkspaceState>(() =>

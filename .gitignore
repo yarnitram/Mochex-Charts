@@ -28,5 +28,6 @@ pnpm-debug.log*
 Thumbs.db
 *.tsbuildinfo
 
-# PocketBase data
+# PocketBase & Local auth data
 pb_data/
+.data/

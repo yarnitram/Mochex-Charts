@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPocketBase } from "@/lib/db/pocketbase";
 import { signToken, type Role } from "@/lib/auth/jwt";
+import { findLocalUser, verifyPassword } from "@/lib/auth/local-store";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,43 +14,72 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const pb = getPocketBase();
+    let userId = "";
+    let username = "";
+    let email = "";
+    let role: Role = "TRADER";
+    let pbToken: string | undefined = undefined;
 
-    let authData;
+    // 1. Attempt PocketBase authentication if reachable
+    let pbAuthenticated = false;
     try {
-      authData = await pb.collection("users").authWithPassword(usernameOrEmail, password);
-    } catch (pbErr: any) {
-      return NextResponse.json(
-        { error: pbErr?.message || "Invalid credentials" },
-        { status: 401 }
-      );
+      const pb = getPocketBase();
+      const authData = await pb.collection("users").authWithPassword(usernameOrEmail, password);
+      if (authData && authData.record) {
+        userId = authData.record.id;
+        username = authData.record.username;
+        email = authData.record.email;
+        role = (authData.record.role as Role) || "TRADER";
+        pbToken = authData.token;
+        pbAuthenticated = true;
+      }
+    } catch (_pbErr: any) {
+      pbAuthenticated = false;
     }
 
-    const userRecord = authData.record;
-    const role: Role = (userRecord.role as Role) || "TRADER";
+    // 2. If PocketBase is not reachable or user was not authenticated via PB, check local store
+    if (!pbAuthenticated) {
+      const localUser = findLocalUser(usernameOrEmail);
+      if (localUser && verifyPassword(password, localUser.passwordHash)) {
+        userId = localUser.id;
+        username = localUser.username;
+        email = localUser.email;
+        role = localUser.role;
+      } else {
+        return NextResponse.json(
+          { error: "Invalid username, email, or password" },
+          { status: 401 }
+        );
+      }
+    }
 
     const token = await signToken({
-      userId: userRecord.id,
-      username: userRecord.username,
-      email: userRecord.email,
+      userId,
+      username,
+      email,
       role,
-      pbToken: authData.token,
+      pbToken,
     });
 
     const response = NextResponse.json({
       user: {
-        id: userRecord.id,
-        username: userRecord.username,
-        email: userRecord.email,
+        id: userId,
+        userId,
+        username,
+        email,
         role,
       },
     });
+
+    const isHttps =
+      request.nextUrl.protocol === "https:" ||
+      request.headers.get("x-forwarded-proto") === "https";
 
     response.cookies.set({
       name: "mochex_token",
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
