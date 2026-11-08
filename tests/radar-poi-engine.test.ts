@@ -100,4 +100,29 @@ describe("Radar POI Engine (Order Blocks & Sandwich Zones) (DEC-137)", () => {
     expect(supplySandwich?.isInsideZone).toBe(true);
     expect(supplySandwich?.status).toBe("testing");
   });
+
+  it("detects Standalone Fair Value Gaps (FVG) with 50% Consequent Encroachment (DEC-138)", () => {
+    // Bullish FVG: Bar 2 low (110) > Bar 0 high (102). Gap is [102, 110].
+    // Bar 3: price remains above gap at 115 without creating a new FVG
+    const bars: CandlestickBar[] = [
+      { time: baseTime, open: 100, high: 102, low: 99, close: 101, volume: 100 },
+      { time: baseTime + barInterval, open: 101, high: 113, low: 101, close: 108, volume: 250 },
+      { time: baseTime + barInterval * 2, open: 108, high: 116, low: 110, close: 114, volume: 300 },
+      { time: baseTime + barInterval * 3, open: 114, high: 118, low: 112, close: 115, volume: 200 },
+    ];
+
+    const pois = computeRadarPois(bars, "SOLUSDT", "15m");
+    const fvgPoi = pois.find((p) => p.category === "fvg");
+
+    expect(fvgPoi).toBeDefined();
+    expect(fvgPoi?.type).toBe("BULLISH");
+    expect(fvgPoi?.top).toBe(110);
+    expect(fvgPoi?.bottom).toBe(102);
+    expect(fvgPoi?.meanThreshold).toBe(106); // 50% Consequent Encroachment (CE)
+    expect(fvgPoi?.entryPrice).toBe(110);
+    expect(fvgPoi?.fullRetestPrice).toBe(102);
+    expect(fvgPoi?.currentPrice).toBe(115);
+    // Distance to entry (110): (115 - 110) / 115 * 100 = 4.348%
+    expect(fvgPoi?.distanceToEntryPct).toBeCloseTo(4.35, 1);
+  });
 });

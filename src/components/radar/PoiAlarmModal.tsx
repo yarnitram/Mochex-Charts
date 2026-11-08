@@ -170,7 +170,11 @@ export function PoiAlarmModal({
           <div className="p-3 rounded-lg bg-[#0e141f] border border-[#1f2c3f] flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-[#848e9c] uppercase font-bold tracking-wider">
-                {poi.category === "sandwich_zone" ? "Sandwich Zone Range" : "Order Block Zone"}
+                {poi.category === "sandwich_zone"
+                  ? "Sandwich Zone Range"
+                  : poi.category === "fvg"
+                  ? "Fair Value Gap (FVG)"
+                  : "Order Block Zone"}
               </span>
               <div className="flex items-center gap-1">
                 {poi.isPlus && (
@@ -196,7 +200,9 @@ export function PoiAlarmModal({
                 <div className="font-bold text-white text-[11px]">${poi.top.toFixed(2)}</div>
               </div>
               <div className="bg-[#151e2c] rounded py-0.5 border border-[#223044]">
-                <div className="text-[9px] text-[#2962ff] font-semibold">50% MT</div>
+                <div className="text-[9px] text-[#2962ff] font-semibold">
+                  {poi.category === "fvg" ? "50% CE" : "50% MT"}
+                </div>
                 <div className="font-bold text-[#b6c4ff] text-[11px]">${poi.meanThreshold.toFixed(2)}</div>
               </div>
               <div>
@@ -280,7 +286,9 @@ export function PoiAlarmModal({
                 />
                 <div>
                   <div className="font-semibold text-xs text-[#2962ff]">
-                    50% Mean Threshold (Equilibrium) • Recommended
+                    {poi.category === "fvg"
+                      ? "50% Consequent Encroachment (CE) • Recommended"
+                      : "50% Mean Threshold (Equilibrium) • Recommended"}
                   </div>
                   <div className="text-[10px] text-[#848e9c]">
                     Alarms when price hits exact institutional 50% midpoint (${poi.meanThreshold.toFixed(2)})

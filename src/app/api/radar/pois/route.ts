@@ -132,9 +132,10 @@ export async function POST(request: NextRequest) {
         allPois.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
         const nearestPoi = allPois.length > 0 ? allPois[0] : null;
 
-        // Separate nearest OB and nearest Sandwich Zone
+        // Separate nearest OB, Sandwich Zone, and Standalone FVG
         const nearestOb = allPois.find((p) => p.category === "order_block") || null;
         const nearestSandwich = allPois.find((p) => p.category === "sandwich_zone") || null;
+        const nearestFvg = allPois.find((p) => p.category === "fvg") || null;
 
         const data = {
           symbol: upperSym,
@@ -146,6 +147,7 @@ export async function POST(request: NextRequest) {
           nearestPoi,
           nearestOb,
           nearestSandwich,
+          nearestFvg,
           poisByTimeframe,
         };
 
