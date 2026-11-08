@@ -1,7 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
-import { X, Bell, Check, Loader2, Sparkles, Send, Star, Volume2, Play } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  X,
+  Bell,
+  Check,
+  Loader2,
+  Sparkles,
+  Send,
+  Star,
+  Volume2,
+  Play,
+  Upload,
+  Music,
+  Trash2,
+  FileAudio,
+} from "lucide-react";
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
@@ -15,6 +29,14 @@ import {
   playRadarChime,
   getRadarAudioSettings,
 } from "@/lib/audio/sound-effects";
+import {
+  CustomSoundAsset,
+  getStoredCustomSounds,
+  saveCustomSound,
+  deleteCustomSound,
+  validateAudioFile,
+  convertAudioBlobToBase64,
+} from "@/lib/audio/custom-audio-store";
 
 interface PoiAlarmModalProps {
   isOpen: boolean;
@@ -45,10 +67,90 @@ export function PoiAlarmModal({
   const [notifyDiscord, setNotifyDiscord] = useState(true);
   const [notifyTelegram, setNotifyTelegram] = useState(true);
 
-  // Audio chime selection
+  // Audio chime selection & custom sounds (DEC-147)
+  const [audioTab, setAudioTab] = useState<"presets" | "custom">("presets");
+  const [customSounds, setCustomSounds] = useState<CustomSoundAsset[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [alarmChime, setAlarmChime] = useState<RadarChimeType>(
     () => getRadarAudioSettings().soundType
   );
+
+  useEffect(() => {
+    getStoredCustomSounds().then((sounds) => {
+      setCustomSounds(sounds);
+      const current = getRadarAudioSettings();
+      if (current.soundType.startsWith("custom:")) {
+        setAudioTab("custom");
+      }
+    });
+  }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+    const validation = validateAudioFile(file);
+    if (!validation.valid) {
+      setUploadError(validation.error || "Invalid file format or size");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const base64 = await convertAudioBlobToBase64(file);
+      const asset: CustomSoundAsset = {
+        id: `custom-sound-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: file.name,
+        dataUrl: base64,
+        fileType: file.type || "audio/mpeg",
+        fileSize: file.size,
+        createdAt: Date.now(),
+      };
+
+      await saveCustomSound(asset);
+
+      // Cloud backup to .data/custom-sounds.json
+      fetch("/api/audio/custom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(asset),
+      }).catch(() => {});
+
+      setCustomSounds((prev) => [asset, ...prev.filter((s) => s.id !== asset.id)]);
+      const chimeId = `custom:${asset.id}`;
+      setAlarmChime(chimeId);
+      playRadarChime({
+        soundType: chimeId,
+        customSoundDataUrl: base64,
+        volume: 0.8,
+        enabled: true,
+      });
+    } catch (err: any) {
+      setUploadError(err?.message || "Failed to process audio file");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleDeleteCustomSound = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await deleteCustomSound(id);
+    fetch(`/api/audio/custom?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).catch(() => {});
+
+    setCustomSounds((prev) => prev.filter((s) => s.id !== id));
+    if (alarmChime === `custom:${id}`) {
+      setAlarmChime("radar_ping");
+    }
+  };
 
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -380,45 +482,172 @@ export function PoiAlarmModal({
             </div>
           </div>
 
-          {/* 4. Trigger Audio Chime */}
-          <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1f2c3f]">
+          {/* 4. Trigger Audio Chime (DEC-140, DEC-147) */}
+          <div className="flex flex-col gap-2 pt-2 border-t border-[#1f2c3f]">
             <div className="flex items-center justify-between text-[11px] text-[#b6c4ff] font-semibold">
               <span className="flex items-center gap-1.5">
                 <Volume2 size={13} className="text-[#2962ff]" />
                 <span>Trigger Audio Chime</span>
               </span>
-              <button
-                type="button"
-                onClick={() => playRadarChime({ soundType: alarmChime, volume: 0.8, enabled: true })}
-                className="text-[10px] text-[#2962ff] hover:text-[#7096ff] flex items-center gap-1 cursor-pointer font-bold transition-colors"
-              >
-                <Play size={10} className="fill-current" />
-                <span>Preview Chime</span>
-              </button>
+
+              {/* Audio category tabs */}
+              <div className="flex items-center bg-[#090d14] p-0.5 rounded-lg border border-[#1f2c3f] text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setAudioTab("presets")}
+                  className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                    audioTab === "presets"
+                      ? "bg-[#2962ff] text-white"
+                      : "text-[#848e9c] hover:text-white"
+                  }`}
+                >
+                  <Music size={10} />
+                  <span>Presets ({RADAR_CHIME_PRESETS.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAudioTab("custom")}
+                  className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                    audioTab === "custom"
+                      ? "bg-[#2962ff] text-white"
+                      : "text-[#848e9c] hover:text-white"
+                  }`}
+                >
+                  <FileAudio size={10} />
+                  <span>Custom ({customSounds.length})</span>
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {RADAR_CHIME_PRESETS.map((p) => {
-                const isSel = alarmChime === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      setAlarmChime(p.id);
-                      playRadarChime({ soundType: p.id, volume: 0.8, enabled: true });
-                    }}
-                    className={`px-2.5 py-1.5 rounded-lg border text-left text-[10px] font-semibold transition-colors flex items-center justify-between cursor-pointer ${
-                      isSel
-                        ? "bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]"
-                        : "bg-[#0e141f] text-[#848e9c] border-[#1f2c3f] hover:text-white"
-                    }`}
-                  >
-                    <span className="truncate">{p.label}</span>
-                    {isSel && <Check size={11} className="shrink-0 ml-1 text-[#2962ff]" />}
-                  </button>
-                );
-              })}
-            </div>
+
+            {audioTab === "presets" ? (
+              <div className="grid grid-cols-2 gap-1.5">
+                {RADAR_CHIME_PRESETS.map((p) => {
+                  const isSel = alarmChime === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setAlarmChime(p.id);
+                        playRadarChime({ soundType: p.id, volume: 0.8, enabled: true });
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-left text-[10px] font-semibold transition-colors flex items-center justify-between cursor-pointer ${
+                        isSel
+                          ? "bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]"
+                          : "bg-[#0e141f] text-[#848e9c] border-[#1f2c3f] hover:text-white"
+                      }`}
+                    >
+                      <span className="truncate">{p.label}</span>
+                      {isSel && <Check size={11} className="shrink-0 ml-1 text-[#2962ff]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {/* Upload Input */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept=".wav,.mp3,.ogg,.m4a,audio/*"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="w-full py-2 px-3 rounded-lg border border-dashed border-[#2962ff]/50 bg-[#2962ff]/10 hover:bg-[#2962ff]/20 text-[#2962ff] hover:text-[#7096ff] text-[11px] font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>Processing Audio Asset...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={13} />
+                      <span>Upload Custom Sound (.wav, .mp3 - Max 2.5MB)</span>
+                    </>
+                  )}
+                </button>
+
+                {uploadError && (
+                  <div className="p-1.5 rounded bg-[#ff3b30]/15 border border-[#ff3b30]/40 text-[#ff3b30] text-[10px]">
+                    {uploadError}
+                  </div>
+                )}
+
+                {/* Custom sounds list */}
+                {customSounds.length === 0 ? (
+                  <div className="py-2.5 px-3 rounded-lg bg-[#0e141f] border border-[#1f2c3f] text-center text-[10px] text-[#848e9c]">
+                    No custom sounds uploaded yet. Upload a .wav or .mp3 audio file above.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1 max-h-[120px] overflow-y-auto pr-1">
+                    {customSounds.map((s) => {
+                      const isSel = alarmChime === `custom:${s.id}`;
+                      const sizeKb = Math.round(s.fileSize / 1024);
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => {
+                            setAlarmChime(`custom:${s.id}`);
+                            playRadarChime({
+                              soundType: `custom:${s.id}`,
+                              customSoundDataUrl: s.dataUrl,
+                              volume: 0.8,
+                              enabled: true,
+                            });
+                          }}
+                          className={`px-2 py-1.5 rounded-lg border text-[10px] font-medium flex items-center justify-between cursor-pointer transition-colors ${
+                            isSel
+                              ? "bg-[#2962ff]/20 border-[#2962ff] text-white"
+                              : "bg-[#0e141f] border-[#1f2c3f] text-[#848e9c] hover:text-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate pr-2">
+                            <FileAudio size={12} className={isSel ? "text-[#2962ff]" : "text-[#848e9c]"} />
+                            <span className="truncate max-w-[170px]" title={s.name}>
+                              {s.name}
+                            </span>
+                            <span className="text-[9px] text-[#55657e]">({sizeKb} KB)</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                playRadarChime({
+                                  soundType: `custom:${s.id}`,
+                                  customSoundDataUrl: s.dataUrl,
+                                  volume: 0.8,
+                                  enabled: true,
+                                });
+                              }}
+                              className="p-1 rounded hover:bg-[#233144] text-[#2962ff] cursor-pointer"
+                              title="Preview sound"
+                            >
+                              <Play size={10} className="fill-current" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteCustomSound(s.id, e)}
+                              className="p-1 rounded hover:bg-[#ff3b30]/20 text-[#848e9c] hover:text-[#ff3b30] cursor-pointer"
+                              title="Delete sound"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                            {isSel && <Check size={11} className="text-[#2962ff]" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {statusMessage && (
