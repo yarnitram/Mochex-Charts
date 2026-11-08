@@ -124,22 +124,24 @@ export function AuthModal({
           <div className="p-5 space-y-4">
             <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low border border-border">
               <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-primary-container to-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                {user.username.slice(0, 2).toUpperCase()}
+                {typeof user?.username === "string" && user.username.length > 0
+                  ? user.username.slice(0, 2).toUpperCase()
+                  : "TR"}
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-sm text-on-surface">{user.username}</span>
+                  <span className="font-mono font-bold text-sm text-on-surface">{user?.username || "Trader"}</span>
                   <span
                     className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded uppercase ${
-                      user.role === "ADMIN"
+                      user?.role === "ADMIN"
                         ? "bg-gold/15 text-gold border border-gold/30"
                         : "bg-secondary/15 text-secondary border border-secondary/30"
                     }`}
                   >
-                    {user.role}
+                    {user?.role || "TRADER"}
                   </span>
                 </div>
-                <div className="text-xs font-mono text-muted">{user.email}</div>
+                <div className="text-xs font-mono text-muted">{user?.email || ""}</div>
               </div>
             </div>
 

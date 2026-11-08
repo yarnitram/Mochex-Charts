@@ -639,11 +639,13 @@ export function TacticalHeader({
         <button
           onClick={onOpenAuthModal}
           className="flex items-center gap-1.5 p-1 rounded hover:bg-surface-container transition-colors pl-1 cursor-pointer"
-          title={user ? `${user.username} (${user.role})` : "Guest Mode - Click to Sign In"}
+          title={user?.username ? `${user.username} (${user.role || "TRADER"})` : "Trader Account"}
         >
           <div className="relative">
             <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary-container to-blue-700 flex items-center justify-center text-[10px] font-bold text-white shadow-xs">
-              {user ? user.username.slice(0, 2).toUpperCase() : "YM"}
+              {typeof user?.username === "string" && user.username.length > 0
+                ? user.username.slice(0, 2).toUpperCase()
+                : "TR"}
             </div>
             <div
               className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-surface ${
@@ -654,10 +656,10 @@ export function TacticalHeader({
 
           <div className="hidden lg:flex flex-col text-left">
             <span className="text-[11px] font-mono font-bold leading-none text-on-surface">
-              {user ? user.username : "Guest"}
+              {user?.username || "Trader"}
             </span>
             <span className="text-[9px] font-mono text-muted leading-tight">
-              {user ? user.role : "Sign In"}
+              {user?.role || "TRADER"}
             </span>
           </div>
         </button>
