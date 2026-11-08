@@ -29,6 +29,7 @@ import {
 import { PoiConfluenceInfo } from "./poi-confluence-matrix";
 import { PoiLiquiditySummary } from "./poi-liquidity-heatmap";
 import { PoiBreakTelemetry } from "./poi-invalidation-engine";
+import { PoiOrderFlowTelemetry, evaluatePoiOrderFlow } from "./orderbook-cvd-engine";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -71,6 +72,8 @@ export interface RadarPoiItem {
   liquidity?: PoiLiquiditySummary | null;
   // Real-Time Invalidation & Stop-Out Telemetry (DEC-150)
   breakTelemetry?: PoiBreakTelemetry | null;
+  // Institutional Orderbook Imbalance & CVD Absorption Divergence (DEC-153)
+  orderFlow?: PoiOrderFlowTelemetry | null;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -361,6 +364,13 @@ export function computeRadarPois(
     }
   } catch (err) {
     console.warn(`[radar-poi-engine] Error computing FVGs for ${symbol}:`, err);
+  }
+
+  // Attach Order Flow & CVD Absorption Telemetry (DEC-153)
+  for (const item of items) {
+    try {
+      item.orderFlow = evaluatePoiOrderFlow(bars, item);
+    } catch {}
   }
 
   // Sort all POIs by closest proximity to current price

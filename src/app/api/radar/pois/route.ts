@@ -38,6 +38,7 @@ interface CachedPoiEntry {
     poisByTimeframe: Record<string, RadarPoiItem[]>;
     exchange?: string;
     metrics?: any;
+    orderFlow?: any;
   };
 }
 
@@ -185,6 +186,7 @@ export async function POST(request: NextRequest) {
           metrics: nearestPoi?.metrics || null,
           confluence: nearestPoi?.confluence || null,
           liquidity: nearestPoi?.liquidity || null,
+          orderFlow: nearestPoi?.orderFlow || null,
           heatmap,
         };
 
