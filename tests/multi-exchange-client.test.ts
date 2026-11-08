@@ -25,10 +25,19 @@ describe("Multi-Exchange POI Aggregation Engine (DEC-143)", () => {
 
   describe("Interval & Resolution Normalization", () => {
     it("maps standard timeframe strings correctly for MEXC", () => {
-      expect(normalizeIntervalForExchange("mexc", "15m")).toBe("15");
-      expect(normalizeIntervalForExchange("mexc", "1H")).toBe("60");
-      expect(normalizeIntervalForExchange("mexc", "4H")).toBe("240");
-      expect(normalizeIntervalForExchange("mexc", "1D")).toBe("1D");
+      expect(normalizeIntervalForExchange("mexc", "15m")).toBe("15m");
+      expect(normalizeIntervalForExchange("mexc", "15")).toBe("15m");
+      expect(normalizeIntervalForExchange("mexc", "1H")).toBe("60m");
+      expect(normalizeIntervalForExchange("mexc", "60")).toBe("60m");
+      expect(normalizeIntervalForExchange("mexc", "4H")).toBe("4h");
+      expect(normalizeIntervalForExchange("mexc", "240")).toBe("4h");
+      expect(normalizeIntervalForExchange("mexc", "1D")).toBe("1d");
+      expect(normalizeIntervalForExchange("mexc", "d")).toBe("1d");
+      expect(normalizeIntervalForExchange("mexc", "1m")).toBe("1m");
+      expect(normalizeIntervalForExchange("mexc", "5m")).toBe("5m");
+      expect(normalizeIntervalForExchange("mexc", "30m")).toBe("30m");
+      expect(normalizeIntervalForExchange("mexc", "1W")).toBe("1W");
+      expect(normalizeIntervalForExchange("mexc", "1M")).toBe("1M");
     });
 
     it("maps standard timeframe strings correctly for Binance", () => {
