@@ -17,6 +17,8 @@ import {
   Plus,
   Trash2,
   SlidersHorizontal,
+  Star,
+  Layers,
 } from "lucide-react";
 import {
   getUniverseCoins,
@@ -25,9 +27,10 @@ import {
   MAJORS_UNIVERSE,
 } from "@/lib/screener/universe-catalog";
 import {
-  ValidatedOrderBlock,
-  OrderBlockType,
-} from "@/lib/indicators/validated-ob-engine";
+  RadarPoiItem,
+  PoiCategory,
+  PoiDirection,
+} from "@/lib/indicators/radar-poi-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { useAuth } from "@/lib/auth/use-auth";
 
@@ -38,8 +41,10 @@ interface RadarCoinData {
   volume24h: number;
   high24h: number;
   low24h: number;
-  nearestOb: ValidatedOrderBlock | null;
-  obsByTimeframe: Record<string, ValidatedOrderBlock[]>;
+  nearestPoi: RadarPoiItem | null;
+  nearestOb: RadarPoiItem | null;
+  nearestSandwich: RadarPoiItem | null;
+  poisByTimeframe: Record<string, RadarPoiItem[]>;
 }
 
 export default function RadarPage() {
@@ -62,7 +67,8 @@ export default function RadarPage() {
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [directionFilter, setDirectionFilter] = useState<"ALL" | OrderBlockType>("ALL");
+  const [poiCategoryFilter, setPoiCategoryFilter] = useState<"ALL" | PoiCategory>("ALL");
+  const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
   const [sortBy, setSortBy] = useState<"proximity" | "volume" | "change">("proximity");
 
@@ -74,8 +80,8 @@ export default function RadarPage() {
   // Selected coin for POI Alarm Modal
   const [alarmModalData, setAlarmModalData] = useState<{
     symbol: string;
-    orderBlock: ValidatedOrderBlock;
-    obsByTimeframe: Record<string, ValidatedOrderBlock[]>;
+    poi: RadarPoiItem;
+    poisByTimeframe: Record<string, RadarPoiItem[]>;
   } | null>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -174,13 +180,23 @@ export default function RadarPage() {
     return currentCoins
       .map((coin) => {
         const data = radarData[coin.symbol];
+        // Select matching POI based on category filter
+        let selectedPoi: RadarPoiItem | null = null;
+        if (poiCategoryFilter === "order_block") {
+          selectedPoi = data?.nearestOb || null;
+        } else if (poiCategoryFilter === "sandwich_zone") {
+          selectedPoi = data?.nearestSandwich || null;
+        } else {
+          selectedPoi = data?.nearestPoi || null;
+        }
+
         return {
           coin,
           data,
-          nearestOb: data?.nearestOb || null,
+          selectedPoi,
         };
       })
-      .filter(({ coin, nearestOb }) => {
+      .filter(({ coin, selectedPoi }) => {
         // Search query filter
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
@@ -191,21 +207,21 @@ export default function RadarPage() {
 
         // Direction filter
         if (directionFilter !== "ALL") {
-          if (!nearestOb || nearestOb.type !== directionFilter) return false;
+          if (!selectedPoi || selectedPoi.type !== directionFilter) return false;
         }
 
         // Only near POIs (< 2.0% proximity or inside zone)
         if (onlyNearPois) {
-          if (!nearestOb) return false;
-          if (!nearestOb.isInsideZone && nearestOb.distanceToEntryPct > 2.0) return false;
+          if (!selectedPoi) return false;
+          if (!selectedPoi.isInsideZone && selectedPoi.distanceToEntryPct > 2.0) return false;
         }
 
         return true;
       })
       .sort((a, b) => {
         if (sortBy === "proximity") {
-          const distA = a.nearestOb?.distanceToEntryPct ?? 999;
-          const distB = b.nearestOb?.distanceToEntryPct ?? 999;
+          const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
+          const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
           return distA - distB;
         }
         if (sortBy === "volume") {
@@ -220,16 +236,20 @@ export default function RadarPage() {
         }
         return 0;
       });
-  }, [currentCoins, radarData, searchQuery, directionFilter, onlyNearPois, sortBy]);
+  }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy]);
 
   // Aggregate stats
-  const totalDetectedObs = useMemo(() => {
-    return Object.values(radarData).filter((d) => d.nearestOb !== null).length;
+  const totalDetectedPois = useMemo(() => {
+    return Object.values(radarData).filter((d) => d.nearestPoi !== null).length;
+  }, [radarData]);
+
+  const totalSandwichZones = useMemo(() => {
+    return Object.values(radarData).filter((d) => d.nearestSandwich !== null).length;
   }, [radarData]);
 
   const totalNearPois = useMemo(() => {
     return Object.values(radarData).filter(
-      (d) => d.nearestOb && (d.nearestOb.isInsideZone || d.nearestOb.distanceToEntryPct <= 1.0)
+      (d) => d.nearestPoi && (d.nearestPoi.isInsideZone || d.nearestPoi.distanceToEntryPct <= 1.0)
     ).length;
   }, [radarData]);
 
@@ -250,7 +270,7 @@ export default function RadarPage() {
                 </span>
               </div>
               <div className="text-[10px] text-[#848e9c]">
-                Points of Interest & Validated Order Blocks
+                Order Blocks & Sandwich Zones ++ (Supply / Demand)
               </div>
             </div>
           </Link>
@@ -287,14 +307,15 @@ export default function RadarPage() {
       <section className="bg-[#0e141f] border-b border-[#1b2535] px-4 sm:px-6 py-4">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              <span>Smart Order Block Radar</span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40">
-                +2C FVG Validated
+            <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2 flex-wrap">
+              <span>Institutional POI Radar</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40 flex items-center gap-1">
+                <Sparkles size={11} />
+                <span>OB + Sandwich Zones ++</span>
               </span>
             </h1>
             <p className="text-xs text-[#848e9c] mt-1 max-w-2xl">
-              Continuously screens the MEXC spot universe for institutional Order Blocks confirmed by immediate 2-candle Fair Value Gaps. Receive 24/7 Discord & Telegram alarms on zone touches.
+              Monitors MEXC pairs for institutional Validated Order Blocks (+2C FVG) and Sandwich Zones (Supply & Demand with S/R Confluence). Receive 24/7 Discord & Telegram alarms on zone touches.
             </p>
           </div>
 
@@ -304,8 +325,8 @@ export default function RadarPage() {
               <div className="text-base font-bold text-white mt-0.5">{currentCoins.length}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
-              <div className="text-[10px] text-[#848e9c] uppercase font-bold">Validated OBs</div>
-              <div className="text-base font-bold text-[#b6c4ff] mt-0.5">{totalDetectedObs}</div>
+              <div className="text-[10px] text-[#b6c4ff] uppercase font-bold">Sandwich Zones</div>
+              <div className="text-base font-bold text-[#b6c4ff] mt-0.5">{totalSandwichZones}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
               <div className="text-[10px] text-[#00c087] uppercase font-bold">&lt; 1% Proximity</div>
@@ -403,6 +424,17 @@ export default function RadarPage() {
 
           {/* Filter Dropdowns */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* POI Category Filter: All vs Order Blocks vs Sandwich Zones */}
+            <select
+              value={poiCategoryFilter}
+              onChange={(e) => setPoiCategoryFilter(e.target.value as any)}
+              className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
+            >
+              <option value="ALL">All POIs (OB + Sandwich)</option>
+              <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
+              <option value="order_block">📦 Order Blocks Only</option>
+            </select>
+
             {/* Primary Timeframe Selector */}
             <div className="flex items-center gap-1 bg-[#121824] p-0.5 rounded-lg border border-[#233144]">
               {[
@@ -431,9 +463,9 @@ export default function RadarPage() {
               onChange={(e) => setDirectionFilter(e.target.value as any)}
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer"
             >
-              <option value="ALL">All OB Types</option>
-              <option value="BULLISH">Bullish OB Only</option>
-              <option value="BEARISH">Bearish OB Only</option>
+              <option value="ALL">All Directions</option>
+              <option value="BULLISH">Bullish (Demand) Only</option>
+              <option value="BEARISH">Bearish (Supply) Only</option>
             </select>
 
             {/* Sort Filter */}
@@ -473,7 +505,7 @@ export default function RadarPage() {
                   <th className="py-3 px-4 font-bold">Asset / Pair</th>
                   <th className="py-3 px-4 font-bold">Mark Price</th>
                   <th className="py-3 px-4 font-bold">24h Change / Vol</th>
-                  <th className="py-3 px-4 font-bold">Nearest Validated OB</th>
+                  <th className="py-3 px-4 font-bold">Detected POI (OB / Sandwich)</th>
                   <th className="py-3 px-4 font-bold">Zone Range (50% MT)</th>
                   <th className="py-3 px-4 font-bold">Proximity</th>
                   <th className="py-3 px-4 font-bold text-right">Actions</th>
@@ -485,7 +517,7 @@ export default function RadarPage() {
                     <td colSpan={7} className="py-16 text-center text-[#848e9c]">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <RefreshCw size={24} className="animate-spin text-[#2962ff]" />
-                        <span>Scanning MEXC Order Blocks & FVG Confluences...</span>
+                        <span>Scanning MEXC Order Blocks & Sandwich Zones ++...</span>
                       </div>
                     </td>
                   </tr>
@@ -496,7 +528,7 @@ export default function RadarPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredCoins.map(({ coin, data, nearestOb }) => {
+                  filteredCoins.map(({ coin, data, selectedPoi }) => {
                     const price = data?.price || 0;
                     const change24h = data?.change24h || 0;
                     const volume24h = data?.volume24h || 0;
@@ -513,6 +545,9 @@ export default function RadarPage() {
                         : volume24h >= 1_000_000
                         ? `$${(volume24h / 1_000_000).toFixed(2)}M`
                         : `$${(volume24h / 1_000).toFixed(1)}K`;
+
+                    const isSandwich = selectedPoi?.category === "sandwich_zone";
+                    const isBullish = selectedPoi?.type === "BULLISH";
 
                     return (
                       <tr
@@ -567,45 +602,70 @@ export default function RadarPage() {
                           </div>
                         </td>
 
-                        {/* 4. NEAREST ORDER BLOCK */}
+                        {/* 4. DETECTED POI (OB OR SANDWICH ZONE) */}
                         <td className="py-3.5 px-4">
-                          {nearestOb ? (
+                          {selectedPoi ? (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1.5 flex-wrap">
+                                {/* Type Tag */}
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                    nearestOb.type === "BULLISH"
+                                    isBullish
                                       ? "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30"
                                       : "bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30"
                                   }`}
                                 >
-                                  {nearestOb.type} OB
+                                  {isSandwich
+                                    ? isBullish
+                                      ? "DEMAND (GRGG)"
+                                      : "SUPPLY (RGRR)"
+                                    : `${selectedPoi.type} OB`}
                                 </span>
+
+                                {/* Timeframe */}
                                 <span className="px-1.5 py-0.2 rounded bg-[#172233] text-[#b6c4ff] text-[9px] font-bold">
-                                  {nearestOb.timeframe}
+                                  {selectedPoi.timeframe}
                                 </span>
+
+                                {/* Sandwich ++ Badge */}
+                                {selectedPoi.isPlus && (
+                                  <span className="px-1.5 py-0.2 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 text-[8px] font-bold flex items-center gap-0.5">
+                                    <Star size={8} className="fill-yellow-400" />
+                                    <span>++ S/R</span>
+                                  </span>
+                                )}
                               </div>
+
                               <span className="text-[9px] text-[#848e9c] flex items-center gap-1">
-                                <Sparkles size={10} className="text-[#2962ff]" />
-                                +2C FVG Confirmed
+                                {isSandwich ? (
+                                  <>
+                                    <Layers size={10} className="text-[#2962ff]" />
+                                    <span>Sandwich Zone (4-Candle)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Sparkles size={10} className="text-[#2962ff]" />
+                                    <span>+2C FVG Confirmed</span>
+                                  </>
+                                )}
                               </span>
                             </div>
                           ) : (
                             <span className="text-[#848e9c]/60 italic text-[11px]">
-                              No active OB on {activeTimeframe}
+                              No active POI on {activeTimeframe}
                             </span>
                           )}
                         </td>
 
                         {/* 5. ZONE RANGE */}
                         <td className="py-3.5 px-4 font-mono text-[11px]">
-                          {nearestOb ? (
+                          {selectedPoi ? (
                             <div className="flex flex-col">
                               <span className="text-white font-semibold">
-                                ${nearestOb.bottom.toFixed(2)} - ${nearestOb.top.toFixed(2)}
+                                ${selectedPoi.bottom.toFixed(2)} - ${selectedPoi.top.toFixed(2)}
                               </span>
                               <span className="text-[10px] text-[#2962ff]">
-                                MT: ${nearestOb.meanThreshold.toFixed(2)}
+                                MT: ${selectedPoi.meanThreshold.toFixed(2)}
                               </span>
                             </div>
                           ) : (
@@ -615,9 +675,9 @@ export default function RadarPage() {
 
                         {/* 6. PROXIMITY */}
                         <td className="py-3.5 px-4 font-mono">
-                          {nearestOb ? (
+                          {selectedPoi ? (
                             <div className="flex flex-col gap-1 min-w-[100px]">
-                              {nearestOb.isInsideZone ? (
+                              {selectedPoi.isInsideZone ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#00c087]/20 text-[#00c087] border border-[#00c087]/40 font-bold text-[10px] animate-pulse">
                                   <span>TESTING ZONE</span>
                                 </span>
@@ -625,28 +685,28 @@ export default function RadarPage() {
                                 <>
                                   <span
                                     className={`font-bold ${
-                                      nearestOb.distanceToEntryPct <= 1.0
+                                      selectedPoi.distanceToEntryPct <= 1.0
                                         ? "text-[#00c087]"
-                                        : nearestOb.distanceToEntryPct <= 2.5
+                                        : selectedPoi.distanceToEntryPct <= 2.5
                                         ? "text-[#f5ac37]"
                                         : "text-[#848e9c]"
                                     }`}
                                   >
-                                    +{nearestOb.distanceToEntryPct.toFixed(2)}% to entry
+                                    +{selectedPoi.distanceToEntryPct.toFixed(2)}% to entry
                                   </span>
                                   <div className="w-full bg-[#172233] h-1.5 rounded-full overflow-hidden">
                                     <div
                                       className={`h-full ${
-                                        nearestOb.distanceToEntryPct <= 1.0
+                                        selectedPoi.distanceToEntryPct <= 1.0
                                           ? "bg-[#00c087]"
-                                          : nearestOb.distanceToEntryPct <= 2.5
+                                          : selectedPoi.distanceToEntryPct <= 2.5
                                           ? "bg-[#f5ac37]"
                                           : "bg-[#2962ff]"
                                       }`}
                                       style={{
                                         width: `${Math.max(
                                           5,
-                                          Math.min(100, 100 - nearestOb.distanceToEntryPct * 15)
+                                          Math.min(100, 100 - selectedPoi.distanceToEntryPct * 15)
                                         )}%`,
                                       }}
                                     />
@@ -662,13 +722,13 @@ export default function RadarPage() {
                         {/* 7. ACTIONS */}
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            {nearestOb && (
+                            {selectedPoi && (
                               <button
                                 onClick={() =>
                                   setAlarmModalData({
                                     symbol: coin.symbol,
-                                    orderBlock: nearestOb,
-                                    obsByTimeframe: data?.obsByTimeframe || {},
+                                    poi: selectedPoi,
+                                    poisByTimeframe: data?.poisByTimeframe || {},
                                   })
                                 }
                                 title="Set 24/7 Cloud Offline Alarm"
@@ -704,8 +764,8 @@ export default function RadarPage() {
           isOpen={Boolean(alarmModalData)}
           onClose={() => setAlarmModalData(null)}
           symbol={alarmModalData.symbol}
-          orderBlock={alarmModalData.orderBlock}
-          availableObsByTimeframe={alarmModalData.obsByTimeframe}
+          poi={alarmModalData.poi}
+          availablePoisByTimeframe={alarmModalData.poisByTimeframe}
           onSuccess={(count) => {
             setToastMessage(`Created ${count} 24/7 Cloud POI Alarm(s)!`);
             setTimeout(() => setToastMessage(null), 4000);
