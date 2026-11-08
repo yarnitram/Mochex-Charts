@@ -128,6 +128,10 @@ export function formatTelegramRadarReport(
     filtered = filtered.filter((p) => p.isInsideZone || p.status === "testing");
   } else if (categoryFilter === "confluence") {
     filtered = filtered.filter((p) => Boolean(p.confluence && p.confluence.score >= 2));
+  } else if (categoryFilter === "liquidity") {
+    filtered = filtered.filter(
+      (p) => Boolean(p.liquidity && (p.liquidity.densityPercentile >= 70 || p.liquidity.isPeakMagnet))
+    );
   } else if (categoryFilter === "sweep") {
     filtered = filtered.filter((p) => p.status === "sweep" || Boolean(p.sweep));
   } else if (categoryFilter === "sandwich") {
@@ -147,6 +151,8 @@ export function formatTelegramRadarReport(
   const subHeader =
     categoryFilter === "confluence"
       ? `🔥 <b>Multi-Timeframe Confluence Setups (>= 2x MTF)</b>`
+      : categoryFilter === "liquidity"
+      ? `💧 <b>High Institutional Liquidity Magnets (>= 70% Density)</b>`
       : categoryFilter === "sweep"
       ? `🧹 <b>Institutional Liquidity Sweeps / Fakeouts</b>`
       : categoryFilter === "inzone"
@@ -187,7 +193,8 @@ export function formatTelegramRadarReport(
       const exTag = p.exchange ? `[${p.exchange.toUpperCase()}] ` : "";
       const metricsTag = p.metrics && p.metrics.totalTested > 0 ? ` | 🎯 <b>${p.metrics.winRatePct}%</b> (${p.metrics.wins}/${p.metrics.totalTested})` : "";
       const mtfTag = p.confluence && p.confluence.score >= 2 ? ` | ${p.confluence.label} (${p.confluence.timeframes.join("·")})` : "";
-      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}${mtfTag}\n`;
+      const liqTag = p.liquidity && p.liquidity.densityPercentile >= 50 ? ` | 💧 <b>${p.liquidity.densityPercentile}% Liq</b>` : "";
+      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}${mtfTag}${liqTag}\n`;
       text += `  • Entry: <code>$${pEntry}</code> | ${midLabel}: <code>$${pMt}</code>\n`;
       text += `  • Status: ${statusTag}${metricsTag}\n\n`;
     }
@@ -204,12 +211,12 @@ export function formatTelegramRadarReport(
       [
         { text: "🚨 In-Zone", callback_data: "cmd:radar:inzone" },
         { text: "🔥 Confluence", callback_data: "cmd:radar:confluence" },
-        { text: "🧹 Sweeps", callback_data: "cmd:radar:sweep" },
+        { text: "💧 Liquidity", callback_data: "cmd:radar:liquidity" },
       ],
       [
+        { text: "🧹 Sweeps", callback_data: "cmd:radar:sweep" },
         { text: "🥪 Sandwich ++", callback_data: "cmd:radar:sandwich" },
         { text: "⚡ FVGs", callback_data: "cmd:radar:fvg" },
-        { text: "💎 Fresh", callback_data: "cmd:radar:fresh" },
       ],
       [
         { text: "🔄 All POIs", callback_data: "cmd:radar:all" },

@@ -27,6 +27,7 @@ import {
   detectPoiLiquiditySweep,
 } from "./liquidity-sweep-engine";
 import { PoiConfluenceInfo } from "./poi-confluence-matrix";
+import { PoiLiquiditySummary } from "./poi-liquidity-heatmap";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -64,6 +65,8 @@ export interface RadarPoiItem {
   sweep?: LiquiditySweepInfo | null;
   // Multi-Timeframe Confluence Cluster (DEC-146)
   confluence?: PoiConfluenceInfo | null;
+  // Multi-Timeframe Liquidity Density Ribbon & Heatmap (DEC-149)
+  liquidity?: PoiLiquiditySummary | null;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
