@@ -16,13 +16,15 @@ import {
   Trash2,
   FileAudio,
   Zap,
+  Settings,
 } from "lucide-react";
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
 } from "@/lib/indicators/radar-poi-engine";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
-import { DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
+import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
+import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
   RadarChimeType,
@@ -69,6 +71,27 @@ export function PoiAlarmModal({
   const [notifyTelegram, setNotifyTelegram] = useState(true);
   const [notifyTradingWebhook, setNotifyTradingWebhook] = useState(true);
   const [notifyOnInvalidation, setNotifyOnInvalidation] = useState(true);
+
+  // Alert Channels Modal & Config State (DEC-154)
+  const [isChannelsOpen, setIsChannelsOpen] = useState(false);
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("mochex:alert_webhooks");
+      if (raw) {
+        setWebhookConfig(JSON.parse(raw));
+      }
+    } catch {}
+    fetch("/api/alerts/webhooks")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.config) {
+          setWebhookConfig((prev) => ({ ...prev, ...data.config }));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Audio chime selection & custom sounds (DEC-147)
   const [audioTab, setAudioTab] = useState<"presets" | "custom">("presets");
@@ -463,13 +486,24 @@ export function PoiAlarmModal({
 
           {/* 3. Delivery Channels */}
           <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1f2c3f]">
-            <label className="text-[11px] text-[#b6c4ff] font-semibold flex items-center justify-between">
-              <span>Notification Channels</span>
-              <span className="text-[9px] text-[#00c087] font-bold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#00c087] animate-pulse" />
-                24/7 Cloud Offline Ready
-              </span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] text-[#b6c4ff] font-semibold flex items-center gap-1.5">
+                <span>Notification Channels</span>
+                <span className="text-[9px] text-[#00c087] font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00c087] animate-pulse" />
+                  24/7 Cloud Offline Ready
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsChannelsOpen(true)}
+                className="text-[10px] text-[#5865F2] hover:text-white flex items-center gap-1 font-semibold hover:underline cursor-pointer"
+                title="Configure Discord Webhook, Telegram Bot & Trading Webhook"
+              >
+                <Settings size={11} />
+                <span>Configure Webhooks</span>
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
                 <input
@@ -481,6 +515,11 @@ export function PoiAlarmModal({
                 <span className="flex items-center gap-1 text-[#5865F2] font-semibold">
                   <DiscordIcon size={14} /> Discord Webhook
                 </span>
+                {!webhookConfig.discordWebhookUrl && (
+                  <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded border border-amber-400/30">
+                    Not configured
+                  </span>
+                )}
               </label>
 
               <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
@@ -493,6 +532,11 @@ export function PoiAlarmModal({
                 <span className="flex items-center gap-1 text-[#229ED9] font-semibold">
                   <TelegramIcon size={14} /> Telegram Bot
                 </span>
+                {(!webhookConfig.telegramBotToken || !webhookConfig.telegramChatId) && (
+                  <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded border border-amber-400/30">
+                    Not configured
+                  </span>
+                )}
               </label>
 
               <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
@@ -725,6 +769,13 @@ export function PoiAlarmModal({
           </div>
         </div>
       </div>
+      {/* Alert Channels (Discord & Telegram) Configuration Modal */}
+      <AlertChannelsModal
+        isOpen={isChannelsOpen}
+        onClose={() => setIsChannelsOpen(false)}
+        config={webhookConfig}
+        onSave={(cfg) => setWebhookConfig(cfg)}
+      />
     </div>
   );
 }

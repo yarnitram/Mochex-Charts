@@ -146,6 +146,18 @@ export function RightSidebar({
       if (saved) {
         setSidebarWidth(clampSidebarWidth(Number(saved)));
       }
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (
+        tabParam === "alerts" ||
+        tabParam === "trade" ||
+        tabParam === "dom" ||
+        tabParam === "watchlist" ||
+        tabParam === "objects" ||
+        tabParam === "hot"
+      ) {
+        setActiveTab(tabParam as any);
+      }
     } catch {}
   }, []);
 

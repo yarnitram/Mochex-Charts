@@ -25,6 +25,7 @@ import {
   Eye,
   Volume2,
   VolumeX,
+  Send,
   FileSpreadsheet,
   FileJson,
   Copy,
@@ -51,6 +52,8 @@ import {
 } from "@/lib/indicators/radar-poi-engine";
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
+import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
+import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
@@ -171,6 +174,25 @@ export default function RadarPage() {
     poi: RadarPoiItem;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
   } | null>(null);
+
+  // Alert Channels Webhook Modal State (DEC-154)
+  const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("mochex:alert_webhooks");
+      if (raw) setWebhookConfig(JSON.parse(raw));
+    } catch {}
+    fetch("/api/alerts/webhooks")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.config) {
+          setWebhookConfig((prev) => ({ ...prev, ...data.config }));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Selected coin for Quick Preview Drawer
   const [previewData, setPreviewData] = useState<{
@@ -860,6 +882,39 @@ export default function RadarPage() {
               {audioSettings.enabled ? `${Math.round(audioSettings.volume * 100)}%` : "Muted"}
             </span>
           </button>
+
+          {/* Alert Channels (Discord & Telegram) Quick Settings Button */}
+          <button
+            type="button"
+            onClick={() => setIsChannelsModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+              webhookConfig.discordEnabled || webhookConfig.telegramEnabled
+                ? "bg-[#121824] border-[#5865F2]/50 text-[#b6c4ff] hover:text-white hover:bg-[#1a2332]"
+                : "bg-[#121824] border-[#233144] text-[#848e9c] hover:text-white hover:bg-[#1a2332]"
+            }`}
+            title="Configure Discord Webhook & Telegram Bot Channels"
+          >
+            <Send size={13} className="text-[#5865F2]" />
+            <span className="hidden sm:inline">Channels</span>
+            <div className="flex items-center gap-1">
+              {webhookConfig.discordEnabled && (
+                <span className="w-1.5 h-1.5 rounded-full bg-[#5865F2]" title="Discord Active" />
+              )}
+              {webhookConfig.telegramEnabled && (
+                <span className="w-1.5 h-1.5 rounded-full bg-[#229ED9]" title="Telegram Active" />
+              )}
+            </div>
+          </button>
+
+          {/* Direct link to Active Alerts Manager in Chart */}
+          <Link
+            href="/chart?tab=alerts"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs text-[#848e9c] hover:text-white transition-colors"
+            title="View Active Alerts & Trigger History"
+          >
+            <Bell size={13} className="text-amber-400" />
+            <span className="hidden sm:inline">Alerts Log</span>
+          </Link>
 
           <button
             onClick={() => fetchRadarData(true)}
@@ -2000,6 +2055,14 @@ export default function RadarPage() {
           }}
         />
       )}
+
+      {/* 9. ALERT CHANNELS (DISCORD & TELEGRAM) CONFIGURATION MODAL (DEC-154) */}
+      <AlertChannelsModal
+        isOpen={isChannelsModalOpen}
+        onClose={() => setIsChannelsModalOpen(false)}
+        config={webhookConfig}
+        onSave={(cfg) => setWebhookConfig(cfg)}
+      />
 
       {/* Toast Notification */}
       {toastMessage && (
