@@ -432,6 +432,39 @@ export function PoiQuickPreviewDrawer({
             </div>
           )}
 
+          {/* Multi-Timeframe Liquidity Density Ribbon Banner (DEC-149) */}
+          {poi.liquidity && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#00c087]/10 border border-[#00c087]/30 text-emerald-300">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-1 ${
+                    poi.liquidity.tier === "ultra"
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                      : poi.liquidity.tier === "high"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-[#2962ff]/20 text-[#b6c4ff] border border-[#2962ff]/40"
+                  }`}
+                >
+                  <span>
+                    {poi.liquidity.tier === "ultra" ? "🔥 ULTRA LIQUIDITY" : "💧 HIGH LIQUIDITY"}
+                  </span>
+                </span>
+                <span className="text-[10px] text-emerald-200 font-medium">
+                  {poi.liquidity.densityPercentile}% Liquidity Concentration
+                  {poi.liquidity.isPeakMagnet && " • Peak Market Magnet"}
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-right">
+                <span className="text-emerald-400">
+                  {poi.liquidity.demandDominancePct}% Demand Dominance
+                </span>
+                <span className="text-[#848e9c] ml-1.5 text-[9px]">
+                  ({poi.liquidity.sentimentBias.replace("_", " ")})
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Institutional Liquidity Sweep Banner (DEC-145) */}
           {poi.sweep && (
             <div className="flex items-center justify-between p-2.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300">

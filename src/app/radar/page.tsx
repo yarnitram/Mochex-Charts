@@ -123,12 +123,12 @@ export default function RadarPage() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<
-    "ALL" | "confluence" | "sweep" | PoiCategory
+    "ALL" | "confluence" | "sweep" | "liquidity" | PoiCategory
   >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
   const [sortBy, setSortBy] = useState<
-    "proximity" | "confluence" | "volume" | "change" | "winrate"
+    "proximity" | "confluence" | "liquidity" | "volume" | "change" | "winrate"
   >("proximity");
 
   // Loaded POI radar data
@@ -439,6 +439,10 @@ export default function RadarPage() {
         } else if (poiCategoryFilter === "sweep") {
           const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
           selectedPoi = allPoisForCoin.find((p) => p.sweep || p.status === "sweep") || (data?.nearestPoi?.sweep ? data.nearestPoi : null);
+        } else if (poiCategoryFilter === "liquidity") {
+          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
+          const sortedByLiq = [...allPoisForCoin].sort((a, b) => (b.liquidity?.densityPercentile ?? 0) - (a.liquidity?.densityPercentile ?? 0));
+          selectedPoi = sortedByLiq[0] || (data?.nearestPoi || null);
         } else {
           selectedPoi = data?.nearestPoi || null;
         }
@@ -468,6 +472,11 @@ export default function RadarPage() {
           if (!selectedPoi || (!selectedPoi.sweep && selectedPoi.status !== "sweep")) return false;
         }
 
+        // Liquidity Density filter (DEC-149)
+        if (poiCategoryFilter === "liquidity") {
+          if (!selectedPoi || !selectedPoi.liquidity || selectedPoi.liquidity.densityPercentile < 70) return false;
+        }
+
         // Direction filter
         if (directionFilter !== "ALL") {
           if (!selectedPoi || selectedPoi.type !== directionFilter) return false;
@@ -491,6 +500,14 @@ export default function RadarPage() {
           const confA = a.selectedPoi?.confluence?.score || 0;
           const confB = b.selectedPoi?.confluence?.score || 0;
           if (confB !== confA) return confB - confA;
+          const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
+          const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
+          return distA - distB;
+        }
+        if (sortBy === "liquidity") {
+          const liqA = a.selectedPoi?.liquidity?.densityPercentile ?? 0;
+          const liqB = b.selectedPoi?.liquidity?.densityPercentile ?? 0;
+          if (liqB !== liqA) return liqB - liqA;
           const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
           const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
           return distA - distB;
@@ -925,6 +942,7 @@ export default function RadarPage() {
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
+              <option value="liquidity">💧 High Liquidity Magnets (≥ 70%)</option>
               <option value="sweep">🧹 Liquidity Sweeps Only</option>
               <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
               <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
@@ -972,6 +990,7 @@ export default function RadarPage() {
             >
               <option value="proximity">Sort: Closest to Zone</option>
               <option value="confluence">Sort: Highest MTF Confluence</option>
+              <option value="liquidity">Sort: Highest Liquidity Density</option>
               <option value="winrate">Sort: Highest POI Win-Rate</option>
               <option value="volume">Sort: 24h Volume</option>
               <option value="change">Sort: 24h Change %</option>
@@ -1230,6 +1249,27 @@ export default function RadarPage() {
                                     title={`Multi-Timeframe Confluence: ${selectedPoi.confluence.description} (Cluster: $${formatZonePrice(selectedPoi.confluence.clusterBottom)} - $${formatZonePrice(selectedPoi.confluence.clusterTop)})`}
                                   >
                                     <span>{selectedPoi.confluence.label} ({selectedPoi.confluence.timeframes.join("·")})</span>
+                                  </span>
+                                )}
+
+                                {/* Liquidity Density Ribbon Badge (DEC-149) */}
+                                {selectedPoi.liquidity && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                      selectedPoi.liquidity.isPeakMagnet
+                                        ? "bg-cyan-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.4)] animate-pulse"
+                                        : selectedPoi.liquidity.tier === "ultra"
+                                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                                        : selectedPoi.liquidity.tier === "high"
+                                        ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                                        : "bg-[#172233] text-[#848e9c] border-[#233144]"
+                                    }`}
+                                    title={`Liquidity Density: ${selectedPoi.liquidity.densityPercentile.toFixed(0)}% (${selectedPoi.liquidity.tier.toUpperCase()})${selectedPoi.liquidity.isPeakMagnet ? " [PRIMARY MAGNET]" : ""} - Dominance: ${selectedPoi.liquidity.demandDominancePct.toFixed(0)}% Demand (${selectedPoi.liquidity.sentimentBias})`}
+                                  >
+                                    <span>
+                                      {selectedPoi.liquidity.isPeakMagnet ? "🧲 " : "💧 "}
+                                      {selectedPoi.liquidity.densityPercentile.toFixed(0)}% Liq
+                                    </span>
                                   </span>
                                 )}
                               </div>
@@ -1574,6 +1614,27 @@ export default function RadarPage() {
                                   title={`MTF Confluence: ${selectedPoi.confluence.description}`}
                                 >
                                   <span>{selectedPoi.confluence.label}</span>
+                                </span>
+                              )}
+
+                              {/* Liquidity Density Ribbon Badge (DEC-149) */}
+                              {selectedPoi.liquidity && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                    selectedPoi.liquidity.isPeakMagnet
+                                      ? "bg-cyan-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.4)] animate-pulse"
+                                      : selectedPoi.liquidity.tier === "ultra"
+                                      ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                                      : selectedPoi.liquidity.tier === "high"
+                                      ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                                      : "bg-[#172233] text-[#848e9c] border-[#233144]"
+                                  }`}
+                                  title={`Liquidity Density: ${selectedPoi.liquidity.densityPercentile.toFixed(0)}% (${selectedPoi.liquidity.tier.toUpperCase()})${selectedPoi.liquidity.isPeakMagnet ? " [PRIMARY MAGNET]" : ""}`}
+                                >
+                                  <span>
+                                    {selectedPoi.liquidity.isPeakMagnet ? "🧲 " : "💧 "}
+                                    {selectedPoi.liquidity.densityPercentile.toFixed(0)}% Liq
+                                  </span>
                                 </span>
                               )}
                             </div>

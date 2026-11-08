@@ -7,6 +7,10 @@ import {
   attachConfluenceToPois,
   normalizeTfLabel,
 } from "@/lib/indicators/poi-confluence-matrix";
+import {
+  computePoiLiquidityHeatmap,
+  attachLiquidityToPoi,
+} from "@/lib/indicators/poi-liquidity-heatmap";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
 import {
   SupportedExchange,
@@ -143,7 +147,15 @@ export async function POST(request: NextRequest) {
         confluencedPois.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
         const nearestPoi = confluencedPois.length > 0 ? confluencedPois[0] : null;
 
-        // Re-index into poisByTimeframe with attached confluence
+        // Multi-Timeframe POI Liquidity Heatmap & Density Ribbon (DEC-149)
+        const markPrice = ticker.price || (nearestPoi ? nearestPoi.currentPrice : 0);
+        const heatmap = computePoiLiquidityHeatmap(upperSym, confluencedPois, markPrice);
+
+        for (const p of confluencedPois) {
+          p.liquidity = attachLiquidityToPoi(p, heatmap);
+        }
+
+        // Re-index into poisByTimeframe with attached confluence and liquidity
         for (const tf of timeframes) {
           poisByTimeframe[tf] = confluencedPois.filter(
             (p) =>
@@ -159,7 +171,7 @@ export async function POST(request: NextRequest) {
 
         const data = {
           symbol: upperSym,
-          price: ticker.price || (nearestPoi ? nearestPoi.currentPrice : 0),
+          price: markPrice,
           change24h: ticker.change24h,
           volume24h: ticker.volume24h,
           high24h: ticker.high24h,
@@ -172,6 +184,8 @@ export async function POST(request: NextRequest) {
           exchange: exchangeFilter,
           metrics: nearestPoi?.metrics || null,
           confluence: nearestPoi?.confluence || null,
+          liquidity: nearestPoi?.liquidity || null,
+          heatmap,
         };
 
         radarPoiCache.set(cacheKey, { timestamp: now, data });

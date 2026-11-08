@@ -65,6 +65,9 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Liquidity Sweep",
     "MTF Confluence",
     "MTF Timeframes",
+    "Liquidity Density %",
+    "Liquidity Tier",
+    "Peak Magnet",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -120,6 +123,9 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi?.sweep ? `YES (${poi.sweep.label})` : "NO",
       poi?.confluence ? poi.confluence.label : "None",
       poi?.confluence ? poi.confluence.timeframes.join("+") : "N/A",
+      poi?.liquidity ? `${poi.liquidity.densityPercentile}%` : "N/A",
+      poi?.liquidity ? poi.liquidity.tier.toUpperCase() : "LIGHT",
+      poi?.liquidity?.isPeakMagnet ? "YES (Peak Magnet)" : "NO",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -195,6 +201,7 @@ export function generateRadarJson(
             metrics: i.selectedPoi.metrics || null,
             sweep: i.selectedPoi.sweep || null,
             confluence: i.selectedPoi.confluence || null,
+            liquidity: i.selectedPoi.liquidity || null,
           }
         : null,
     })),
