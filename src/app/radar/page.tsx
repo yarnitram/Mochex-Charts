@@ -115,8 +115,36 @@ export default function RadarPage() {
   ]);
   const [newCustomSymbol, setNewCustomSymbol] = useState("");
 
-  // Timeframe filter for detection: "15m" | "60" | "240" | "1D"
-  const [activeTimeframe, setActiveTimeframe] = useState<string>("240"); // Default 4H
+  // Multi-Timeframe filter for detection: any combination of "15m" | "60" | "240" | "1D" (DEC-151)
+  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
+    "15m",
+    "60",
+    "240",
+    "1D",
+  ]);
+
+  const toggleTimeframe = (tfVal: string) => {
+    setSelectedTimeframes((prev) => {
+      let next: string[];
+      if (prev.includes(tfVal)) {
+        next = prev.length > 1 ? prev.filter((t) => t !== tfVal) : prev;
+      } else {
+        next = [...prev, tfVal];
+      }
+      try {
+        localStorage.setItem("mochex:radar_selected_timeframes", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const selectAllTimeframes = () => {
+    const all = ["15m", "60", "240", "1D"];
+    setSelectedTimeframes(all);
+    try {
+      localStorage.setItem("mochex:radar_selected_timeframes", JSON.stringify(all));
+    } catch {}
+  };
 
   // Active Exchange Filter: "all" | "mexc" | "binance" | "bybit" (DEC-143)
   const [activeExchange, setActiveExchange] = useState<ExchangeFilter>("mexc");
@@ -189,7 +217,7 @@ export default function RadarPage() {
     };
   }, []);
 
-  // Load custom symbols on mount
+  // Load custom symbols & saved multi-timeframe selection on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem("mochex:radar_custom_symbols");
@@ -197,6 +225,13 @@ export default function RadarPage() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setCustomSymbols(parsed);
+        }
+      }
+      const savedTfs = localStorage.getItem("mochex:radar_selected_timeframes");
+      if (savedTfs) {
+        const parsedTfs = JSON.parse(savedTfs);
+        if (Array.isArray(parsedTfs) && parsedTfs.length > 0) {
+          setSelectedTimeframes(parsedTfs);
         }
       }
     } catch {}
@@ -231,7 +266,7 @@ export default function RadarPage() {
     return getUniverseCoins(activeTab, customSymbols);
   }, [activeTab, customSymbols]);
 
-  // Fetch Radar POI detections from API
+  // Fetch Radar POI detections from API across all 4 institutional timeframes
   const fetchRadarData = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     else setRefreshing(true);
@@ -243,7 +278,7 @@ export default function RadarPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           symbols: symbolsToScan,
-          timeframes: [activeTimeframe, "240", "60", "15m"],
+          timeframes: ["1D", "240", "60", "15m"],
           exchange: activeExchange,
         }),
       });
@@ -264,7 +299,7 @@ export default function RadarPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentCoins, activeTimeframe, activeExchange]);
+  }, [currentCoins, activeExchange]);
 
   // Refresh data when universe tab or active timeframe changes
   useEffect(() => {
@@ -447,26 +482,57 @@ export default function RadarPage() {
     return currentCoins
       .map((coin) => {
         const data = radarData[coin.symbol];
-        // Select matching POI based on category filter
+        // Gather POIs from the user's selected timeframes (sorted by closest proximity)
+        const activeTfPois = selectedTimeframes
+          .flatMap((tf) => data?.poisByTimeframe?.[tf] || [])
+          .sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
+        const fallbackAllPois = Object.values(data?.poisByTimeframe || {}).flat();
+        const candidatePois =
+          activeTfPois.length > 0
+            ? activeTfPois
+            : selectedTimeframes.length === 4
+            ? fallbackAllPois
+            : [];
+
+        // Select matching POI based on category filter & selected timeframes
         let selectedPoi: RadarPoiItem | null = null;
         if (poiCategoryFilter === "order_block") {
-          selectedPoi = data?.nearestOb || null;
+          selectedPoi =
+            candidatePois.find((p) => p.category === "order_block") ||
+            (selectedTimeframes.length === 4 ? data?.nearestOb || null : null);
         } else if (poiCategoryFilter === "sandwich_zone") {
-          selectedPoi = data?.nearestSandwich || null;
+          selectedPoi =
+            candidatePois.find((p) => p.category === "sandwich_zone") ||
+            (selectedTimeframes.length === 4 ? data?.nearestSandwich || null : null);
         } else if (poiCategoryFilter === "fvg") {
-          selectedPoi = data?.nearestFvg || null;
+          selectedPoi =
+            candidatePois.find((p) => p.category === "fvg") ||
+            (selectedTimeframes.length === 4 ? data?.nearestFvg || null : null);
         } else if (poiCategoryFilter === "sweep") {
-          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
-          selectedPoi = allPoisForCoin.find((p) => p.sweep || p.status === "sweep") || (data?.nearestPoi?.sweep ? data.nearestPoi : null);
+          selectedPoi =
+            candidatePois.find((p) => p.sweep || p.status === "sweep") ||
+            (selectedTimeframes.length === 4 && data?.nearestPoi?.sweep ? data.nearestPoi : null);
         } else if (poiCategoryFilter === "liquidity") {
-          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
-          const sortedByLiq = [...allPoisForCoin].sort((a, b) => (b.liquidity?.densityPercentile ?? 0) - (a.liquidity?.densityPercentile ?? 0));
-          selectedPoi = sortedByLiq[0] || (data?.nearestPoi || null);
+          const sortedByLiq = [...candidatePois].sort(
+            (a, b) => (b.liquidity?.densityPercentile ?? 0) - (a.liquidity?.densityPercentile ?? 0)
+          );
+          selectedPoi =
+            sortedByLiq[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "broken") {
-          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
-          selectedPoi = allPoisForCoin.find((p) => p.status === "broken" || Boolean(p.breakTelemetry)) || (data?.nearestPoi?.status === "broken" ? data.nearestPoi : null);
+          selectedPoi =
+            candidatePois.find((p) => p.status === "broken" || Boolean(p.breakTelemetry)) ||
+            (selectedTimeframes.length === 4 && data?.nearestPoi?.status === "broken"
+              ? data.nearestPoi
+              : null);
+        } else if (poiCategoryFilter === "confluence") {
+          const sortedByConf = [...candidatePois].sort(
+            (a, b) => (b.confluence?.score ?? 0) - (a.confluence?.score ?? 0)
+          );
+          selectedPoi =
+            sortedByConf[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
         } else {
-          selectedPoi = data?.nearestPoi || null;
+          selectedPoi =
+            candidatePois[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
         }
 
         return {
@@ -556,7 +622,7 @@ export default function RadarPage() {
         }
         return 0;
       });
-  }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy]);
+  }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy, selectedTimeframes]);
 
   // Exportable items derived from filtered coins
   const exportItems: ExportableRadarItem[] = useMemo(() => {
@@ -587,13 +653,14 @@ export default function RadarPage() {
       "240": "4H",
       "1D": "1D",
     };
+    const formattedTfs = selectedTimeframes.map((tf) => tfMap[tf] || tf).join("+");
     return {
       universeName,
       categoryFilter: poiCategoryFilter,
-      timeframe: tfMap[activeTimeframe] || activeTimeframe,
+      timeframe: formattedTfs || "All TFs",
       totalCoins: filteredCoins.length,
     };
-  }, [activeTab, poiCategoryFilter, activeTimeframe, filteredCoins.length]);
+  }, [activeTab, poiCategoryFilter, selectedTimeframes, filteredCoins.length]);
 
   const handleExportCsv = () => {
     downloadRadarCsv(exportItems, `mochex-radar-${activeTab}`);
@@ -988,26 +1055,44 @@ export default function RadarPage() {
               <option value="order_block">📦 Validated Order Blocks Only</option>
             </select>
 
-            {/* Primary Timeframe Selector */}
-            <div className="flex items-center gap-1 bg-[#121824] p-0.5 rounded-lg border border-[#233144]">
+            {/* Multi-Timeframe Selector (DEC-151) */}
+            <div
+              className="flex items-center gap-1 bg-[#121824] p-0.5 rounded-lg border border-[#233144]"
+              title="Toggle one or multiple timeframes at once (click ALL to select all 4 timeframes)"
+            >
+              <button
+                type="button"
+                onClick={selectAllTimeframes}
+                className={`px-2 py-1 rounded text-[10px] font-extrabold transition-colors cursor-pointer ${
+                  selectedTimeframes.length === 4
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                    : "text-[#848e9c] hover:text-white"
+                }`}
+              >
+                ALL
+              </button>
               {[
                 { label: "15m", val: "15m" },
                 { label: "1H", val: "60" },
                 { label: "4H", val: "240" },
                 { label: "1D", val: "1D" },
-              ].map((tf) => (
-                <button
-                  key={tf.val}
-                  onClick={() => setActiveTimeframe(tf.val)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors cursor-pointer ${
-                    activeTimeframe === tf.val
-                      ? "bg-[#2962ff] text-white"
-                      : "text-[#848e9c] hover:text-white"
-                  }`}
-                >
-                  {tf.label}
-                </button>
-              ))}
+              ].map((tf) => {
+                const isSelected = selectedTimeframes.includes(tf.val);
+                return (
+                  <button
+                    type="button"
+                    key={tf.val}
+                    onClick={() => toggleTimeframe(tf.val)}
+                    className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                      isSelected
+                        ? "bg-[#2962ff] text-white shadow-xs"
+                        : "text-[#848e9c] hover:text-white"
+                    }`}
+                  >
+                    {tf.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Direction Filter */}
@@ -1334,7 +1419,10 @@ export default function RadarPage() {
                             </div>
                           ) : (
                             <span className="text-[#848e9c]/60 italic text-[11px]">
-                              No active POI on {activeTimeframe}
+                              No active POI on{" "}
+                              {selectedTimeframes
+                                .map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf))
+                                .join("/")}
                             </span>
                           )}
                         </td>
