@@ -1,4 +1,5 @@
 import { ChartDrawing, calculatePositionMetrics } from "../chart/drawing-math";
+import { RadarPoiItem } from "../indicators/radar-poi-engine";
 
 export type OrderSide = "long" | "short";
 export type OrderType = "market" | "limit";
@@ -500,5 +501,142 @@ export function createOrderInputFromDrawing(
     takeProfit: Number(metrics.targetPrice.toFixed(4)),
     stopLoss: Number(metrics.stopPrice.toFixed(4)),
     sourceDrawingId: drawing.id,
+  };
+}
+
+export const PAPER_ACCOUNT_STORAGE_KEY = "mochex:paper_account";
+
+/**
+ * Loads the active paper trading account state from localStorage, falling back to initial state.
+ */
+export function loadStoredPaperAccount(): PaperAccountState {
+  if (typeof window === "undefined") {
+    return createInitialPaperAccount();
+  }
+  try {
+    const raw = localStorage.getItem(PAPER_ACCOUNT_STORAGE_KEY);
+    if (!raw) return createInitialPaperAccount();
+    const parsed = JSON.parse(raw);
+    return {
+      balance: typeof parsed.balance === "number" ? parsed.balance : DEFAULT_PAPER_BALANCE,
+      positions: Array.isArray(parsed.positions) ? parsed.positions : [],
+      orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+    };
+  } catch {
+    return createInitialPaperAccount();
+  }
+}
+
+/**
+ * Persists the paper trading account state to localStorage and broadcasts an update event.
+ */
+export function saveStoredPaperAccount(state: PaperAccountState): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PAPER_ACCOUNT_STORAGE_KEY, JSON.stringify(state));
+    window.dispatchEvent(
+      new CustomEvent("mochex:paper-trading-updated", { detail: state })
+    );
+  } catch {}
+}
+
+export interface PoiOrderConfig {
+  touchLevel?: "entry" | "fifty_pct";
+  riskRewardRatio?: number; // e.g. 2.0 (default 2R), 3.0, 4.0
+  marginAmountUsdt?: number; // default 500
+  leverage?: number; // default 5x
+  orderType?: OrderType; // "limit" | "market" (defaults to "limit", or "market" if price is inside zone)
+  slBufferPct?: number; // default 0.002 (0.2%)
+}
+
+/**
+ * Automatically creates a pre-bracketed PaperOrderInput from a detected POI
+ * with strict SMC Stop Loss (invalidation level + buffer) and Risk:Reward Take Profit (DEC-142).
+ */
+export function createOrderInputFromPoi(
+  poi: RadarPoiItem,
+  currentMarkPrice: number,
+  config?: Partial<PoiOrderConfig>
+): PaperOrderInput {
+  const isLong = poi.type === "BULLISH";
+  const touchLevel = config?.touchLevel || "entry";
+  const rRatio = config?.riskRewardRatio && config.riskRewardRatio > 0 ? config.riskRewardRatio : 2.0;
+  const slBuffer = config?.slBufferPct !== undefined ? config.slBufferPct : 0.002;
+  const margin = Math.max(10, Math.min(50000, config?.marginAmountUsdt || 500));
+  const leverage = Math.max(1, Math.min(50, config?.leverage || 5));
+
+  // Determine entry level based on touch choice
+  const entryPrice = touchLevel === "fifty_pct" ? poi.meanThreshold : poi.entryPrice;
+
+  let stopLoss: number;
+  let riskDist: number;
+
+  if (isLong) {
+    // Invalidation is zone bottom - buffer
+    stopLoss = poi.bottom * (1 - slBuffer);
+    if (stopLoss >= entryPrice) {
+      stopLoss = entryPrice * 0.98; // safe 2% fallback
+    }
+    riskDist = entryPrice - stopLoss;
+  } else {
+    // Invalidation is zone top + buffer
+    stopLoss = poi.top * (1 + slBuffer);
+    if (stopLoss <= entryPrice) {
+      stopLoss = entryPrice * 1.02; // safe 2% fallback
+    }
+    riskDist = stopLoss - entryPrice;
+  }
+
+  // Calculate Take Profit based on R:R
+  const takeProfit = isLong ? entryPrice + riskDist * rRatio : entryPrice - riskDist * rRatio;
+
+  // If already in-zone or within 0.15% of entry price, default to market order
+  let orderType: OrderType = config?.orderType || "limit";
+  if (!config?.orderType) {
+    const distToEntry =
+      currentMarkPrice > 0 ? Math.abs(currentMarkPrice - entryPrice) / currentMarkPrice : 1;
+    if (poi.isInsideZone || distToEntry <= 0.0015) {
+      orderType = "market";
+    }
+  }
+
+  return {
+    symbol: poi.symbol,
+    side: isLong ? "long" : "short",
+    orderType,
+    price: Number(entryPrice.toFixed(entryPrice >= 1 ? 4 : 8)),
+    marginAmountUsdt: margin,
+    leverage,
+    takeProfit: Number(takeProfit.toFixed(takeProfit >= 1 ? 4 : 8)),
+    stopLoss: Number(stopLoss.toFixed(stopLoss >= 1 ? 4 : 8)),
+    sourceDrawingId: `poi-${poi.id}`,
+  };
+}
+
+/**
+ * Direct execution helper: loads account, places POI order, and saves to storage.
+ */
+export function executePoiPaperTrade(
+  poi: RadarPoiItem,
+  currentMarkPrice: number,
+  config?: Partial<PoiOrderConfig>
+): {
+  state: PaperAccountState;
+  status: "filled" | "placed" | "rejected";
+  message: string;
+  orderInput: PaperOrderInput;
+} {
+  const account = loadStoredPaperAccount();
+  const orderInput = createOrderInputFromPoi(poi, currentMarkPrice, config);
+  const result = placePaperOrder(account, orderInput, currentMarkPrice);
+
+  if (result.status === "filled" || result.status === "placed") {
+    saveStoredPaperAccount(result.state);
+  }
+
+  return {
+    ...result,
+    orderInput,
   };
 }

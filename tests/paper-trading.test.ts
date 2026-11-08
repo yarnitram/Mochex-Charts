@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   createInitialPaperAccount,
   placePaperOrder,
@@ -7,10 +7,35 @@ import {
   calculatePositionUnrealizedPnl,
   calculateAccountEquity,
   createOrderInputFromDrawing,
+  createOrderInputFromPoi,
+  executePoiPaperTrade,
+  loadStoredPaperAccount,
+  saveStoredPaperAccount,
 } from "../src/lib/trading/paper-trading-engine";
 import { ChartDrawing } from "../src/lib/chart/drawing-math";
+import { RadarPoiItem } from "../src/lib/indicators/radar-poi-engine";
+
+class MockLocalStorage {
+  private store: Record<string, string> = {};
+  getItem(key: string): string | null {
+    return this.store[key] ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.store[key] = String(value);
+  }
+  removeItem(key: string): void {
+    delete this.store[key];
+  }
+  clear(): void {
+    this.store = {};
+  }
+}
 
 describe("Paper Trading & Order Execution Engine (DEC-072)", () => {
+  beforeEach(() => {
+    (globalThis as any).window = globalThis;
+    (globalThis as any).localStorage = new MockLocalStorage();
+  });
   it("executes a Market Long order immediately and calculates live Unrealized PnL & ROE%", () => {
     const initial = createInitialPaperAccount(100000);
     const result = placePaperOrder(
@@ -154,5 +179,107 @@ describe("Paper Trading & Order Execution Engine (DEC-072)", () => {
     expect(closed.closedTrade?.realizedPnl).toBeCloseTo(200, 2);
     expect(closed.state.balance).toBeCloseTo(100200, 2);
     expect(closed.state.history).toHaveLength(1);
+  });
+
+  describe("Automated Paper Trading Execution from POI Touch (DEC-142)", () => {
+    const mockBullishPoi: RadarPoiItem = {
+      id: "poi-btc-4h-ob",
+      symbol: "BTCUSDT",
+      timeframe: "4H",
+      category: "order_block",
+      type: "BULLISH",
+      label: "4H Bullish OB",
+      isPlus: true,
+      entryPrice: 76000,
+      meanThreshold: 75500,
+      fullRetestPrice: 75000,
+      top: 76000,
+      bottom: 75000,
+      status: "fresh",
+      isInsideZone: false,
+      distanceToEntryPct: 1.0,
+      distanceToMtPct: 1.65,
+      currentPrice: 76760,
+      time: 1730000000,
+    };
+
+    const mockBearishPoi: RadarPoiItem = {
+      id: "poi-sol-1h-sandwich",
+      symbol: "SOLUSDT",
+      timeframe: "1H",
+      category: "sandwich_zone",
+      type: "BEARISH",
+      label: "1H Bearish Sandwich",
+      isPlus: false,
+      entryPrice: 200.0,
+      meanThreshold: 202.5,
+      fullRetestPrice: 205.0,
+      top: 205.0,
+      bottom: 200.0,
+      status: "testing",
+      isInsideZone: true,
+      distanceToEntryPct: 0.0,
+      distanceToMtPct: 1.25,
+      currentPrice: 202.5,
+      time: 1730000000,
+    };
+
+    it("creates a Long PaperOrderInput from Bullish POI with invalidation Stop Loss and 2R Take Profit", () => {
+      const order = createOrderInputFromPoi(mockBullishPoi, 76760, {
+        touchLevel: "entry",
+        riskRewardRatio: 2.0,
+        marginAmountUsdt: 500,
+        leverage: 5,
+        slBufferPct: 0.002,
+      });
+
+      expect(order.symbol).toBe("BTCUSDT");
+      expect(order.side).toBe("long");
+      expect(order.orderType).toBe("limit"); // price 76760 is > 76000 entry
+      expect(order.price).toBe(76000);
+      // SL = 75000 * (1 - 0.002) = 74850
+      expect(order.stopLoss).toBe(74850);
+      // Risk = 76000 - 74850 = 1150
+      // TP (2R) = 76000 + (1150 * 2) = 78300
+      expect(order.takeProfit).toBe(78300);
+      expect(order.marginAmountUsdt).toBe(500);
+      expect(order.leverage).toBe(5);
+    });
+
+    it("creates an immediate Market Short order when price is already inside Bearish POI zone", () => {
+      const order = createOrderInputFromPoi(mockBearishPoi, 202.5, {
+        touchLevel: "fifty_pct",
+        riskRewardRatio: 3.0,
+        marginAmountUsdt: 250,
+        leverage: 10,
+        slBufferPct: 0.002,
+      });
+
+      expect(order.symbol).toBe("SOLUSDT");
+      expect(order.side).toBe("short");
+      expect(order.orderType).toBe("market"); // mockBearishPoi.isInsideZone is true
+      expect(order.price).toBe(202.5); // 50% MT level
+      // SL = 205.0 * (1 + 0.002) = 205.41
+      expect(order.stopLoss).toBeCloseTo(205.41, 2);
+      // Risk = 205.41 - 202.5 = 2.91
+      // TP (3R) = 202.5 - (2.91 * 3) = 193.77
+      expect(order.takeProfit).toBeCloseTo(193.77, 2);
+    });
+
+    it("executes POI paper trade and automatically persists to stored account", () => {
+      const res = executePoiPaperTrade(mockBullishPoi, 76760, {
+        touchLevel: "entry",
+        marginAmountUsdt: 500,
+      });
+
+      expect(res.status).toBe("placed");
+      expect(res.state.orders).toHaveLength(1);
+      expect(res.state.orders[0].symbol).toBe("BTCUSDT");
+
+      // Verify rehydration from storage
+      const rehydrated = loadStoredPaperAccount();
+      expect(rehydrated.orders).toHaveLength(1);
+      expect(rehydrated.orders[0].limitPrice).toBe(76000);
+    });
   });
 });
