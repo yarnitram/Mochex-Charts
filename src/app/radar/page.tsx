@@ -19,6 +19,9 @@ import {
   SlidersHorizontal,
   Star,
   Layers,
+  Kanban,
+  Table,
+  Zap,
 } from "lucide-react";
 import {
   getUniverseCoins,
@@ -44,12 +47,16 @@ interface RadarCoinData {
   nearestPoi: RadarPoiItem | null;
   nearestOb: RadarPoiItem | null;
   nearestSandwich: RadarPoiItem | null;
+  nearestFvg: RadarPoiItem | null;
   poisByTimeframe: Record<string, RadarPoiItem[]>;
 }
 
 export default function RadarPage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
+
+  // View Mode: "table" vs "kanban"
+  const [viewMode, setViewMode] = useState<"table" | "kanban">("table");
 
   // Active Universe Tab
   const [activeTab, setActiveTab] = useState<RadarUniverseTab>("majors");
@@ -186,6 +193,8 @@ export default function RadarPage() {
           selectedPoi = data?.nearestOb || null;
         } else if (poiCategoryFilter === "sandwich_zone") {
           selectedPoi = data?.nearestSandwich || null;
+        } else if (poiCategoryFilter === "fvg") {
+          selectedPoi = data?.nearestFvg || null;
         } else {
           selectedPoi = data?.nearestPoi || null;
         }
@@ -247,11 +256,73 @@ export default function RadarPage() {
     return Object.values(radarData).filter((d) => d.nearestSandwich !== null).length;
   }, [radarData]);
 
+  const totalFvgZones = useMemo(() => {
+    return Object.values(radarData).filter((d) => d.nearestFvg !== null).length;
+  }, [radarData]);
+
   const totalNearPois = useMemo(() => {
     return Object.values(radarData).filter(
       (d) => d.nearestPoi && (d.nearestPoi.isInsideZone || d.nearestPoi.distanceToEntryPct <= 1.0)
     ).length;
   }, [radarData]);
+
+  // Partition filtered coins into Kanban Lanes
+  const kanbanLanes = useMemo(() => {
+    const testing: typeof filteredCoins = [];
+    const approaching: typeof filteredCoins = [];
+    const fresh: typeof filteredCoins = [];
+    const mitigated: typeof filteredCoins = [];
+
+    filteredCoins.forEach((item) => {
+      const poi = item.selectedPoi;
+      if (!poi) return;
+
+      if (poi.isInsideZone || poi.status === "testing") {
+        testing.push(item);
+      } else if (poi.status === "mitigated") {
+        mitigated.push(item);
+      } else if (poi.distanceToEntryPct <= 1.5) {
+        approaching.push(item);
+      } else {
+        fresh.push(item);
+      }
+    });
+
+    return [
+      {
+        id: "testing",
+        title: "Testing In-Zone",
+        subtitle: "Active inside POI boundaries",
+        accent: "#f59e0b",
+        bgBadge: "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+        items: testing,
+      },
+      {
+        id: "approaching",
+        title: "Approaching (< 1.5%)",
+        subtitle: "Imminent reaction setup",
+        accent: "#00c087",
+        bgBadge: "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30",
+        items: approaching,
+      },
+      {
+        id: "fresh",
+        title: "Fresh Setups",
+        subtitle: "Untouched institutional zones",
+        accent: "#2962ff",
+        bgBadge: "bg-[#2962ff]/15 text-[#2962ff] border border-[#2962ff]/30",
+        items: fresh,
+      },
+      {
+        id: "mitigated",
+        title: "Mitigated / Retested",
+        subtitle: "Previously filled or tested",
+        accent: "#848e9c",
+        bgBadge: "bg-[#848e9c]/15 text-[#848e9c] border border-[#848e9c]/30",
+        items: mitigated,
+      },
+    ];
+  }, [filteredCoins]);
 
   return (
     <div className="min-h-screen bg-[#080b11] text-[#d1d4dc] flex flex-col font-mono selection:bg-[#2962ff]/30">
@@ -311,15 +382,15 @@ export default function RadarPage() {
               <span>Institutional POI Radar</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-[#2962ff]/20 text-[#2962ff] border border-[#2962ff]/40 flex items-center gap-1">
                 <Sparkles size={11} />
-                <span>OB + Sandwich Zones ++</span>
+                <span>OB + Sandwich ++ + FVG</span>
               </span>
             </h1>
             <p className="text-xs text-[#848e9c] mt-1 max-w-2xl">
-              Monitors MEXC pairs for institutional Validated Order Blocks (+2C FVG) and Sandwich Zones (Supply & Demand with S/R Confluence). Receive 24/7 Discord & Telegram alarms on zone touches.
+              Monitors MEXC pairs for institutional Validated Order Blocks, Fair Value Gaps (FVG), and Sandwich Zones (Supply & Demand with S/R Confluence). Receive 24/7 Discord & Telegram alarms on zone touches.
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 shrink-0">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
               <div className="text-[10px] text-[#848e9c] uppercase font-bold">Monitored Pairs</div>
               <div className="text-base font-bold text-white mt-0.5">{currentCoins.length}</div>
@@ -327,6 +398,10 @@ export default function RadarPage() {
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
               <div className="text-[10px] text-[#b6c4ff] uppercase font-bold">Sandwich Zones</div>
               <div className="text-base font-bold text-[#b6c4ff] mt-0.5">{totalSandwichZones}</div>
+            </div>
+            <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
+              <div className="text-[10px] text-amber-400 uppercase font-bold">Fair Value Gaps</div>
+              <div className="text-base font-bold text-amber-400 mt-0.5">{totalFvgZones}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
               <div className="text-[10px] text-[#00c087] uppercase font-bold">&lt; 1% Proximity</div>
@@ -424,15 +499,44 @@ export default function RadarPage() {
 
           {/* Filter Dropdowns */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* POI Category Filter: All vs Order Blocks vs Sandwich Zones */}
+            {/* View Mode Toggle: Table vs Kanban */}
+            <div className="flex items-center rounded-lg bg-[#121824] border border-[#233144] p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-bold text-xs transition-colors cursor-pointer ${
+                  viewMode === "table"
+                    ? "bg-[#2962ff] text-white shadow-xs"
+                    : "text-[#848e9c] hover:text-white"
+                }`}
+              >
+                <Table size={13} />
+                <span className="hidden sm:inline">Table</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("kanban")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-bold text-xs transition-colors cursor-pointer ${
+                  viewMode === "kanban"
+                    ? "bg-[#2962ff] text-white shadow-xs"
+                    : "text-[#848e9c] hover:text-white"
+                }`}
+              >
+                <Kanban size={13} />
+                <span className="hidden sm:inline">Kanban</span>
+              </button>
+            </div>
+
+            {/* POI Category Filter: All vs FVG vs Order Blocks vs Sandwich Zones */}
             <select
               value={poiCategoryFilter}
               onChange={(e) => setPoiCategoryFilter(e.target.value as any)}
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
-              <option value="ALL">All POIs (OB + Sandwich)</option>
+              <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
+              <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
               <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
-              <option value="order_block">📦 Order Blocks Only</option>
+              <option value="order_block">📦 Validated Order Blocks Only</option>
             </select>
 
             {/* Primary Timeframe Selector */}
@@ -495,23 +599,24 @@ export default function RadarPage() {
         </div>
       </section>
 
-      {/* 4. POI RADAR TABLE */}
+      {/* 4. POI RADAR CONTENT (TABLE OR KANBAN) */}
       <main className="flex-1 px-4 sm:px-6 pb-12 max-w-7xl mx-auto w-full">
-        <div className="bg-[#0e141f] border border-[#1b2535] rounded-xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#1b2535] bg-[#0c1017] text-[#848e9c] uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-4 font-bold">Asset / Pair</th>
-                  <th className="py-3 px-4 font-bold">Mark Price</th>
-                  <th className="py-3 px-4 font-bold">24h Change / Vol</th>
-                  <th className="py-3 px-4 font-bold">Detected POI (OB / Sandwich)</th>
-                  <th className="py-3 px-4 font-bold">Zone Range (50% MT)</th>
-                  <th className="py-3 px-4 font-bold">Proximity</th>
-                  <th className="py-3 px-4 font-bold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#172233]">
+        {viewMode === "table" ? (
+          <div className="bg-[#0e141f] border border-[#1b2535] rounded-xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-[#1b2535] bg-[#0c1017] text-[#848e9c] uppercase text-[10px] tracking-wider">
+                    <th className="py-3 px-4 font-bold">Asset / Pair</th>
+                    <th className="py-3 px-4 font-bold">Mark Price</th>
+                    <th className="py-3 px-4 font-bold">24h Change / Vol</th>
+                    <th className="py-3 px-4 font-bold">Detected POI (FVG / OB / Sandwich)</th>
+                    <th className="py-3 px-4 font-bold">Zone Range (50% MT/CE)</th>
+                    <th className="py-3 px-4 font-bold">Proximity</th>
+                    <th className="py-3 px-4 font-bold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#172233]">
                 {loading && filteredCoins.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-16 text-center text-[#848e9c]">
@@ -546,6 +651,7 @@ export default function RadarPage() {
                         ? `$${(volume24h / 1_000_000).toFixed(2)}M`
                         : `$${(volume24h / 1_000).toFixed(1)}K`;
 
+                    const isFvg = selectedPoi?.category === "fvg";
                     const isSandwich = selectedPoi?.category === "sandwich_zone";
                     const isBullish = selectedPoi?.type === "BULLISH";
 
@@ -619,6 +725,10 @@ export default function RadarPage() {
                                     ? isBullish
                                       ? "DEMAND (GRGG)"
                                       : "SUPPLY (RGRR)"
+                                    : isFvg
+                                    ? isBullish
+                                      ? "BULLISH FVG"
+                                      : "BEARISH FVG"
                                     : `${selectedPoi.type} OB`}
                                 </span>
 
@@ -641,6 +751,11 @@ export default function RadarPage() {
                                   <>
                                     <Layers size={10} className="text-[#2962ff]" />
                                     <span>Sandwich Zone (4-Candle)</span>
+                                  </>
+                                ) : isFvg ? (
+                                  <>
+                                    <Zap size={10} className="text-amber-400" />
+                                    <span>3-Candle Imbalance ({selectedPoi.fvgGapPct?.toFixed(2)}%)</span>
                                   </>
                                 ) : (
                                   <>
@@ -665,7 +780,7 @@ export default function RadarPage() {
                                 ${selectedPoi.bottom.toFixed(2)} - ${selectedPoi.top.toFixed(2)}
                               </span>
                               <span className="text-[10px] text-[#2962ff]">
-                                MT: ${selectedPoi.meanThreshold.toFixed(2)}
+                                {isFvg ? "50% CE" : "MT"}: ${selectedPoi.meanThreshold.toFixed(2)}
                               </span>
                             </div>
                           ) : (
@@ -756,6 +871,194 @@ export default function RadarPage() {
             </table>
           </div>
         </div>
+        ) : (
+          /* KANBAN BOARD VIEW */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+            {kanbanLanes.map((lane) => (
+              <div
+                key={lane.id}
+                className="bg-[#0c1017] border border-[#1b2535] rounded-xl p-3 flex flex-col gap-3 min-h-[480px]"
+              >
+                {/* Lane Header */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-[#172233]">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ backgroundColor: lane.accent }}
+                      />
+                      <span className="font-bold text-white text-xs tracking-tight">
+                        {lane.title}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-[#848e9c] block mt-0.5">
+                      {lane.subtitle}
+                    </span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${lane.bgBadge}`}>
+                    {lane.items.length}
+                  </span>
+                </div>
+
+                {/* Lane Cards */}
+                <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[calc(100vh-300px)] pr-0.5">
+                  {loading && lane.items.length === 0 ? (
+                    <div className="py-12 text-center text-[#848e9c] text-xs">
+                      <RefreshCw size={16} className="animate-spin text-[#2962ff] mx-auto mb-2" />
+                      <span>Scanning POIs...</span>
+                    </div>
+                  ) : lane.items.length === 0 ? (
+                    <div className="py-12 px-4 rounded-lg bg-[#0e141f]/50 border border-dashed border-[#1f2c3f] text-center text-[#848e9c]/60 text-[11px]">
+                      No pairs in this status
+                    </div>
+                  ) : (
+                    lane.items.map(({ coin, data, selectedPoi }) => {
+                      if (!selectedPoi) return null;
+                      const price = data?.price || selectedPoi.currentPrice;
+                      const change24h = data?.change24h || 0;
+                      const isPositive = change24h >= 0;
+
+                      const formattedPrice =
+                        price >= 1
+                          ? price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : price.toFixed(4);
+
+                      const isFvg = selectedPoi.category === "fvg";
+                      const isSandwich = selectedPoi.category === "sandwich_zone";
+                      const isBullish = selectedPoi.type === "BULLISH";
+
+                      return (
+                        <div
+                          key={coin.symbol}
+                          className="p-3 rounded-lg bg-[#0e141f] border border-[#1b2535] hover:border-[#2962ff]/60 transition-all flex flex-col gap-2 shadow-xs group"
+                        >
+                          {/* Asset Header */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-col">
+                              <Link
+                                href={`/chart?symbol=${coin.symbol}`}
+                                className="font-bold text-white text-xs hover:text-[#2962ff] transition-colors"
+                              >
+                                {coin.symbol.replace("USDT", "/USDT")}
+                              </Link>
+                              <span className="text-[10px] text-[#848e9c] truncate max-w-[120px]">
+                                {coin.name}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span
+                                className={`text-xs font-bold ${
+                                  isPositive ? "text-[#00c087]" : "text-[#ff3b30]"
+                                }`}
+                              >
+                                {isPositive ? "+" : ""}
+                                {change24h.toFixed(2)}%
+                              </span>
+                              <span className="text-[10px] text-[#848e9c] block font-mono">
+                                ${formattedPrice}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* POI Tag & Status */}
+                          <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-[#172233]">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  isBullish
+                                    ? "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30"
+                                    : "bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30"
+                                }`}
+                              >
+                                {isSandwich
+                                  ? isBullish
+                                    ? "DEMAND (GRGG)"
+                                    : "SUPPLY (RGRR)"
+                                  : isFvg
+                                  ? isBullish
+                                    ? "BULL FVG"
+                                    : "BEAR FVG"
+                                  : `${selectedPoi.type} OB`}
+                              </span>
+
+                              <span className="px-1.5 py-0.2 rounded bg-[#172233] text-[#b6c4ff] text-[9px] font-bold">
+                                {selectedPoi.timeframe}
+                              </span>
+
+                              {selectedPoi.isPlus && (
+                                <span className="px-1.5 py-0.2 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 text-[8px] font-bold flex items-center gap-0.5">
+                                  <Star size={8} className="fill-yellow-400" />
+                                  <span>++</span>
+                                </span>
+                              )}
+                            </div>
+
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                selectedPoi.isInsideZone
+                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse"
+                                  : selectedPoi.distanceToEntryPct <= 1.5
+                                  ? "bg-[#00c087]/20 text-[#00c087] border border-[#00c087]/40"
+                                  : "bg-[#172233] text-[#848e9c]"
+                              }`}
+                            >
+                              {selectedPoi.isInsideZone
+                                ? "IN ZONE"
+                                : `${selectedPoi.distanceToEntryPct.toFixed(2)}%`}
+                            </span>
+                          </div>
+
+                          {/* Zone Boundaries */}
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-[#0c1017] p-2 rounded border border-[#172233] font-mono">
+                            <div>
+                              <span className="text-[#848e9c] text-[9px] block">Entry Level</span>
+                              <span className="text-white font-semibold">
+                                ${selectedPoi.entryPrice.toFixed(2)}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[#2962ff] text-[9px] block">
+                                {isFvg ? "50% CE" : "50% MT"}
+                              </span>
+                              <span className="text-[#b6c4ff] font-semibold">
+                                ${selectedPoi.meanThreshold.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Card Actions */}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <button
+                              onClick={() =>
+                                setAlarmModalData({
+                                  symbol: coin.symbol,
+                                  poi: selectedPoi,
+                                  poisByTimeframe: data?.poisByTimeframe || {},
+                                })
+                              }
+                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30 text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            >
+                              <Bell size={11} />
+                              <span>24/7 Cloud Alarm</span>
+                            </button>
+
+                            <Link
+                              href={`/chart?symbol=${coin.symbol}`}
+                              title="Open in Terminal"
+                              className="p-1.5 rounded-lg bg-[#121824] hover:bg-[#1a2332] text-[#848e9c] hover:text-white border border-[#233144] transition-colors"
+                            >
+                              <ExternalLink size={12} />
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
 
       {/* 5. POI ALARM CONFIGURATION MODAL */}

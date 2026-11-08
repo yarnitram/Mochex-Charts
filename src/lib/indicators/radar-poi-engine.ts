@@ -4,6 +4,7 @@ import {
   ValidatedOrderBlock,
   OrderBlockTouchLevel,
 } from "./validated-ob-engine";
+import { computeUnmitigatedFvgs } from "./fvg-engine";
 import {
   detectAllSandwichPatterns,
 } from "./sandwich/detector";
@@ -14,7 +15,7 @@ import { DEFAULT_SANDWICH_SETTINGS } from "./sandwich/settings";
 import { SandwichTimeframeId, SandwichZone } from "./sandwich/types";
 import { Bar } from "@/types/tradingview.d";
 
-export type PoiCategory = "order_block" | "sandwich_zone";
+export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
 export type PoiStatus = "fresh" | "testing" | "mitigated" | "broken";
 
@@ -65,6 +66,7 @@ export function computeRadarPois(
 
   const currentBar = bars[bars.length - 1];
   const currentPrice = currentBar.close;
+  const { tfId, label: tfLabel } = mapTimeframeToSandwichTf(timeframe);
   const items: RadarPoiItem[] = [];
 
   // 1. COMPUTE VALIDATED ORDER BLOCKS (OB + 2C FVG)
@@ -98,7 +100,6 @@ export function computeRadarPois(
 
   // 2. COMPUTE SANDWICH ZONES ++ (Supply & Demand 4-Candle Structure)
   try {
-    const { tfId, label: tfLabel } = mapTimeframeToSandwichTf(timeframe);
     const tvBars: Bar[] = bars.map((b) => ({
       time: b.time,
       open: b.open,
@@ -194,6 +195,68 @@ export function computeRadarPois(
     }
   } catch (err) {
     console.warn(`[radar-poi-engine] Error computing sandwich zones for ${symbol}:`, err);
+  }
+
+  // 3. Detect Standalone Fair Value Gaps (FVG)
+  try {
+    const fvgZones = computeUnmitigatedFvgs(bars, {
+      timeframe: tfLabel,
+      minGapPct: 0.05,
+    });
+
+    for (const fvg of fvgZones) {
+      const top = fvg.top;
+      const bottom = fvg.bottom;
+      const meanThreshold = fvg.mid; // 50% Consequent Encroachment (CE)
+      const isBullish = fvg.type === "BULLISH";
+      const entryPrice = isBullish ? top : bottom;
+      const fullRetestPrice = isBullish ? bottom : top;
+      const isInsideZone = currentPrice >= bottom && currentPrice <= top;
+
+      const distanceToEntryPct =
+        currentPrice > entryPrice
+          ? ((currentPrice - entryPrice) / currentPrice) * 100
+          : currentPrice < entryPrice
+          ? ((entryPrice - currentPrice) / currentPrice) * 100
+          : 0;
+
+      const distanceToMtPct =
+        (Math.abs(currentPrice - meanThreshold) / currentPrice) * 100;
+
+      const isBroken = isBullish ? currentPrice < bottom : currentPrice > top;
+
+      const status: PoiStatus =
+        isBroken
+          ? "broken"
+          : isInsideZone
+          ? "testing"
+          : "fresh";
+
+      if (status === "broken") continue;
+
+      items.push({
+        id: `fvg-${symbol}-${timeframe}-${fvg.startTime}`,
+        symbol: symbol.toUpperCase(),
+        timeframe: tfLabel,
+        category: "fvg",
+        type: isBullish ? "BULLISH" : "BEARISH",
+        label: isBullish ? "Bullish FVG (Demand)" : "Bearish FVG (Supply)",
+        top,
+        bottom,
+        meanThreshold,
+        entryPrice,
+        fullRetestPrice,
+        fvgGapPct: fvg.gapPct,
+        status,
+        isInsideZone,
+        distanceToEntryPct,
+        distanceToMtPct,
+        currentPrice,
+        time: fvg.startTime,
+      });
+    }
+  } catch (err) {
+    console.warn(`[radar-poi-engine] Error computing FVGs for ${symbol}:`, err);
   }
 
   // Sort all POIs by closest proximity to current price
