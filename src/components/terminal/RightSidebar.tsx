@@ -30,12 +30,15 @@ import {
   TrendingUp,
   RotateCcw,
   Zap,
+  Send,
 } from "lucide-react";
 import { mexcWsManager } from "@/lib/mexc/websocket";
 import { MexcMiniTickerItem } from "@/lib/mexc/types";
 import { OrderDepthLadder } from "./OrderDepthLadder";
 import { DepthOfMarketTape } from "./DepthOfMarketTape";
 import { AddPairModal } from "../watchlist/AddPairModal";
+import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "./AlertChannelsModal";
+import { AlertWebhookConfig, sendAlertNotifications } from "@/lib/alerts/webhook-dispatcher";
 import { AuthUser } from "@/lib/auth/use-auth";
 import {
   WatchlistProfile,
@@ -248,6 +251,16 @@ export function RightSidebar({
   const [newAlertLabel, setNewAlertLabel] = useState<string>("");
   const [isSoundEnabled, setIsSoundEnabled] = useState<boolean>(true);
   const [activeToast, setActiveToast] = useState<AlertLogEntry | null>(null);
+  // Discord & Telegram Webhook Configuration State (DEC-130)
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
+  const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
+  const [newAlertDiscord, setNewAlertDiscord] = useState(true);
+  const [newAlertTelegram, setNewAlertTelegram] = useState(true);
+  const webhookConfigRef = useRef<AlertWebhookConfig>({});
+
+  useEffect(() => {
+    webhookConfigRef.current = webhookConfig;
+  }, [webhookConfig]);
 
   const alertsRef = useRef<PriceAlert[]>([]);
   const prevPricesRef = useRef<Record<string, number>>({});
@@ -290,6 +303,15 @@ export function RightSidebar({
       const loadedProfiles = loadWatchlistProfiles();
       setProfiles(loadedProfiles);
       setActiveProfileId(loadActiveProfileId(loadedProfiles));
+
+      const savedWebhooks = localStorage.getItem("mochex:alert_webhooks");
+      if (savedWebhooks) {
+        try {
+          const parsedWebhooks = JSON.parse(savedWebhooks);
+          setWebhookConfig(parsedWebhooks);
+          webhookConfigRef.current = parsedWebhooks;
+        } catch {}
+      }
 
       const savedAlerts = localStorage.getItem("mochex:price_alerts");
       if (savedAlerts) {
@@ -439,6 +461,8 @@ export function RightSidebar({
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: newAlertDiscord,
+        notifyTelegram: newAlertTelegram,
       };
 
       saveAlerts([created, ...alertsRef.current]);
@@ -482,6 +506,14 @@ export function RightSidebar({
         if (isSoundEnabledRef.current) {
           playInstitutionalAlertChime();
         }
+
+        // Dispatch Discord & Telegram Webhooks (DEC-130)
+        triggeredLogs.forEach((log) => {
+          const matched = alertsRef.current.find((a) => a.id === log.alertId);
+          if (matched && webhookConfigRef.current) {
+            sendAlertNotifications(webhookConfigRef.current, matched, log).catch(() => {});
+          }
+        });
       }
     };
 
@@ -613,6 +645,14 @@ export function RightSidebar({
         if (isSoundEnabledRef.current) {
           playInstitutionalAlertChime();
         }
+
+        // Dispatch Discord & Telegram Webhooks (DEC-130)
+        triggeredLogs.forEach((log) => {
+          const matched = alertsRef.current.find((a) => a.id === log.alertId);
+          if (matched && webhookConfigRef.current) {
+            sendAlertNotifications(webhookConfigRef.current, matched, log).catch(() => {});
+          }
+        });
       }
     },
     [saveAlerts, savePaperAccount]
@@ -859,6 +899,8 @@ export function RightSidebar({
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: newAlertDiscord,
+        notifyTelegram: newAlertTelegram,
       };
 
       saveAlerts([created, ...alertsRef.current]);
@@ -1962,9 +2004,31 @@ export function RightSidebar({
               <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface">
                 + New Alert ({selectedSymbol.replace("USDT", "/USDT")})
               </span>
-              <button
-                type="button"
-                onClick={() => setIsSoundEnabled((prev) => !prev)}
+              <div className="flex items-center gap-1">
+                {/* Channels Webhook Modal Button (DEC-130) */}
+                <button
+                  type="button"
+                  onClick={() => setIsChannelsModalOpen(true)}
+                  title="Configure Discord & Telegram Alert Webhooks"
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border cursor-pointer transition-colors ${
+                    webhookConfig.discordEnabled || webhookConfig.telegramEnabled
+                      ? "bg-primary-container/20 text-primary border-primary/40 font-semibold"
+                      : "bg-surface text-muted border-border hover:text-on-surface"
+                  }`}
+                >
+                  <Send size={10} />
+                  <span>Channels</span>
+                  {webhookConfig.discordEnabled && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#5865F2]" title="Discord Active" />
+                  )}
+                  {webhookConfig.telegramEnabled && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#229ED9]" title="Telegram Active" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSoundEnabled((prev) => !prev)}
                 title={isSoundEnabled ? "Chime Sound Enabled" : "Chime Sound Muted"}
                 className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border cursor-pointer transition-colors ${
                   isSoundEnabled
@@ -1975,6 +2039,7 @@ export function RightSidebar({
                 {isSoundEnabled ? <Volume2 size={11} /> : <VolumeX size={11} />}
                 <span>{isSoundEnabled ? "Chime On" : "Muted"}</span>
               </button>
+              </div>
             </div>
 
             {/* Mode Selector Tabs */}
@@ -2079,6 +2144,38 @@ export function RightSidebar({
               </div>
             )}
 
+            {/* Discord & Telegram Delivery Channel Toggles (DEC-130) */}
+            <div className="flex items-center justify-between py-1 px-2 rounded bg-surface border border-border/60 text-[10px]">
+              <span className="text-muted text-[10px]">Deliver to:</span>
+              <div className="flex items-center gap-2.5">
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newAlertDiscord}
+                    onChange={(e) => setNewAlertDiscord(e.target.checked)}
+                    className="accent-[#5865F2] rounded cursor-pointer"
+                  />
+                  <span className={`flex items-center gap-1 text-[10px] ${newAlertDiscord ? "text-[#5865F2] font-semibold" : "text-muted"}`}>
+                    <DiscordIcon size={12} />
+                    <span>Discord</span>
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newAlertTelegram}
+                    onChange={(e) => setNewAlertTelegram(e.target.checked)}
+                    className="accent-[#229ED9] rounded cursor-pointer"
+                  />
+                  <span className={`flex items-center gap-1 text-[10px] ${newAlertTelegram ? "text-[#229ED9] font-semibold" : "text-muted"}`}>
+                    <TelegramIcon size={12} />
+                    <span>Telegram</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="flex items-center gap-1.5">
               <input
                 type="text"
@@ -2164,6 +2261,24 @@ export function RightSidebar({
                         >
                           {a.active ? "ACTIVE" : "PAUSED"}
                         </span>
+                        {a.notifyDiscord !== false && webhookConfig.discordEnabled && (
+                          <span
+                            className="text-[8px] px-1 py-0.2 rounded bg-[#5865F2]/20 text-[#5865F2] font-semibold flex items-center gap-0.5"
+                            title="Discord alerts active"
+                          >
+                            <DiscordIcon size={9} />
+                            <span>DC</span>
+                          </span>
+                        )}
+                        {a.notifyTelegram !== false && webhookConfig.telegramEnabled && (
+                          <span
+                            className="text-[8px] px-1 py-0.2 rounded bg-[#229ED9]/20 text-[#229ED9] font-semibold flex items-center gap-0.5"
+                            title="Telegram alerts active"
+                          >
+                            <TelegramIcon size={9} />
+                            <span>TG</span>
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs font-semibold text-on-surface truncate mt-0.5">
                         {a.label}
@@ -2462,6 +2577,17 @@ export function RightSidebar({
       {(activeTab === "watchlist" || activeTab === "hot") && (
         <OrderDepthLadder symbol={selectedSymbol} currentPrice={currentPrice} />
       )}
+
+      {/* Alert Channels (Discord & Telegram) Configuration Modal (DEC-130) */}
+      <AlertChannelsModal
+        isOpen={isChannelsModalOpen}
+        onClose={() => setIsChannelsModalOpen(false)}
+        config={webhookConfig}
+        onSave={(cfg) => {
+          setWebhookConfig(cfg);
+          webhookConfigRef.current = cfg;
+        }}
+      />
 
       {/* Add Pair Search Modal */}
       <AddPairModal
