@@ -63,6 +63,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Reaction Win-Rate %",
     "Reaction Samples",
     "Liquidity Sweep",
+    "MTF Confluence",
+    "MTF Timeframes",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -116,6 +118,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi?.metrics ? `${poi.metrics.winRatePct}%` : "N/A",
       poi?.metrics ? poi.metrics.sampleDescription : "N/A",
       poi?.sweep ? `YES (${poi.sweep.label})` : "NO",
+      poi?.confluence ? poi.confluence.label : "None",
+      poi?.confluence ? poi.confluence.timeframes.join("+") : "N/A",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -190,6 +194,7 @@ export function generateRadarJson(
             distanceToMtPct: i.selectedPoi.distanceToMtPct,
             metrics: i.selectedPoi.metrics || null,
             sweep: i.selectedPoi.sweep || null,
+            confluence: i.selectedPoi.confluence || null,
           }
         : null,
     })),
@@ -260,7 +265,8 @@ export function generateRadarClipboardMarkdown(
 
     const typeEmoji = poi.type === "BULLISH" ? "🟢" : "🔴";
     const plusTag = poi.isPlus ? " ⭐++" : "";
-    const poiLabel = `${typeEmoji} ${poi.label}${plusTag}`;
+    const mtfTag = poi.confluence ? ` [${poi.confluence.label}]` : "";
+    const poiLabel = `${typeEmoji} ${poi.label}${plusTag}${mtfTag}`;
     const statusTag =
       poi.sweep || poi.status === "sweep"
         ? "🧹 SWEEP"

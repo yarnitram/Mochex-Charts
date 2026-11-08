@@ -3,6 +3,10 @@ import {
   computeRadarPois,
   RadarPoiItem,
 } from "@/lib/indicators/radar-poi-engine";
+import {
+  attachConfluenceToPois,
+  normalizeTfLabel,
+} from "@/lib/indicators/poi-confluence-matrix";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
 import {
   SupportedExchange,
@@ -134,14 +138,24 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Sort all POIs by proximity
-        allPois.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
-        const nearestPoi = allPois.length > 0 ? allPois[0] : null;
+        // Multi-Timeframe Confluence Cluster Analysis (DEC-146)
+        const confluencedPois = attachConfluenceToPois(allPois);
+        confluencedPois.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
+        const nearestPoi = confluencedPois.length > 0 ? confluencedPois[0] : null;
+
+        // Re-index into poisByTimeframe with attached confluence
+        for (const tf of timeframes) {
+          poisByTimeframe[tf] = confluencedPois.filter(
+            (p) =>
+              p.timeframe === tf ||
+              normalizeTfLabel(p.timeframe) === normalizeTfLabel(tf)
+          );
+        }
 
         // Separate nearest OB, Sandwich Zone, and Standalone FVG
-        const nearestOb = allPois.find((p) => p.category === "order_block") || null;
-        const nearestSandwich = allPois.find((p) => p.category === "sandwich_zone") || null;
-        const nearestFvg = allPois.find((p) => p.category === "fvg") || null;
+        const nearestOb = confluencedPois.find((p) => p.category === "order_block") || null;
+        const nearestSandwich = confluencedPois.find((p) => p.category === "sandwich_zone") || null;
+        const nearestFvg = confluencedPois.find((p) => p.category === "fvg") || null;
 
         const data = {
           symbol: upperSym,
@@ -157,6 +171,7 @@ export async function POST(request: NextRequest) {
           poisByTimeframe,
           exchange: exchangeFilter,
           metrics: nearestPoi?.metrics || null,
+          confluence: nearestPoi?.confluence || null,
         };
 
         radarPoiCache.set(cacheKey, { timestamp: now, data });

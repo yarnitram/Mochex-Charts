@@ -122,10 +122,14 @@ export default function RadarPage() {
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [poiCategoryFilter, setPoiCategoryFilter] = useState<"ALL" | "sweep" | PoiCategory>("ALL");
+  const [poiCategoryFilter, setPoiCategoryFilter] = useState<
+    "ALL" | "confluence" | "sweep" | PoiCategory
+  >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
-  const [sortBy, setSortBy] = useState<"proximity" | "volume" | "change" | "winrate">("proximity");
+  const [sortBy, setSortBy] = useState<
+    "proximity" | "confluence" | "volume" | "change" | "winrate"
+  >("proximity");
 
   // Loaded POI radar data
   const [radarData, setRadarData] = useState<Record<string, RadarCoinData>>({});
@@ -454,6 +458,11 @@ export default function RadarPage() {
           if (!matchSym && !matchName) return false;
         }
 
+        // Confluence filter (DEC-146)
+        if (poiCategoryFilter === "confluence") {
+          if (!selectedPoi || !selectedPoi.confluence || selectedPoi.confluence.score < 2) return false;
+        }
+
         // Sweep filter
         if (poiCategoryFilter === "sweep") {
           if (!selectedPoi || (!selectedPoi.sweep && selectedPoi.status !== "sweep")) return false;
@@ -474,6 +483,14 @@ export default function RadarPage() {
       })
       .sort((a, b) => {
         if (sortBy === "proximity") {
+          const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
+          const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
+          return distA - distB;
+        }
+        if (sortBy === "confluence") {
+          const confA = a.selectedPoi?.confluence?.score || 0;
+          const confB = b.selectedPoi?.confluence?.score || 0;
+          if (confB !== confA) return confB - confA;
           const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
           const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
           return distA - distB;
@@ -907,6 +924,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
+              <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
               <option value="sweep">🧹 Liquidity Sweeps Only</option>
               <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
               <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
@@ -953,6 +971,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer"
             >
               <option value="proximity">Sort: Closest to Zone</option>
+              <option value="confluence">Sort: Highest MTF Confluence</option>
               <option value="winrate">Sort: Highest POI Win-Rate</option>
               <option value="volume">Sort: 24h Volume</option>
               <option value="change">Sort: 24h Change %</option>
@@ -1197,6 +1216,20 @@ export default function RadarPage() {
                                 {selectedPoi.sweep && (
                                   <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[8px] font-bold flex items-center gap-0.5 animate-pulse">
                                     <span>🧹 SWEEP ({selectedPoi.sweep.rejectionWickPct.toFixed(0)}% Wick)</span>
+                                  </span>
+                                )}
+
+                                {/* MTF Confluence Badge (DEC-146) */}
+                                {selectedPoi.confluence && selectedPoi.confluence.score >= 2 && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                      selectedPoi.confluence.score >= 3
+                                        ? "bg-orange-500/20 text-orange-300 border-orange-500/40 animate-pulse"
+                                        : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                    }`}
+                                    title={`Multi-Timeframe Confluence: ${selectedPoi.confluence.description} (Cluster: $${formatZonePrice(selectedPoi.confluence.clusterBottom)} - $${formatZonePrice(selectedPoi.confluence.clusterTop)})`}
+                                  >
+                                    <span>{selectedPoi.confluence.label} ({selectedPoi.confluence.timeframes.join("·")})</span>
                                   </span>
                                 )}
                               </div>
@@ -1527,6 +1560,20 @@ export default function RadarPage() {
                                   title={`Liquidity Sweep: ${selectedPoi.sweep.type === "BULLISH_SWEEP" ? "Bullish Reversal Trap" : "Bearish Reversal Trap"} (${selectedPoi.sweep.rejectionWickPct.toFixed(0)}% wick rejection)`}
                                 >
                                   <span>🧹 SWEEP ({selectedPoi.sweep.rejectionWickPct.toFixed(0)}%)</span>
+                                </span>
+                              )}
+
+                              {/* MTF Confluence Badge (DEC-146) */}
+                              {selectedPoi.confluence && selectedPoi.confluence.score >= 2 && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                    selectedPoi.confluence.score >= 3
+                                      ? "bg-orange-500/20 text-orange-300 border-orange-500/40 animate-pulse"
+                                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                  }`}
+                                  title={`MTF Confluence: ${selectedPoi.confluence.description}`}
+                                >
+                                  <span>{selectedPoi.confluence.label}</span>
                                 </span>
                               )}
                             </div>
