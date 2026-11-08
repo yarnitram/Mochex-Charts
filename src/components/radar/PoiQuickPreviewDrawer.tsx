@@ -332,6 +332,12 @@ export function PoiQuickPreviewDrawer({
                   <span>++ S/R CONFLUENCE</span>
                 </span>
               )}
+
+              {poi.confluence && poi.confluence.score >= 2 && (
+                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-amber-300 border border-orange-500/40 text-[9px] font-bold flex items-center gap-1">
+                  <span>{poi.confluence.label} ({poi.confluence.timeframes.join("·")})</span>
+                </span>
+              )}
             </div>
 
             <span
@@ -400,6 +406,28 @@ export function PoiQuickPreviewDrawer({
               <div className="text-[10px] text-[#848e9c]">
                 <span>{poi.metrics.wins} wins / {poi.metrics.losses} losses</span>
                 <span className="ml-1 text-white font-semibold">({poi.metrics.avgRr}R avg)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Multi-Timeframe Confluence Matrix Banner (DEC-146) */}
+          {poi.confluence && poi.confluence.score >= 2 && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-amber-300">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-amber-300 font-bold text-[10px] flex items-center gap-1">
+                  <span>{poi.confluence.label}</span>
+                </span>
+                <span className="text-[10px] text-amber-200 font-medium">
+                  {poi.confluence.description}
+                </span>
+              </div>
+              <div className="text-[10px] font-bold text-right">
+                <span className="text-amber-400">
+                  Cluster: ${poi.confluence.clusterBottom >= 1 ? poi.confluence.clusterBottom.toFixed(2) : poi.confluence.clusterBottom.toFixed(4)} - ${poi.confluence.clusterTop >= 1 ? poi.confluence.clusterTop.toFixed(2) : poi.confluence.clusterTop.toFixed(4)}
+                </span>
+                {poi.confluence.isNested && (
+                  <span className="text-emerald-400 ml-1.5 font-bold">(Nested HTF)</span>
+                )}
               </div>
             </div>
           )}

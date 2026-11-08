@@ -126,6 +126,8 @@ export function formatTelegramRadarReport(
 
   if (categoryFilter === "inzone") {
     filtered = filtered.filter((p) => p.isInsideZone || p.status === "testing");
+  } else if (categoryFilter === "confluence") {
+    filtered = filtered.filter((p) => Boolean(p.confluence && p.confluence.score >= 2));
   } else if (categoryFilter === "sweep") {
     filtered = filtered.filter((p) => p.status === "sweep" || Boolean(p.sweep));
   } else if (categoryFilter === "sandwich") {
@@ -143,7 +145,9 @@ export function formatTelegramRadarReport(
     : `📡 <b>MOCHEX INSTITUTIONAL POI RADAR</b>`;
 
   const subHeader =
-    categoryFilter === "sweep"
+    categoryFilter === "confluence"
+      ? `🔥 <b>Multi-Timeframe Confluence Setups (>= 2x MTF)</b>`
+      : categoryFilter === "sweep"
       ? `🧹 <b>Institutional Liquidity Sweeps / Fakeouts</b>`
       : categoryFilter === "inzone"
       ? `🚨 <b>Active In-Zone Breaches</b>`
@@ -182,7 +186,8 @@ export function formatTelegramRadarReport(
 
       const exTag = p.exchange ? `[${p.exchange.toUpperCase()}] ` : "";
       const metricsTag = p.metrics && p.metrics.totalTested > 0 ? ` | 🎯 <b>${p.metrics.winRatePct}%</b> (${p.metrics.wins}/${p.metrics.totalTested})` : "";
-      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}\n`;
+      const mtfTag = p.confluence && p.confluence.score >= 2 ? ` | ${p.confluence.label} (${p.confluence.timeframes.join("·")})` : "";
+      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}${mtfTag}\n`;
       text += `  • Entry: <code>$${pEntry}</code> | ${midLabel}: <code>$${pMt}</code>\n`;
       text += `  • Status: ${statusTag}${metricsTag}\n\n`;
     }
@@ -198,12 +203,13 @@ export function formatTelegramRadarReport(
     inline_keyboard: [
       [
         { text: "🚨 In-Zone", callback_data: "cmd:radar:inzone" },
+        { text: "🔥 Confluence", callback_data: "cmd:radar:confluence" },
         { text: "🧹 Sweeps", callback_data: "cmd:radar:sweep" },
-        { text: "💎 Fresh", callback_data: "cmd:radar:fresh" },
       ],
       [
         { text: "🥪 Sandwich ++", callback_data: "cmd:radar:sandwich" },
         { text: "⚡ FVGs", callback_data: "cmd:radar:fvg" },
+        { text: "💎 Fresh", callback_data: "cmd:radar:fresh" },
       ],
       [
         { text: "🔄 All POIs", callback_data: "cmd:radar:all" },
