@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   AlertWebhookConfig,
-  formatDiscordPayload,
-  formatTelegramMessage,
+  dispatchDirectWebhooks,
   isValidDiscordWebhookUrl,
   isValidTelegramBotToken,
   isValidTelegramChatId,
-  DispatchNotificationResult,
 } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "@/lib/alerts/alerts-engine";
 
@@ -167,73 +165,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const results: DispatchNotificationResult = {};
-
-    // Discord Dispatch
-    if (config.discordEnabled && isValidDiscordWebhookUrl(config.discordWebhookUrl)) {
-      const payload = formatDiscordPayload(alert, log);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      try {
-        const res = await fetch(config.discordWebhookUrl!, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        results.discord = {
-          ok: res.ok,
-          status: res.status,
-          error: !res.ok ? await res.text() : undefined,
-        };
-      } catch (err: unknown) {
-        clearTimeout(timeoutId);
-        results.discord = {
-          ok: false,
-          error: err instanceof Error ? err.message : "Network error",
-        };
-      }
-    }
-
-    // Telegram Dispatch
-    if (
-      config.telegramEnabled &&
-      isValidTelegramBotToken(config.telegramBotToken) &&
-      isValidTelegramChatId(config.telegramChatId)
-    ) {
-      const text = formatTelegramMessage(alert, log);
-      const tgUrl = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      try {
-        const res = await fetch(tgUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: config.telegramChatId,
-            text,
-            parse_mode: "HTML",
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        const data = await res.json();
-        results.telegram = {
-          ok: res.ok && data.ok === true,
-          status: res.status,
-          error: !data.ok ? data.description : undefined,
-        };
-      } catch (err: unknown) {
-        clearTimeout(timeoutId);
-        results.telegram = {
-          ok: false,
-          error: err instanceof Error ? err.message : "Network error",
-        };
-      }
-    }
+    const results = await dispatchDirectWebhooks(config, alert, log);
 
     return NextResponse.json({
       success: true,
