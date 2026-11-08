@@ -68,6 +68,7 @@ export function PoiAlarmModal({
   const [notifyDiscord, setNotifyDiscord] = useState(true);
   const [notifyTelegram, setNotifyTelegram] = useState(true);
   const [notifyTradingWebhook, setNotifyTradingWebhook] = useState(true);
+  const [notifyOnInvalidation, setNotifyOnInvalidation] = useState(true);
 
   // Audio chime selection & custom sounds (DEC-147)
   const [audioTab, setAudioTab] = useState<"presets" | "custom">("presets");
@@ -211,6 +212,17 @@ export function PoiAlarmModal({
           notifyDiscord,
           notifyTelegram,
           notifyTradingWebhook,
+          notifyOnInvalidation,
+          invalidationPrice: targetPoi.invalidationPrice ?? targetPoi.fullRetestPrice,
+          poiMetadata: {
+            poiId: targetPoi.id,
+            category: targetPoi.category,
+            direction: targetPoi.type,
+            timeframe: tf,
+            zoneTop: targetPoi.top,
+            zoneBottom: targetPoi.bottom,
+            invalidationPrice: targetPoi.invalidationPrice ?? targetPoi.fullRetestPrice,
+          },
           soundType: alarmChime,
         };
 
@@ -492,6 +504,21 @@ export function PoiAlarmModal({
                 />
                 <span className="flex items-center gap-1 text-[#00c087] font-semibold">
                   <Zap size={13} className="fill-current text-[#00c087]" /> Trading Bot (3Commas / Cornix)
+                </span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-white cursor-pointer w-full mt-1 pt-1.5 border-t border-[#1f2c3f]/60">
+                <input
+                  type="checkbox"
+                  checked={notifyOnInvalidation}
+                  onChange={(e) => setNotifyOnInvalidation(e.target.checked)}
+                  className="accent-[#ef4444] rounded cursor-pointer"
+                />
+                <span className="flex items-center gap-1 text-red-400 font-semibold">
+                  <span>🚨</span> Notify on Invalidation / Stop-Out Break
+                </span>
+                <span className="text-[10px] text-[#848e9c] ml-auto">
+                  Breach Stop (${(poi.invalidationPrice ?? poi.fullRetestPrice).toFixed(2)})
                 </span>
               </label>
             </div>

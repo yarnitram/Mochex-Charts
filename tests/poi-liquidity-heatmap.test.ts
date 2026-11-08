@@ -28,13 +28,11 @@ describe("Dynamic Multi-Timeframe POI Heatmap Overlay & Liquidity Density Ribbon
     fullRetestPrice: 65000,
     invalidationPrice: 64950,
     distanceToEntryPct: 0.5,
-    distanceToRetestPct: 0.8,
+    distanceToMtPct: 0.6,
     isInsideZone: false,
     status: "fresh",
-    isFresh: true,
-    isTested: false,
-    isMitigated: false,
-    timestamp: Date.now(),
+    currentPrice: 65500,
+    time: Date.now(),
   };
 
   describe("computePoiWeight unit tests", () => {
@@ -64,23 +62,28 @@ describe("Dynamic Multi-Timeframe POI Heatmap Overlay & Liquidity Density Ribbon
         ...basePoi,
         status: "sweep",
         sweep: {
+          isSweep: true,
           type: "BULLISH_SWEEP",
           label: "BULLISH REVERSAL SWEEP",
+          sweepDepthPct: 0.5,
           rejectionWickPct: 65,
-          liquidityPrice: 64900,
-          sweepCandleTime: Date.now(),
+          sweepPrice: 64900,
+          closePrice: 65100,
+          candleTime: Date.now(),
         },
       });
-      const mitigatedWeight = computePoiWeight({ ...basePoi, status: "mitigated", isMitigated: true });
+      const mitigatedWeight = computePoiWeight({ ...basePoi, status: "mitigated" });
       const confluentWeight = computePoiWeight({
         ...basePoi,
         confluence: {
           score: 3,
+          tier: "3x_PLUS",
           timeframes: ["15m", "1H", "4H"],
           label: "3x Confluence",
+          contributingPoisCount: 3,
           clusterTop: 65200,
           clusterBottom: 65000,
-          clusterMid: 65100,
+          isNested: true,
           description: "Triple MTF cluster",
         },
       });

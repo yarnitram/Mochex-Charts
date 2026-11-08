@@ -65,6 +65,19 @@ export interface PriceAlert {
   };
   /** Optional custom chime sound preset (DEC-140) */
   soundType?: string;
+  /** Optional POI invalidation stop-out telemetry (DEC-150) */
+  notifyOnInvalidation?: boolean;
+  invalidationPrice?: number;
+  poiMetadata?: {
+    poiId: string;
+    category: "order_block" | "sandwich_zone" | "fvg";
+    direction: "BULLISH" | "BEARISH";
+    timeframe: string;
+    zoneTop: number;
+    zoneBottom: number;
+    invalidationPrice: number;
+  };
+  breakTelemetry?: any;
 }
 
 export interface AlertLogEntry {

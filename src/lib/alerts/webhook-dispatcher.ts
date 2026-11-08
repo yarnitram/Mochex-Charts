@@ -4,6 +4,10 @@
  */
 
 import { PriceAlert, AlertLogEntry } from "./alerts-engine";
+import {
+  formatPoiInvalidationTelegramMessage,
+  formatPoiInvalidationDiscordPayload,
+} from "../indicators/poi-invalidation-engine";
 
 export type TradingWebhookPlatform = "3commas" | "cornix" | "custom";
 
@@ -174,6 +178,14 @@ export function formatDiscordPayload(
   alert: PriceAlert,
   log: AlertLogEntry
 ): DiscordWebhookPayload {
+  if (alert.breakTelemetry) {
+    const raw = formatPoiInvalidationDiscordPayload(alert.breakTelemetry);
+    return {
+      username: "Mochex Invalidation Alert",
+      embeds: raw.embeds,
+    };
+  }
+
   const pair = log.symbol.replace("USDT", "/USDT");
   const isBullish =
     log.condition === "crossing_up" ||
@@ -247,6 +259,10 @@ export function formatTelegramMessage(
   alert: PriceAlert,
   log: AlertLogEntry
 ): string {
+  if (alert.breakTelemetry) {
+    return formatPoiInvalidationTelegramMessage(alert.breakTelemetry);
+  }
+
   const pair = log.symbol.replace("USDT", "/USDT");
   const conditionStr = log.condition.replace(/_/g, " ").toUpperCase();
   const triggerFmt = formatPriceNumber(log.triggerPrice);
