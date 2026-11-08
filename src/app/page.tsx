@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import {
   CandlestickChart,
+  Radar,
   ArrowRight,
   TrendingUp,
   ShieldCheck,
@@ -110,6 +111,13 @@ export default function LandingPage() {
                   </div>
                   <span className="text-white font-medium">{user.username}</span>
                 </div>
+                <Link
+                  href="/radar"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00c087]/15 hover:bg-[#00c087]/25 text-[#00c087] border border-[#00c087]/30 text-xs font-mono font-bold transition-all"
+                >
+                  <Radar size={13} className="animate-pulse" />
+                  <span>POI Radar</span>
+                </Link>
                 <Link
                   href="/chart"
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2962ff] hover:bg-[#1e50db] text-white text-xs font-mono font-bold transition-all shadow-md shadow-[#2962ff]/25"
