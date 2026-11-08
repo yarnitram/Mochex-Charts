@@ -54,18 +54,22 @@ function formatResolutionBadge(res: string): string {
 }
 
 export default function WorkstationPage() {
-  const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
   // Authentication session
   const { user, isLoading, login, register, logout } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
 
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Route protection - unauthenticated users cannot visit chart terminal
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (isMounted && !isLoading && !user) {
       window.location.href = "/login?callbackUrl=/chart";
     }
-  }, [isLoading, user]);
+  }, [isMounted, isLoading, user]);
 
   const handleLogout = useCallback(async () => {
     await logout();
@@ -653,6 +657,19 @@ export default function WorkstationPage() {
       };
     });
   };
+
+  if (!isMounted) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-[#050f19] text-[#d9e3f3] font-mono select-none">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#2962ff] border-t-transparent" />
+          <div className="flex items-center gap-2 text-xs tracking-wider uppercase text-muted">
+            <span>Loading Trading Workstation...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="h-screen w-screen flex flex-col bg-background select-none overflow-hidden font-sans">

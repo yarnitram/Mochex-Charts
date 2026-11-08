@@ -10,31 +10,41 @@ export interface AuthUser {
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("mochex:user");
-        return saved ? JSON.parse(saved) : null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
-
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkSession = useCallback(async () => {
+    // 1. Instant client-side hydration from localStorage if available
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mochex:user");
+        if (saved && saved !== "undefined" && saved !== "null") {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object") {
+            setUser({
+              id: parsed.id || parsed.userId || "local-trader",
+              username: typeof parsed.username === "string" && parsed.username ? parsed.username : "Trader",
+              email: typeof parsed.email === "string" ? parsed.email : "",
+              role: parsed.role === "ADMIN" ? "ADMIN" : "TRADER",
+            });
+          }
+        }
+      } catch {
+        // Ignore parse error
+      }
+    }
+
+    // 2. Validate session cookie with server in background
     try {
       const res = await fetch("/api/auth/me", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         if (data.user) {
           const authUser: AuthUser = {
-            id: data.user.id || data.user.userId,
-            username: data.user.username,
-            email: data.user.email,
-            role: data.user.role,
+            id: data.user.id || data.user.userId || "local-trader",
+            username: typeof data.user.username === "string" && data.user.username ? data.user.username : "Trader",
+            email: typeof data.user.email === "string" ? data.user.email : "",
+            role: data.user.role === "ADMIN" ? "ADMIN" : "TRADER",
           };
           setUser(authUser);
           if (typeof window !== "undefined") {
@@ -53,7 +63,7 @@ export function useAuth() {
         }
       }
     } catch {
-      // Offline fallback: keep existing state if already logged in locally
+      // Offline fallback: keep existing session if server is momentarily unreachable
     } finally {
       setIsLoading(false);
     }
@@ -127,10 +137,10 @@ export function useAuth() {
       }
 
       const authUser: AuthUser = {
-        id: data.user.id || data.user.userId,
-        username: data.user.username,
-        email: data.user.email,
-        role: data.user.role,
+        id: data.user.id || data.user.userId || "local-trader",
+        username: typeof data.user.username === "string" && data.user.username ? data.user.username : usernameOrEmail,
+        email: typeof data.user.email === "string" ? data.user.email : "",
+        role: data.user.role === "ADMIN" ? "ADMIN" : "TRADER",
       };
 
       setUser(authUser);
@@ -164,10 +174,10 @@ export function useAuth() {
       }
 
       const authUser: AuthUser = {
-        id: data.user.id || data.user.userId,
-        username: data.user.username,
-        email: data.user.email,
-        role: data.user.role,
+        id: data.user.id || data.user.userId || "local-trader",
+        username: typeof data.user.username === "string" && data.user.username ? data.user.username : username,
+        email: typeof data.user.email === "string" ? data.user.email : email,
+        role: data.user.role === "ADMIN" ? "ADMIN" : "TRADER",
       };
 
       setUser(authUser);
