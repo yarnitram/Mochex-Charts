@@ -171,8 +171,12 @@ export function TacticalHeader({
       {/* Left: Brand + Symbol + Live Tape Metrics */}
       <div className="flex items-center gap-3">
         {/* Brand Icon + Name */}
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-primary-container flex items-center justify-center text-white shadow-sm shadow-primary-container/30">
+        <a
+          href="/"
+          title="Return to Mochex Charts Overview"
+          className="flex items-center gap-2 group cursor-pointer hover:opacity-90 transition-opacity"
+        >
+          <div className="w-7 h-7 rounded bg-primary-container flex items-center justify-center text-white shadow-sm shadow-primary-container/30 group-hover:scale-105 transition-transform">
             <CandlestickChart size={16} />
           </div>
           <span className="font-sans font-black text-sm tracking-wide text-on-surface">
@@ -181,7 +185,7 @@ export function TacticalHeader({
           <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-surface-container-high text-primary border border-outline-variant/40">
             PRO TERMINAL
           </span>
-        </div>
+        </a>
 
         <div className="h-4 w-px bg-border mx-1" />
 
