@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { middleware } from "@/middleware";
 import { signToken, UserPayload } from "@/lib/auth/jwt";
 
-describe("Route Protection & Auth Middleware (DEC-131)", () => {
+describe("Route Protection & Auth Middleware (DEC-131 & DEC-133)", () => {
   const mockTrader: UserPayload = {
     userId: "user-123-abc",
     username: "institutional_trader",
@@ -71,6 +71,20 @@ describe("Route Protection & Auth Middleware (DEC-131)", () => {
     expect(res.status).toBe(307);
     const location = res.headers.get("location");
     expect(location).toContain("/chart?symbol=ETHUSDT");
+  });
+
+  it("should sanitize callbackUrl when pointing to /login to prevent infinite redirect loops", async () => {
+    const token = await signToken(mockTrader);
+    const req = new NextRequest("http://localhost:3000/login?callbackUrl=%2Flogin", {
+      headers: {
+        cookie: `mochex_token=${token}`,
+      },
+    });
+    const res = await middleware(req);
+    expect(res.status).toBe(307);
+    const location = res.headers.get("location");
+    // Must redirect to /chart, NEVER to /login
+    expect(location).toBe("http://localhost:3000/chart");
   });
 
   it("should reject tampered or invalid mochex_token on '/chart' and redirect to '/login'", async () => {

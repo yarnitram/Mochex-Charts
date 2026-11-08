@@ -10,7 +10,18 @@ export interface AuthUser {
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mochex:user");
+        return saved ? JSON.parse(saved) : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [isLoading, setIsLoading] = useState(true);
 
   const checkSession = useCallback(async () => {
@@ -19,20 +30,30 @@ export function useAuth() {
       if (res.ok) {
         const data = await res.json();
         if (data.user) {
-          setUser({
-            id: data.user.userId,
+          const authUser: AuthUser = {
+            id: data.user.id || data.user.userId,
             username: data.user.username,
             email: data.user.email,
             role: data.user.role,
-          });
+          };
+          setUser(authUser);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("mochex:user", JSON.stringify(authUser));
+          }
         } else {
           setUser(null);
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("mochex:user");
+          }
         }
       } else {
         setUser(null);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("mochex:user");
+        }
       }
     } catch {
-      setUser(null);
+      // Offline fallback: keep existing state if already logged in locally
     } finally {
       setIsLoading(false);
     }
@@ -105,8 +126,20 @@ export function useAuth() {
         return { success: false, error: data.error || "Login failed" };
       }
 
-      setUser(data.user);
-      await syncLocalToCloud();
+      const authUser: AuthUser = {
+        id: data.user.id || data.user.userId,
+        username: data.user.username,
+        email: data.user.email,
+        role: data.user.role,
+      };
+
+      setUser(authUser);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mochex:user", JSON.stringify(authUser));
+      }
+
+      // Sync local data asynchronously without blocking response
+      syncLocalToCloud().catch(() => {});
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message || "Network error" };
@@ -130,8 +163,20 @@ export function useAuth() {
         return { success: false, error: data.error || "Registration failed" };
       }
 
-      setUser(data.user);
-      await syncLocalToCloud();
+      const authUser: AuthUser = {
+        id: data.user.id || data.user.userId,
+        username: data.user.username,
+        email: data.user.email,
+        role: data.user.role,
+      };
+
+      setUser(authUser);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mochex:user", JSON.stringify(authUser));
+      }
+
+      // Sync local data asynchronously without blocking response
+      syncLocalToCloud().catch(() => {});
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message || "Network error" };
@@ -148,6 +193,9 @@ export function useAuth() {
         credentials: "include",
       });
       setUser(null);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("mochex:user");
+      }
     } catch (err) {
       console.warn("Logout error:", err);
     } finally {

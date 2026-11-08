@@ -24,7 +24,13 @@ import { useAuth } from "@/lib/auth/use-auth";
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/chart";
+  const rawCallback = searchParams.get("callbackUrl");
+  // Strictly sanitize callbackUrl: prevent redirecting to /login or external domains
+  const callbackUrl =
+    rawCallback && !rawCallback.startsWith("/login") && rawCallback.startsWith("/")
+      ? rawCallback
+      : "/chart";
+
   const { user, isLoading, login, register } = useAuth();
 
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -38,12 +44,12 @@ function LoginFormContent() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already authenticated, redirect straight to workstation or callbackUrl
+  // If already authenticated on initial load, smoothly redirect to workstation or callbackUrl
   useEffect(() => {
-    if (!isLoading && user) {
-      router.push(callbackUrl);
+    if (!isLoading && user && !isSubmitting && !successMessage) {
+      window.location.href = callbackUrl;
     }
-  }, [isLoading, user, router, callbackUrl]);
+  }, [isLoading, user, isSubmitting, successMessage, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,9 +79,8 @@ function LoginFormContent() {
       } else {
         setSuccessMessage("Account created! Redirecting to workstation...");
         setTimeout(() => {
-          router.push(callbackUrl);
-          router.refresh();
-        }, 800);
+          window.location.href = callbackUrl;
+        }, 400);
       }
     } else {
       if (!usernameOrEmail.trim() || !password) {
@@ -92,9 +97,8 @@ function LoginFormContent() {
       } else {
         setSuccessMessage("Authentication successful! Loading charts...");
         setTimeout(() => {
-          router.push(callbackUrl);
-          router.refresh();
-        }, 800);
+          window.location.href = callbackUrl;
+        }, 400);
       }
     }
   };
