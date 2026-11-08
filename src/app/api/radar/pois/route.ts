@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MexcClient } from "@/lib/mexc/client";
 import {
-  computeValidatedOrderBlocks,
-  ValidatedOrderBlock,
-} from "@/lib/indicators/validated-ob-engine";
+  computeRadarPois,
+  RadarPoiItem,
+} from "@/lib/indicators/radar-poi-engine";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +17,10 @@ interface CachedPoiEntry {
     volume24h: number;
     high24h: number;
     low24h: number;
-    nearestOb: ValidatedOrderBlock | null;
-    obsByTimeframe: Record<string, ValidatedOrderBlock[]>;
+    nearestPoi: RadarPoiItem | null;
+    nearestOb: RadarPoiItem | null;
+    nearestSandwich: RadarPoiItem | null;
+    poisByTimeframe: Record<string, RadarPoiItem[]>;
   };
 }
 
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // 2. Compute Validated OBs per symbol across requested timeframes
+    // 2. Compute Validated POIs per symbol across requested timeframes
     const results = await Promise.all(
       symbols.map(async (sym) => {
         const upperSym = sym.toUpperCase();
@@ -90,13 +92,23 @@ export async function POST(request: NextRequest) {
           low24h: 0,
         };
 
-        const obsByTimeframe: Record<string, ValidatedOrderBlock[]> = {};
-        const allObs: ValidatedOrderBlock[] = [];
+        const poisByTimeframe: Record<string, RadarPoiItem[]> = {};
+        const allPois: RadarPoiItem[] = [];
 
         for (const tf of timeframes) {
           try {
             // Map common resolution strings
-            const resolution = tf === "15m" ? "15" : tf === "1H" || tf === "60" ? "60" : tf === "4H" || tf === "240" ? "240" : tf === "1D" || tf === "D" ? "1D" : tf;
+            const resolution =
+              tf === "15m" || tf === "15"
+                ? "15"
+                : tf === "1H" || tf === "60"
+                ? "60"
+                : tf === "4H" || tf === "240"
+                ? "240"
+                : tf === "1D" || tf === "D"
+                ? "1D"
+                : tf;
+
             const bars = await mexcClient.getKlines({
               symbol: upperSym,
               resolution,
@@ -105,33 +117,36 @@ export async function POST(request: NextRequest) {
             });
 
             if (bars && bars.length >= 4) {
-              const detected = computeValidatedOrderBlocks(bars, upperSym, tf, {
-                minGapPct: 0.05,
-                includeMitigated: true,
-              });
-              obsByTimeframe[tf] = detected;
-              allObs.push(...detected);
+              const detected = computeRadarPois(bars, upperSym, tf);
+              poisByTimeframe[tf] = detected;
+              allPois.push(...detected);
             } else {
-              obsByTimeframe[tf] = [];
+              poisByTimeframe[tf] = [];
             }
           } catch {
-            obsByTimeframe[tf] = [];
+            poisByTimeframe[tf] = [];
           }
         }
 
-        // Find nearest active un-broken Order Block
-        allObs.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
-        const nearestOb = allObs.length > 0 ? allObs[0] : null;
+        // Sort all POIs by proximity
+        allPois.sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
+        const nearestPoi = allPois.length > 0 ? allPois[0] : null;
+
+        // Separate nearest OB and nearest Sandwich Zone
+        const nearestOb = allPois.find((p) => p.category === "order_block") || null;
+        const nearestSandwich = allPois.find((p) => p.category === "sandwich_zone") || null;
 
         const data = {
           symbol: upperSym,
-          price: ticker.price || (nearestOb ? nearestOb.currentPrice : 0),
+          price: ticker.price || (nearestPoi ? nearestPoi.currentPrice : 0),
           change24h: ticker.change24h,
           volume24h: ticker.volume24h,
           high24h: ticker.high24h,
           low24h: ticker.low24h,
+          nearestPoi,
           nearestOb,
-          obsByTimeframe,
+          nearestSandwich,
+          poisByTimeframe,
         };
 
         radarPoiCache.set(cacheKey, { timestamp: now, data });

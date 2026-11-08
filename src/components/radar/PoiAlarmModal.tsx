@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Bell, Check, Loader2, Sparkles, Send } from "lucide-react";
+import { X, Bell, Check, Loader2, Sparkles, Send, Star } from "lucide-react";
 import {
-  ValidatedOrderBlock,
-  OrderBlockTouchLevel,
-  getObAlarmTargetPrice,
-} from "@/lib/indicators/validated-ob-engine";
+  RadarPoiItem,
+  getRadarPoiAlarmTargetPrice,
+} from "@/lib/indicators/radar-poi-engine";
+import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 
@@ -14,8 +14,8 @@ interface PoiAlarmModalProps {
   isOpen: boolean;
   onClose: () => void;
   symbol: string;
-  orderBlock: ValidatedOrderBlock;
-  availableObsByTimeframe?: Record<string, ValidatedOrderBlock[]>;
+  poi: RadarPoiItem;
+  availablePoisByTimeframe?: Record<string, RadarPoiItem[]>;
   onSuccess?: (createdAlertsCount: number) => void;
 }
 
@@ -23,13 +23,13 @@ export function PoiAlarmModal({
   isOpen,
   onClose,
   symbol,
-  orderBlock,
-  availableObsByTimeframe = {},
+  poi,
+  availablePoisByTimeframe = {},
   onSuccess,
 }: PoiAlarmModalProps) {
   // Multi-select timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
-    orderBlock.timeframe || "4H",
+    poi.timeframe || "4H",
   ]);
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
@@ -59,15 +59,15 @@ export function PoiAlarmModal({
 
     try {
       for (const tf of selectedTimeframes) {
-        // Find matching OB for this timeframe, or fallback to the current orderBlock
-        const tfObs = availableObsByTimeframe[tf] || [];
-        const targetOb =
-          tfObs.find((o) => o.type === orderBlock.type) ||
-          (tf === orderBlock.timeframe ? orderBlock : null);
+        // Find matching POI for this timeframe, or fallback to the current poi
+        const tfPois = availablePoisByTimeframe[tf] || [];
+        const targetPoi =
+          tfPois.find((p) => p.category === poi.category && p.type === poi.type) ||
+          (tf === poi.timeframe ? poi : null);
 
-        if (!targetOb) continue;
+        if (!targetPoi) continue;
 
-        const targetPrice = getObAlarmTargetPrice(targetOb, touchLevel);
+        const targetPrice = getRadarPoiAlarmTargetPrice(targetPoi, touchLevel);
         const touchLabel =
           touchLevel === "entry"
             ? "Zone Entry"
@@ -75,16 +75,21 @@ export function PoiAlarmModal({
             ? "50% Mean Threshold"
             : "Full Retest";
 
+        const indicatorName =
+          targetPoi.category === "sandwich_zone"
+            ? "Sandwich Zones ++ (Supply & Demand)"
+            : "Validated Order Block (OB + FVG)";
+
         const alert: PriceAlert = {
-          id: `alert-poi-${symbol}-${tf}-${touchLevel}-${now}`,
+          id: `alert-poi-${symbol}-${tf}-${targetPoi.category}-${touchLevel}-${now}`,
           symbol: symbol.toUpperCase(),
           targetPrice,
-          condition: targetOb.type === "BULLISH" ? "crossing_down" : "crossing_up",
+          condition: targetPoi.type === "BULLISH" ? "crossing_down" : "crossing_up",
           frequency: "only_once",
           sourceType: "indicator_condition",
-          indicatorName: "Validated Order Block (OB + FVG)",
-          label: `${symbol.replace("USDT", "")} ${tf} ${targetOb.type} OB (${touchLabel})`,
-          conditionMessage: `Price touched ${touchLabel} of ${tf} ${targetOb.type} Order Block @ $${targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)}`,
+          indicatorName,
+          label: `${symbol.replace("USDT", "")} ${tf} ${targetPoi.label} (${touchLabel})`,
+          conditionMessage: `Price touched ${touchLabel} of ${tf} ${targetPoi.label} @ $${targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)}`,
           active: true,
           triggeredCount: 0,
           createdAt: now,
@@ -126,7 +131,7 @@ export function PoiAlarmModal({
     }
   };
 
-  const previewTargetPrice = getObAlarmTargetPrice(orderBlock, touchLevel);
+  const previewTargetPrice = getRadarPoiAlarmTargetPrice(poi, touchLevel);
   const formattedPreview =
     previewTargetPrice >= 1
       ? previewTargetPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -145,8 +150,9 @@ export function PoiAlarmModal({
               <div className="font-bold text-white text-sm">
                 Set 24/7 POI Alarm: {symbol.replace("USDT", "/USDT")}
               </div>
-              <div className="text-[10px] text-[#848e9c]">
-                {orderBlock.type} Order Block (+2C FVG Confirmed)
+              <div className="text-[10px] text-[#848e9c] flex items-center gap-1">
+                <span>{poi.label}</span>
+                {poi.isPlus && <Star size={10} className="text-yellow-400 fill-yellow-400" />}
               </div>
             </div>
           </div>
@@ -160,34 +166,42 @@ export function PoiAlarmModal({
 
         {/* Content */}
         <div className="p-4 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
-          {/* Active OB Details Card */}
+          {/* Active POI Details Card */}
           <div className="p-3 rounded-lg bg-[#0e141f] border border-[#1f2c3f] flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-[#848e9c] uppercase font-bold tracking-wider">
-                Zone Boundary
+                {poi.category === "sandwich_zone" ? "Sandwich Zone Range" : "Order Block Zone"}
               </span>
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                  orderBlock.type === "BULLISH"
-                    ? "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30"
-                    : "bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30"
-                }`}
-              >
-                {orderBlock.type} OB
-              </span>
+              <div className="flex items-center gap-1">
+                {poi.isPlus && (
+                  <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 flex items-center gap-0.5">
+                    <Star size={9} className="fill-yellow-400" />
+                    <span>++ CONFLUENCE</span>
+                  </span>
+                )}
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                    poi.type === "BULLISH"
+                      ? "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30"
+                      : "bg-[#ff3b30]/15 text-[#ff3b30] border border-[#ff3b30]/30"
+                  }`}
+                >
+                  {poi.type === "BULLISH" ? "DEMAND" : "SUPPLY"}
+                </span>
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-[#172233]">
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Top</div>
-                <div className="font-bold text-white text-[11px]">${orderBlock.top.toFixed(2)}</div>
+                <div className="font-bold text-white text-[11px]">${poi.top.toFixed(2)}</div>
               </div>
               <div className="bg-[#151e2c] rounded py-0.5 border border-[#223044]">
                 <div className="text-[9px] text-[#2962ff] font-semibold">50% MT</div>
-                <div className="font-bold text-[#b6c4ff] text-[11px]">${orderBlock.meanThreshold.toFixed(2)}</div>
+                <div className="font-bold text-[#b6c4ff] text-[11px]">${poi.meanThreshold.toFixed(2)}</div>
               </div>
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Bottom</div>
-                <div className="font-bold text-white text-[11px]">${orderBlock.bottom.toFixed(2)}</div>
+                <div className="font-bold text-white text-[11px]">${poi.bottom.toFixed(2)}</div>
               </div>
             </div>
           </div>
@@ -244,8 +258,7 @@ export function PoiAlarmModal({
                 <div>
                   <div className="font-semibold text-xs">Zone Entry / Wick Touch</div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms when price touches outer zone boundary (
-                    ${orderBlock.entryPrice.toFixed(2)})
+                    Alarms when price touches outer zone boundary (${poi.entryPrice.toFixed(2)})
                   </div>
                 </div>
               </label>
@@ -270,8 +283,7 @@ export function PoiAlarmModal({
                     50% Mean Threshold (Equilibrium) • Recommended
                   </div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms when price hits exact institutional 50% midpoint (
-                    ${orderBlock.meanThreshold.toFixed(2)})
+                    Alarms when price hits exact institutional 50% midpoint (${poi.meanThreshold.toFixed(2)})
                   </div>
                 </div>
               </label>
@@ -294,8 +306,7 @@ export function PoiAlarmModal({
                 <div>
                   <div className="font-semibold text-xs">Full Zone Retest / Invalidation Level</div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms on deep retest to opposite boundary (
-                    ${orderBlock.fullRetestPrice.toFixed(2)})
+                    Alarms on deep retest to opposite boundary (${poi.fullRetestPrice.toFixed(2)})
                   </div>
                 </div>
               </label>
