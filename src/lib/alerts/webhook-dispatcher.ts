@@ -197,6 +197,98 @@ export function formatTelegramMessage(
 }
 
 /**
+ * Direct server-side or worker dispatch to Discord Webhook and/or Telegram Bot
+ */
+export async function dispatchDirectWebhooks(
+  config: AlertWebhookConfig,
+  alert: PriceAlert,
+  log: AlertLogEntry
+): Promise<DispatchNotificationResult> {
+  const allowDiscord =
+    Boolean(config.discordEnabled) &&
+    isValidDiscordWebhookUrl(config.discordWebhookUrl) &&
+    alert.notifyDiscord !== false;
+
+  const allowTelegram =
+    Boolean(config.telegramEnabled) &&
+    isValidTelegramBotToken(config.telegramBotToken) &&
+    isValidTelegramChatId(config.telegramChatId) &&
+    alert.notifyTelegram !== false;
+
+  if (!allowDiscord && !allowTelegram) {
+    return {};
+  }
+
+  const results: DispatchNotificationResult = {};
+
+  if (allowDiscord && config.discordWebhookUrl) {
+    const payload = formatDiscordPayload(alert, log);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(config.discordWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      results.discord = {
+        ok: res.ok,
+        status: res.status,
+        error: !res.ok ? await res.text() : undefined,
+      };
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      results.discord = {
+        ok: false,
+        error: err instanceof Error ? err.message : "Network error",
+      };
+    }
+  }
+
+  if (
+    allowTelegram &&
+    config.telegramBotToken &&
+    config.telegramChatId
+  ) {
+    const text = formatTelegramMessage(alert, log);
+    const tgUrl = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(tgUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.telegramChatId,
+          text,
+          parse_mode: "HTML",
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const data = (await res.json().catch(() => ({}))) as any;
+      results.telegram = {
+        ok: res.ok && data?.ok === true,
+        status: res.status,
+        error: !data?.ok ? data?.description || `HTTP ${res.status}` : undefined,
+      };
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      results.telegram = {
+        ok: false,
+        error: err instanceof Error ? err.message : "Network error",
+      };
+    }
+  }
+
+  return results;
+}
+
+/**
  * Client helper to dispatch notifications to Discord/Telegram via /api/alerts/notify
  */
 export async function sendAlertNotifications(

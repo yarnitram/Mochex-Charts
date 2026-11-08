@@ -275,6 +275,14 @@ export function RightSidebar({
     isSoundEnabledRef.current = isSoundEnabled;
   }, [isSoundEnabled]);
 
+  const syncAlertToServer = useCallback((alert: PriceAlert) => {
+    fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(alert),
+    }).catch(() => {});
+  }, []);
+
   const saveAlerts = useCallback((nextAlerts: PriceAlert[]) => {
     alertsRef.current = nextAlerts;
     setAlerts(nextAlerts);
@@ -336,6 +344,54 @@ export function RightSidebar({
           setPaperAccount(parsedPaper);
         }
       }
+
+      // Synchronize with 24/7 Server Alert Daemon (DEC-135)
+      fetch("/api/alerts")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.alerts)) {
+            setAlerts((prev) => {
+              const map = new Map<string, PriceAlert>();
+              prev.forEach((a) => map.set(a.id, a));
+              data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
+              const merged = Array.from(map.values());
+              alertsRef.current = merged;
+              try {
+                localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
+            if (Array.isArray(data.logs) && data.logs.length > 0) {
+              setAlertLogs((prev) => {
+                const map = new Map<string, AlertLogEntry>();
+                prev.forEach((l) => map.set(l.id, l));
+                data.logs.forEach((l: AlertLogEntry) => map.set(l.id, l));
+                const mergedLogs = Array.from(map.values()).slice(0, 50);
+                try {
+                  localStorage.setItem("mochex:alert_logs", JSON.stringify(mergedLogs));
+                } catch {}
+                return mergedLogs;
+              });
+            }
+          }
+        })
+        .catch(() => {});
+
+      fetch("/api/alerts/webhooks")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.config) {
+            setWebhookConfig((prev) => {
+              const merged = { ...prev, ...data.config };
+              webhookConfigRef.current = merged;
+              try {
+                localStorage.setItem("mochex:alert_webhooks", JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
+          }
+        })
+        .catch(() => {});
     } catch {}
   }, []);
 
@@ -420,6 +476,7 @@ export function RightSidebar({
       );
       const next = [...incoming, ...filteredExisting];
       saveAlerts(next);
+      incoming.forEach((a) => syncAlertToServer(a));
       setActiveTab("alerts");
       if (isSoundEnabledRef.current) {
         playInstitutionalAlertChime();
@@ -429,7 +486,7 @@ export function RightSidebar({
     window.addEventListener("mochex:create-drawing-alert", handleCreateDrawingAlert);
     return () =>
       window.removeEventListener("mochex:create-drawing-alert", handleCreateDrawingAlert);
-  }, [saveAlerts]);
+  }, [saveAlerts, syncAlertToServer]);
 
   // Listen for Strategy & Indicator condition alerts creation & evaluation (DEC-079)
   useEffect(() => {
@@ -466,6 +523,7 @@ export function RightSidebar({
       };
 
       saveAlerts([created, ...alertsRef.current]);
+      syncAlertToServer(created);
       setActiveTab("alerts");
       setAlertFormMode("strategy");
       if (isSoundEnabledRef.current) {
@@ -523,7 +581,7 @@ export function RightSidebar({
       window.removeEventListener("mochex:create-strategy-alert", handleCreateStrategyAlert);
       window.removeEventListener("mochex:evaluate-strategy-alerts", handleEvaluateStrategyAlerts);
     };
-  }, [selectedSymbol, saveAlerts]);
+  }, [selectedSymbol, saveAlerts, syncAlertToServer, newAlertDiscord, newAlertTelegram]);
 
   // Listen for drawings synchronization and Object Tree open trigger (DEC-070)
   useEffect(() => {
@@ -904,6 +962,7 @@ export function RightSidebar({
       };
 
       saveAlerts([created, ...alertsRef.current]);
+      syncAlertToServer(created);
       setNewAlertLabel("");
     } else {
       const isScriptCondition = newAlertCondition === "script_condition";
@@ -924,23 +983,40 @@ export function RightSidebar({
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: newAlertDiscord,
+        notifyTelegram: newAlertTelegram,
       };
 
       saveAlerts([created, ...alertsRef.current]);
+      syncAlertToServer(created);
       setNewAlertLabel("");
     }
   };
 
   const handleToggleAlertActive = (id: string) => {
+    const alert = alertsRef.current.find((a) => a.id === id);
+    const nextActive = alert ? !alert.active : true;
     const next = alertsRef.current.map((a) =>
-      a.id === id ? { ...a, active: !a.active } : a
+      a.id === id ? { ...a, active: nextActive } : a
     );
     saveAlerts(next);
+
+    // Sync toggle to server (DEC-135)
+    fetch(`/api/alerts/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: nextActive }),
+    }).catch(() => {});
   };
 
   const handleDeleteAlert = (id: string) => {
     const next = alertsRef.current.filter((a) => a.id !== id);
     saveAlerts(next);
+
+    // Sync delete to server (DEC-135)
+    fetch(`/api/alerts/${id}`, {
+      method: "DELETE",
+    }).catch(() => {});
   };
 
   const handleSubmitPaperOrder = (e: React.FormEvent) => {
@@ -2215,7 +2291,16 @@ export function RightSidebar({
 
           {/* Active & Paused Alerts List */}
           <div className="px-3 py-1.5 text-[10px] text-muted uppercase tracking-wider border-b border-border bg-surface-container-lowest flex items-center justify-between">
-            <span>Configured Alerts ({alerts.length})</span>
+            <div className="flex items-center gap-1.5">
+              <span>Configured Alerts ({alerts.length})</span>
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-semibold"
+                title="Monitored 24/7 on server even if your browser is closed"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                24/7 Cloud
+              </span>
+            </div>
             <span className="text-[9px] text-outline">Click 🔔 on drawings to link</span>
           </div>
 

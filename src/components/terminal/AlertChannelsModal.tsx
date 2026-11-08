@@ -156,6 +156,13 @@ export function AlertChannelsModal({
       localStorage.setItem("mochex:alert_webhooks", JSON.stringify(updated));
     } catch {}
 
+    // Synchronize with 24/7 Server Alert Daemon (DEC-135)
+    fetch("/api/alerts/webhooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    }).catch(() => {});
+
     onSave(updated);
     onClose();
   };
@@ -182,7 +189,7 @@ export function AlertChannelsModal({
         {/* Modal Body */}
         <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-4">
           <p className="text-[11px] text-muted leading-relaxed">
-            Connect Discord webhooks and Telegram bots to receive real-time price crossings, drawings, order blocks, and strategy execution signals anywhere.
+            Connect Discord webhooks and Telegram bots to receive real-time price crossings, drawings, order blocks, and strategy execution signals. Webhooks are monitored 24/7 on the server even when your browser is closed.
           </p>
 
           {/* 1. DISCORD INTEGRATION CARD */}
@@ -354,8 +361,9 @@ export function AlertChannelsModal({
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-surface-container-lowest shrink-0">
-          <span className="text-[10px] text-muted">
-            Config saved locally in your browser
+          <span className="text-[10px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            24/7 Cloud Offline Sync Enabled
           </span>
           <div className="flex items-center gap-2">
             <button
