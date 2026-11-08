@@ -23,6 +23,7 @@ import {
   appendServerAlertLog,
   ActiveAlertContext,
 } from "./server-alerts-store";
+import { detectPoiInvalidationBreak } from "../indicators/poi-invalidation-engine";
 
 export class ServerAlertDaemon {
   private isRunning = false;
@@ -179,6 +180,53 @@ export class ServerAlertDaemon {
 
       if (triggered) {
         await this.triggerAlert(item, currentPrice, effectiveTarget, nowMs);
+      } else if (
+        item.alert.notifyOnInvalidation &&
+        typeof item.alert.invalidationPrice === "number" &&
+        item.alert.invalidationPrice > 0 &&
+        item.alert.poiMetadata
+      ) {
+        // DEC-150: Real-time POI Break & Invalidation check
+        const isBullish = item.alert.poiMetadata.direction === "BULLISH";
+        const wasBreached = isBullish
+          ? prevPrice < item.alert.invalidationPrice
+          : prevPrice > item.alert.invalidationPrice;
+        const isNowBreached = isBullish
+          ? currentPrice <= item.alert.invalidationPrice
+          : currentPrice >= item.alert.invalidationPrice;
+
+        if (!wasBreached && isNowBreached) {
+          const telemetry = detectPoiInvalidationBreak(
+            {
+              id: item.alert.poiMetadata.poiId,
+              symbol: item.alert.symbol,
+              timeframe: item.alert.poiMetadata.timeframe,
+              category: item.alert.poiMetadata.category,
+              type: item.alert.poiMetadata.direction,
+              label: item.alert.label,
+              top: item.alert.poiMetadata.zoneTop,
+              bottom: item.alert.poiMetadata.zoneBottom,
+              meanThreshold: (item.alert.poiMetadata.zoneTop + item.alert.poiMetadata.zoneBottom) / 2,
+              entryPrice: isBullish ? item.alert.poiMetadata.zoneTop : item.alert.poiMetadata.zoneBottom,
+              fullRetestPrice: isBullish ? item.alert.poiMetadata.zoneBottom : item.alert.poiMetadata.zoneTop,
+              invalidationPrice: item.alert.invalidationPrice,
+              status: "broken",
+              isInsideZone: false,
+              distanceToEntryPct: 0,
+              distanceToMtPct: 0,
+              currentPrice,
+              time: nowMs,
+            },
+            currentPrice,
+            currentPrice,
+            nowMs
+          );
+
+          if (telemetry) {
+            item.alert.breakTelemetry = telemetry;
+            await this.triggerAlert(item, currentPrice, item.alert.invalidationPrice, nowMs);
+          }
+        }
       }
     }
   }

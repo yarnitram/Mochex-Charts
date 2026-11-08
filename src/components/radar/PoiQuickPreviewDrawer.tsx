@@ -207,6 +207,19 @@ export function PoiQuickPreviewDrawer({
             });
           }
 
+          // 5. Invalidation Stop Price Line (DEC-150)
+          const invPrice = poi.invalidationPrice ?? poi.fullRetestPrice;
+          if (invPrice > 0) {
+            candleSeries.createPriceLine({
+              price: invPrice,
+              color: "#ef4444",
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: "🚨 Invalidation Stop",
+            });
+          }
+
           chart.timeScale().fitContent();
         } else {
           setLoadError("No candle data available");
@@ -480,6 +493,33 @@ export function PoiQuickPreviewDrawer({
                 <span className="text-purple-400">Extreme: ${poi.sweep.sweepPrice.toFixed(2)}</span>
                 <span className="text-purple-300/70 ml-1.5">({poi.sweep.sweepDepthPct}% depth)</span>
               </div>
+            </div>
+          )}
+
+          {/* POI Invalidation & Stop-Out Telemetry Banner (DEC-150) */}
+          {(poi.status === "broken" || poi.breakTelemetry) && (
+            <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-red-500/15 border border-red-500/30 text-red-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-red-500/25 text-red-300 font-bold text-[10px] flex items-center gap-1 animate-pulse">
+                    <span>🚨 INVALIDATED / BROKEN</span>
+                  </span>
+                  <span className="text-[10px] text-red-300 font-bold">
+                    {poi.breakTelemetry?.severity || "STOP-OUT"}
+                  </span>
+                </div>
+                <div className="text-[10px] font-bold text-red-400">
+                  {poi.breakTelemetry ? `Overshoot: -${poi.breakTelemetry.overshootPct}%` : `Breached`}
+                </div>
+              </div>
+              <div className="text-[9.5px] text-red-200/90 leading-tight">
+                {poi.breakTelemetry?.actionRecommendation || "Zone boundary breached. Cancel pending orders."}
+              </div>
+              {poi.breakTelemetry?.mitigationAdvice && (
+                <div className="text-[9px] text-[#848e9c] italic">
+                  💡 {poi.breakTelemetry.mitigationAdvice}
+                </div>
+              )}
             </div>
           )}
         </div>

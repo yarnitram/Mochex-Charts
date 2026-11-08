@@ -68,6 +68,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Liquidity Density %",
     "Liquidity Tier",
     "Peak Magnet",
+    "Invalidation Status",
+    "Stop-Out Overshoot %",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -126,6 +128,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi?.liquidity ? `${poi.liquidity.densityPercentile}%` : "N/A",
       poi?.liquidity ? poi.liquidity.tier.toUpperCase() : "LIGHT",
       poi?.liquidity?.isPeakMagnet ? "YES (Peak Magnet)" : "NO",
+      poi?.status === "broken" || poi?.breakTelemetry ? `BROKEN (${poi.breakTelemetry?.severity || "STOP-OUT"})` : "INTACT",
+      poi?.breakTelemetry ? `-${poi.breakTelemetry.overshootPct}%` : "0.00%",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -202,6 +206,7 @@ export function generateRadarJson(
             sweep: i.selectedPoi.sweep || null,
             confluence: i.selectedPoi.confluence || null,
             liquidity: i.selectedPoi.liquidity || null,
+            breakTelemetry: i.selectedPoi.breakTelemetry || null,
           }
         : null,
     })),

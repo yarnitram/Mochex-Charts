@@ -49,6 +49,7 @@ import {
   PoiDirection,
   PoiStatus,
 } from "@/lib/indicators/radar-poi-engine";
+import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
@@ -123,7 +124,7 @@ export default function RadarPage() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<
-    "ALL" | "confluence" | "sweep" | "liquidity" | PoiCategory
+    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | PoiCategory
   >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
@@ -325,6 +326,10 @@ export default function RadarPage() {
               ? "mitigated"
               : "fresh";
 
+            const breakTelemetry = isBroken
+              ? poi.breakTelemetry || detectPoiInvalidationBreak(poi, newPrice)
+              : null;
+
             return {
               ...poi,
               currentPrice: newPrice,
@@ -332,13 +337,27 @@ export default function RadarPage() {
               distanceToEntryPct: distEntry,
               distanceToMtPct: distMt,
               status,
+              breakTelemetry,
             };
           };
 
           // Check if newly entered an active POI zone to trigger real-time chime
           const wasInside = existing.nearestPoi?.isInsideZone;
+          const wasBroken = existing.nearestPoi?.status === "broken";
           const updatedNearestPoi = updatePoi(existing.nearestPoi);
           const nowInside = updatedNearestPoi?.isInsideZone;
+          const nowBroken = updatedNearestPoi?.status === "broken";
+
+          // POI Invalidation Real-Time Trigger (DEC-150)
+          if (!wasBroken && nowBroken && updatedNearestPoi) {
+            const telemetry = updatedNearestPoi.breakTelemetry || detectPoiInvalidationBreak(updatedNearestPoi, newPrice);
+            if (telemetry) {
+              updatedNearestPoi.breakTelemetry = telemetry;
+              playRadarChime({ soundType: "urgent_warning", volume: 0.9, enabled: true });
+              setToastMessage(`🚨 POI INVALIDATED: ${sym} ${updatedNearestPoi.label} broken (-${telemetry.overshootPct}%)!`);
+              setTimeout(() => setToastMessage(null), 5000);
+            }
+          }
 
           if (
             !wasInside &&
@@ -443,6 +462,9 @@ export default function RadarPage() {
           const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
           const sortedByLiq = [...allPoisForCoin].sort((a, b) => (b.liquidity?.densityPercentile ?? 0) - (a.liquidity?.densityPercentile ?? 0));
           selectedPoi = sortedByLiq[0] || (data?.nearestPoi || null);
+        } else if (poiCategoryFilter === "broken") {
+          const allPoisForCoin = Object.values(data?.poisByTimeframe || {}).flat();
+          selectedPoi = allPoisForCoin.find((p) => p.status === "broken" || Boolean(p.breakTelemetry)) || (data?.nearestPoi?.status === "broken" ? data.nearestPoi : null);
         } else {
           selectedPoi = data?.nearestPoi || null;
         }
@@ -475,6 +497,11 @@ export default function RadarPage() {
         // Liquidity Density filter (DEC-149)
         if (poiCategoryFilter === "liquidity") {
           if (!selectedPoi || !selectedPoi.liquidity || selectedPoi.liquidity.densityPercentile < 70) return false;
+        }
+
+        // Invalidation / Broken filter (DEC-150)
+        if (poiCategoryFilter === "broken") {
+          if (!selectedPoi || (selectedPoi.status !== "broken" && !selectedPoi.breakTelemetry)) return false;
         }
 
         // Direction filter
@@ -615,13 +642,16 @@ export default function RadarPage() {
     const testing: typeof filteredCoins = [];
     const approaching: typeof filteredCoins = [];
     const fresh: typeof filteredCoins = [];
+    const broken: typeof filteredCoins = [];
     const mitigated: typeof filteredCoins = [];
 
     filteredCoins.forEach((item) => {
       const poi = item.selectedPoi;
       if (!poi) return;
 
-      if (poi.status === "sweep" || Boolean(poi.sweep)) {
+      if (poi.status === "broken" || Boolean(poi.breakTelemetry)) {
+        broken.push(item);
+      } else if (poi.status === "sweep" || Boolean(poi.sweep)) {
         sweeps.push(item);
       } else if (poi.isInsideZone || poi.status === "testing") {
         testing.push(item);
@@ -666,6 +696,14 @@ export default function RadarPage() {
         accent: "#2962ff",
         bgBadge: "bg-[#2962ff]/15 text-[#2962ff] border border-[#2962ff]/30",
         items: fresh,
+      },
+      {
+        id: "broken",
+        title: "🚨 Invalidation / Broken",
+        subtitle: "Stop-out & breached setups",
+        accent: "#ef4444",
+        bgBadge: "bg-red-500/15 text-red-400 border border-red-500/30",
+        items: broken,
       },
       {
         id: "mitigated",
@@ -943,6 +981,7 @@ export default function RadarPage() {
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
               <option value="liquidity">💧 High Liquidity Magnets (≥ 70%)</option>
+              <option value="broken">🚨 Invalidated / Stop-Out Zones</option>
               <option value="sweep">🧹 Liquidity Sweeps Only</option>
               <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
               <option value="sandwich_zone">🥪 Sandwich Zones ++ (Supply/Demand)</option>
@@ -1320,7 +1359,11 @@ export default function RadarPage() {
                         <td className="py-3.5 px-4 font-mono">
                           {selectedPoi ? (
                             <div className="flex flex-col gap-1 min-w-[100px]">
-                              {selectedPoi.sweep ? (
+                              {selectedPoi.status === "broken" || Boolean(selectedPoi.breakTelemetry) ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-[10px] animate-pulse">
+                                  <span>🚨 BROKEN (-{selectedPoi.breakTelemetry?.overshootPct ?? 0.2}%)</span>
+                                </span>
+                              ) : selectedPoi.sweep ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold text-[10px] animate-pulse">
                                   <span>🧹 SWEEP REVERSAL</span>
                                 </span>
@@ -1438,7 +1481,7 @@ export default function RadarPage() {
         </div>
         ) : (
           /* KANBAN BOARD VIEW */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5 items-start">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 items-start">
             {kanbanLanes.map((lane) => (
               <div
                 key={lane.id}
@@ -1641,7 +1684,9 @@ export default function RadarPage() {
 
                             <span
                               className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
+                                selectedPoi.status === "broken" || Boolean(selectedPoi.breakTelemetry)
+                                  ? "bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse"
+                                  : selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
                                   ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse"
                                   : selectedPoi.isInsideZone
                                   ? "bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse"
@@ -1650,7 +1695,9 @@ export default function RadarPage() {
                                   : "bg-[#172233] text-[#848e9c]"
                               }`}
                             >
-                              {selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
+                              {selectedPoi.status === "broken" || Boolean(selectedPoi.breakTelemetry)
+                                ? `🚨 BROKEN (-${selectedPoi.breakTelemetry?.overshootPct ?? 0.2}%)`
+                                : selectedPoi.status === "sweep" || Boolean(selectedPoi.sweep)
                                 ? "🧹 SWEPT"
                                 : selectedPoi.isInsideZone
                                 ? "IN ZONE"

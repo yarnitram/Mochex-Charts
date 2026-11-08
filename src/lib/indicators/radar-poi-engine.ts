@@ -28,6 +28,7 @@ import {
 } from "./liquidity-sweep-engine";
 import { PoiConfluenceInfo } from "./poi-confluence-matrix";
 import { PoiLiquiditySummary } from "./poi-liquidity-heatmap";
+import { PoiBreakTelemetry } from "./poi-invalidation-engine";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -48,6 +49,7 @@ export interface RadarPoiItem {
   meanThreshold: number; // 50% equilibrium level
   entryPrice: number;    // Bullish: top, Bearish: bottom
   fullRetestPrice: number; // Bullish: bottom, Bearish: top
+  invalidationPrice?: number; // Bullish: bottom, Bearish: top (or stop-out buffer)
   fvgGapPct?: number;
   // Status and proximity
   status: PoiStatus;
@@ -67,6 +69,8 @@ export interface RadarPoiItem {
   confluence?: PoiConfluenceInfo | null;
   // Multi-Timeframe Liquidity Density Ribbon & Heatmap (DEC-149)
   liquidity?: PoiLiquiditySummary | null;
+  // Real-Time Invalidation & Stop-Out Telemetry (DEC-150)
+  breakTelemetry?: PoiBreakTelemetry | null;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -147,6 +151,7 @@ export function computeRadarPois(
       meanThreshold: ob.meanThreshold,
       entryPrice: ob.entryPrice,
       fullRetestPrice: ob.fullRetestPrice,
+      invalidationPrice: ob.fullRetestPrice,
       fvgGapPct: ob.fvgGapPct,
       status,
       isInsideZone: ob.isInsideZone,
@@ -258,6 +263,7 @@ export function computeRadarPois(
           meanThreshold,
           entryPrice,
           fullRetestPrice,
+          invalidationPrice: fullRetestPrice,
           status,
           isInsideZone,
           distanceToEntryPct,
@@ -339,6 +345,7 @@ export function computeRadarPois(
         meanThreshold,
         entryPrice,
         fullRetestPrice,
+        invalidationPrice: fullRetestPrice,
         fvgGapPct: fvg.gapPct,
         status,
         isInsideZone,
