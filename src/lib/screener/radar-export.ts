@@ -75,6 +75,9 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Bid Depth %",
     "Absorption Score",
     "CVD Divergence",
+    "BTC Correlation (rho)",
+    "Sector",
+    "Cluster Risk %",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -140,6 +143,9 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi?.orderFlow ? `${poi.orderFlow.imbalance.bidRatioPct}%` : "N/A",
       poi?.orderFlow ? `${poi.orderFlow.absorptionScore}/100` : "N/A",
       poi?.orderFlow?.divergence ? poi.orderFlow.divergence.label : "None",
+      poi?.correlation ? poi.correlation.btcCorrelation.toFixed(2) : "N/A",
+      poi?.correlation ? poi.correlation.sectorLabel : "N/A",
+      poi?.correlation ? `${poi.correlation.clusterExposureScore}%` : "N/A",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -218,6 +224,7 @@ export function generateRadarJson(
             liquidity: i.selectedPoi.liquidity || null,
             breakTelemetry: i.selectedPoi.breakTelemetry || null,
             orderFlow: i.selectedPoi.orderFlow || null,
+            correlation: i.selectedPoi.correlation || null,
           }
         : null,
     })),
@@ -271,8 +278,8 @@ export function generateRadarClipboardMarkdown(
   md += `**Total Scanned:** ${items.length} pairs | **Active POIs:** ${itemsWithPois.length} | **🚨 In-Zone:** ${inZoneCount}\n`;
   md += `*Generated: ${timestamp}*\n\n`;
 
-  md += `| Exchange | Ticker | Price | 24h % | POI Type | TF | Win Rate | Status | Proximity | Entry | 50% MT/CE |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| Exchange | Ticker | Price | 24h % | POI Type | TF | Win Rate | Status | Proximity | Entry | 50% MT/CE | Sector | BTC ρ |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
   for (const item of items) {
     const p = item.price;
@@ -282,7 +289,7 @@ export function generateRadarClipboardMarkdown(
     const exBadge = poi?.exchange ? poi.exchange.toUpperCase() : item.exchange ? item.exchange.toUpperCase() : "MEXC";
 
     if (!poi) {
-      md += `| ${exBadge} | ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - | - |\n`;
+      md += `| ${exBadge} | ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - | - | - | - |\n`;
       continue;
     }
 
@@ -301,7 +308,9 @@ export function generateRadarClipboardMarkdown(
     const mtFormatted = `$${poi.meanThreshold >= 1 ? poi.meanThreshold.toFixed(2) : poi.meanThreshold.toFixed(4)}`;
     const winRateText = poi.metrics ? `${poi.metrics.winRatePct}% (${poi.metrics.wins}/${poi.metrics.totalTested})` : "N/A";
 
-    md += `| **${exBadge}** | **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${winRateText} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} |\n`;
+    const sectorBadge = poi.correlation?.sectorBadge || "🪙 Other";
+    const btcRho = poi.correlation ? `ρ${poi.correlation.btcCorrelation >= 0 ? "+" : ""}${poi.correlation.btcCorrelation.toFixed(2)}` : "N/A";
+    md += `| **${exBadge}** | **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${winRateText} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} | ${sectorBadge} | ${btcRho} |\n`;
   }
 
   return md;

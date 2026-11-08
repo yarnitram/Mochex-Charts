@@ -587,6 +587,48 @@ export function PoiQuickPreviewDrawer({
               </div>
             </div>
           )}
+
+          {/* Multi-Asset Portfolio Risk & BTC Correlation Card (DEC-155) */}
+          {poi.correlation && (
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#0e1626] border border-[#1b2a42] text-xs">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-[#2962ff]/20 text-[#b6c4ff] border border-[#2962ff]/40">
+                  {poi.correlation.sectorBadge}
+                </span>
+                <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                  <span className="text-[#848e9c]">BTC Corr:</span>
+                  <span
+                    className={`font-bold ${
+                      poi.correlation.btcCorrelation >= 0.7
+                        ? "text-[#00c087]"
+                        : poi.correlation.btcCorrelation >= 0.35
+                        ? "text-cyan-400"
+                        : poi.correlation.btcCorrelation >= -0.2
+                        ? "text-[#848e9c]"
+                        : "text-amber-400"
+                    }`}
+                  >
+                    ρ {poi.correlation.btcCorrelation >= 0 ? "+" : ""}
+                    {poi.correlation.btcCorrelation.toFixed(2)} ({poi.correlation.correlationTier})
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#848e9c]">Cluster Risk:</span>
+                <span
+                  className={`font-mono font-bold px-1.5 py-0.5 rounded ${
+                    poi.correlation.clusterExposureScore >= 70
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                      : poi.correlation.clusterExposureScore >= 45
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                      : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  }`}
+                >
+                  {poi.correlation.clusterExposureScore}%
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Lightweight Chart Canvas Area */}

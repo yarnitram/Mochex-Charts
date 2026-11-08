@@ -11,6 +11,7 @@ import {
   getServerAlerts,
 } from "@/lib/alerts/server-alerts-store";
 import { RadarPoiItem, PoiCategory } from "@/lib/indicators/radar-poi-engine";
+import { evaluatePortfolioRiskHeat, ScannedCandidateForRisk } from "@/lib/indicators/portfolio-risk-engine";
 
 export interface TelegramUser {
   id: number;
@@ -117,6 +118,64 @@ export function formatTelegramHelpMessage(chatId: string | number): {
 /**
  * Formats scanned POIs into an institutional HTML report for Telegram.
  */
+/**
+ * Formats multi-asset portfolio risk heat and correlated exposure into an HTML message.
+ */
+export function formatTelegramPortfolioRiskReport(
+  pois: RadarPoiItem[]
+): { text: string; replyMarkup: TelegramInlineKeyboardMarkup } {
+  const candidates: ScannedCandidateForRisk[] = pois.map((p) => ({
+    symbol: p.symbol,
+    direction: p.type,
+    distancePct: p.distanceToEntryPct,
+    isInZone: p.isInsideZone || p.status === "testing",
+    change24h: 0,
+    btcCorrelation: p.correlation?.btcCorrelation,
+  }));
+
+  const risk = evaluatePortfolioRiskHeat(candidates, 0);
+
+  let text = "🛡️ <b>MOCHEX PORTFOLIO RISK & CORRELATED EXPOSURE REPORT</b>\n\n";
+  text += `• <b>Overall Risk Heat:</b> <b>${risk.overallRiskScore}/100 (${risk.riskTier})</b>\n`;
+  text += `• <b>Directional Bias:</b> <b>${risk.directionalBias.replace(/_/g, " ")}</b> (${risk.directionalSkewPct >= 0 ? "+" : ""}${risk.directionalSkewPct}% Skew)\n`;
+  text += `• <b>Active POIs:</b> 🟢 ${risk.bullishPoisCount} Bullish | 🔴 ${risk.bearishPoisCount} Bearish\n`;
+  text += `• <b>Concurrent In-Zone / Near:</b> ⚡ <b>${risk.nearProximityPoisCount} pairs</b> (< 1.5%)\n`;
+  text += `• <b>Average BTC Correlation:</b> <b>ρ +${risk.averageBtcCorrelation.toFixed(2)}</b>\n\n`;
+
+  text += "📊 <b>SECTOR HEAT BREAKDOWN</b>\n";
+  Object.values(risk.sectorBreakdown).forEach((sm) => {
+    if (sm.totalCoins > 0) {
+      text += `• <b>${sm.badge}:</b> ${sm.totalCoins} pairs (🟢${sm.bullishCount}/🔴${sm.bearishCount}) | Heat: <b>${sm.sectorHeatScore}% [${sm.heatTier}]</b>\n`;
+    }
+  });
+
+  text += `\n💡 <b>SIZING GUIDANCE:</b>\n<i>${risk.sizingRecommendation}</i>\n\n`;
+
+  if (risk.warningMessages.length > 0) {
+    text += "⚠️ <b>RISK ADVISORIES:</b>\n";
+    risk.warningMessages.forEach((w) => {
+      text += `• ${w}\n`;
+    });
+  }
+
+  const replyMarkup: TelegramInlineKeyboardMarkup = {
+    inline_keyboard: [
+      [
+        { text: "📡 Scan All POIs", callback_data: "cmd:radar:all" },
+        { text: "🚨 In-Zone Only", callback_data: "cmd:radar:inzone" },
+      ],
+      [
+        { text: "🛡️ Absorption", callback_data: "cmd:radar:absorption" },
+        { text: "⚡ FVGs", callback_data: "cmd:radar:fvg" },
+      ],
+      [
+        { text: "🌐 Open Web Radar", url: "http://192.168.2.22:3018/radar" },
+      ],
+    ],
+  };
+
+  return { text, replyMarkup };
+}
 export function formatTelegramRadarReport(
   pois: RadarPoiItem[],
   categoryFilter = "all",
@@ -232,6 +291,9 @@ export function formatTelegramRadarReport(
         { text: "🚨 Broken", callback_data: "cmd:radar:broken" },
         { text: "⚡ FVGs", callback_data: "cmd:radar:fvg" },
         { text: "🔄 All POIs", callback_data: "cmd:radar:all" },
+      ],
+      [
+        { text: "🛡️ Risk Heat & Skew", callback_data: "cmd:radar:risk" },
       ],
       [
         { text: "🌐 Open Web Radar", url: "http://192.168.2.22:3018/radar" },
@@ -416,6 +478,14 @@ export async function processTelegramUpdate(
     const data = cb.data || "";
     await answerTelegramCallbackQuery(botToken, cb.id);
 
+    if (data === "cmd:radar:risk") {
+      const report = formatTelegramPortfolioRiskReport(options?.samplePois || []);
+      await sendTelegramBotMessage(botToken, chatId, report.text, {
+        replyMarkup: report.replyMarkup,
+      });
+      return { handled: true, command: "callback:radar:risk" };
+    }
+
     if (data.startsWith("cmd:radar:")) {
       const filter = data.replace("cmd:radar:", "");
       const pois = options?.samplePois || [];
@@ -512,6 +582,15 @@ export async function processTelegramUpdate(
           replyMarkup: report.replyMarkup,
         });
         return { handled: true, command: "broken" };
+      }
+
+      case "risk": {
+        const pois = options?.samplePois || [];
+        const report = formatTelegramPortfolioRiskReport(pois);
+        await sendTelegramBotMessage(botToken, chatId, report.text, {
+          replyMarkup: report.replyMarkup,
+        });
+        return { handled: true, command: "risk" };
       }
 
       case "absorption": {

@@ -12,6 +12,7 @@ import {
   attachLiquidityToPoi,
 } from "@/lib/indicators/poi-liquidity-heatmap";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
+import { evaluatePortfolioRiskHeat, ScannedCandidateForRisk } from "@/lib/indicators/portfolio-risk-engine";
 import {
   SupportedExchange,
   ExchangeFilter,
@@ -39,6 +40,7 @@ interface CachedPoiEntry {
     exchange?: string;
     metrics?: any;
     orderFlow?: any;
+    correlation?: any;
   };
 }
 
@@ -187,6 +189,7 @@ export async function POST(request: NextRequest) {
           confluence: nearestPoi?.confluence || null,
           liquidity: nearestPoi?.liquidity || null,
           orderFlow: nearestPoi?.orderFlow || null,
+          correlation: nearestPoi?.correlation || null,
           heatmap,
         };
 
@@ -195,10 +198,26 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    // 3. Multi-Asset Portfolio Risk Heat & Correlated POI Exposure (DEC-155)
+    const btcResult = results.find((r) => r.symbol === "BTCUSDT");
+    const btcChange24h = btcResult?.change24h || 0;
+
+    const candidatesForRisk: ScannedCandidateForRisk[] = results.map((r) => ({
+      symbol: r.symbol,
+      direction: r.nearestPoi?.type || null,
+      distancePct: r.nearestPoi?.distanceToEntryPct,
+      isInZone: r.nearestPoi?.isInsideZone,
+      change24h: r.change24h,
+      btcCorrelation: r.nearestPoi?.correlation?.btcCorrelation,
+    }));
+
+    const portfolioRisk = evaluatePortfolioRiskHeat(candidatesForRisk, btcChange24h);
+
     return NextResponse.json({
       success: true,
       exchange: exchangeFilter,
       count: results.length,
+      portfolioRisk,
       results,
     });
   } catch (err: any) {
