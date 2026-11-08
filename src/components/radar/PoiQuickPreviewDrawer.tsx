@@ -44,6 +44,7 @@ interface PoiQuickPreviewDrawerProps {
   change24h: number;
   onOpenAlarmModal: () => void;
   onOpenPaperTradeModal?: () => void;
+  onOpenLiveTradeModal?: () => void;
 }
 
 export function PoiQuickPreviewDrawer({
@@ -56,6 +57,7 @@ export function PoiQuickPreviewDrawer({
   change24h,
   onOpenAlarmModal,
   onOpenPaperTradeModal,
+  onOpenLiveTradeModal,
 }: PoiQuickPreviewDrawerProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartApiRef = useRef<IChartApi | null>(null);
@@ -668,7 +670,20 @@ export function PoiQuickPreviewDrawer({
             </button>
           )}
 
-          <button
+          
+          {onOpenLiveTradeModal && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenLiveTradeModal();
+              }}
+              className="py-2.5 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20"
+            >
+              <Zap size={13} className="fill-current" />
+              <span>Live Trade</span>
+            </button>
+          )}
+<button
             onClick={() => {
               onClose();
               onOpenAlarmModal();

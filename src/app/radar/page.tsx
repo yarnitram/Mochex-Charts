@@ -32,6 +32,7 @@ import {
   Copy,
   Globe,
   Target,
+  Key,
 } from "lucide-react";
 import {
   SupportedExchange,
@@ -54,6 +55,8 @@ import {
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateForRisk, PoiCorrelationRiskInfo } from "@/lib/indicators/portfolio-risk-engine";
+import { BrokerCredentialsModal } from "@/components/terminal/BrokerCredentialsModal";
+import { PoiLiveTradeModal } from "@/components/radar/PoiLiveTradeModal";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
@@ -215,6 +218,30 @@ export default function RadarPage() {
     poi: RadarPoiItem;
     currentPrice: number;
   } | null>(null);
+
+  // Multi-Broker Direct Execution States (DEC-156)
+  const [isBrokerModalOpen, setIsBrokerModalOpen] = useState(false);
+  const [hasActiveBroker, setHasActiveBroker] = useState(false);
+  const [liveTradeModalData, setLiveTradeModalData] = useState<{
+    symbol: string;
+    poi: RadarPoiItem;
+  } | null>(null);
+
+  const checkBrokerCredentials = useCallback(() => {
+    fetch("/api/broker/credentials")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.credentials) {
+          const keys = Object.keys(data.credentials);
+          setHasActiveBroker(keys.length > 0);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    checkBrokerCredentials();
+  }, [checkBrokerCredentials]);
 
   // Live WebSocket Tick Flashing state
   const [priceFlashing, setPriceFlashing] = useState<Record<string, "up" | "down">>({});
@@ -954,6 +981,26 @@ export default function RadarPage() {
             <span className="hidden sm:inline">Alerts Log</span>
           </Link>
 
+          {/* Multi-Broker Direct Execution Modal Button (DEC-156) */}
+          <button
+            type="button"
+            onClick={() => setIsBrokerModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+              hasActiveBroker
+                ? "bg-[#121824] border-emerald-500/50 text-emerald-300 hover:text-white hover:bg-[#1a2332]"
+                : "bg-[#121824] border-[#233144] text-[#848e9c] hover:text-white hover:bg-[#1a2332]"
+            }`}
+            title="Configure Broker API Keys (MEXC, Binance, Bybit)"
+          >
+            <Key size={13} className={hasActiveBroker ? "text-emerald-400" : "text-amber-400"} />
+            <span className="hidden sm:inline">Broker</span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                hasActiveBroker ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
+              }`}
+              title={hasActiveBroker ? "Broker API Active" : "No Broker Configured"}
+            />
+          </button>
           <button
             onClick={() => fetchRadarData(true)}
             disabled={refreshing}
@@ -1881,6 +1928,19 @@ export default function RadarPage() {
                                   <Zap size={12} className="fill-current" />
                                   <span className="hidden md:inline">Trade</span>
                                 </button>
+                                <button
+                                  onClick={() =>
+                                    setLiveTradeModalData({
+                                      symbol: coin.symbol,
+                                      poi: selectedPoi,
+                                    })
+                                  }
+                                  title={`Execute Live Broker Order on ${coin.symbol}`}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-slate-950 border border-amber-500/30 text-[11px] font-bold transition-all cursor-pointer"
+                                >
+                                  <Key size={12} />
+                                  <span className="hidden lg:inline">Live</span>
+                                </button>
                               </>
                             )}
 
@@ -2289,6 +2349,12 @@ export default function RadarPage() {
               currentPrice: previewData.currentPrice,
             });
           }}
+          onOpenLiveTradeModal={() => {
+            setLiveTradeModalData({
+              symbol: previewData.symbol,
+              poi: previewData.poi,
+            });
+          }}
         />
       )}
 
@@ -2319,6 +2385,28 @@ export default function RadarPage() {
         config={webhookConfig}
         onSave={(cfg) => setWebhookConfig(cfg)}
       />
+
+      
+      {/* 10. MULTI-BROKER CREDENTIALS CONFIGURATION MODAL (DEC-156) */}
+      <BrokerCredentialsModal
+        isOpen={isBrokerModalOpen}
+        onClose={() => setIsBrokerModalOpen(false)}
+        onCredentialsUpdated={checkBrokerCredentials}
+      />
+
+      {/* 11. POI LIVE TRADE DIRECT EXECUTION MODAL (DEC-156) */}
+      {liveTradeModalData && (
+        <PoiLiveTradeModal
+          isOpen={Boolean(liveTradeModalData)}
+          onClose={() => setLiveTradeModalData(null)}
+          poi={liveTradeModalData.poi}
+          symbol={liveTradeModalData.symbol}
+          onOpenBrokerConfig={() => {
+            setLiveTradeModalData(null);
+            setIsBrokerModalOpen(true);
+          }}
+        />
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (
