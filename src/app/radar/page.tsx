@@ -23,6 +23,11 @@ import {
   Table,
   Zap,
   Eye,
+  Volume2,
+  VolumeX,
+  FileSpreadsheet,
+  FileJson,
+  Copy,
 } from "lucide-react";
 import {
   getUniverseCoins,
@@ -38,6 +43,19 @@ import {
 } from "@/lib/indicators/radar-poi-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
+import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
+import {
+  RadarAudioSettings,
+  getRadarAudioSettings,
+  playRadarChime,
+} from "@/lib/audio/sound-effects";
+import {
+  ExportableRadarItem,
+  RadarExportMeta,
+  downloadRadarCsv,
+  downloadRadarJson,
+  copyRadarToClipboard,
+} from "@/lib/screener/radar-export";
 import { mexcWsManager, MiniTickerCallback } from "@/lib/mexc/websocket";
 import { useAuth } from "@/lib/auth/use-auth";
 
@@ -108,7 +126,30 @@ export default function RadarPage() {
   const [priceFlashing, setPriceFlashing] = useState<Record<string, "up" | "down">>({});
   const [isWsConnected, setIsWsConnected] = useState(false);
 
+  // Audio chime settings state & modal
+  const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
+  const [audioSettings, setAudioSettings] = useState<RadarAudioSettings>(() => getRadarAudioSettings());
+  const audioSettingsRef = React.useRef<RadarAudioSettings>(audioSettings);
+  audioSettingsRef.current = audioSettings;
+
+  // Cooldown tracker for live WebSocket zone entry audio triggers (30s per symbol)
+  const lastChimedSymbolTimeRef = React.useRef<Record<string, number>>({});
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync audio settings from local custom events
+  useEffect(() => {
+    const handleAudioSettingsChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<RadarAudioSettings>;
+      if (customEvent.detail) {
+        setAudioSettings(customEvent.detail);
+      }
+    };
+    window.addEventListener("mochex:radar-audio-settings-changed", handleAudioSettingsChanged);
+    return () => {
+      window.removeEventListener("mochex:radar-audio-settings-changed", handleAudioSettingsChanged);
+    };
+  }, []);
 
   // Load custom symbols on mount
   useEffect(() => {
@@ -256,13 +297,34 @@ export default function RadarPage() {
             };
           };
 
+          // Check if newly entered an active POI zone to trigger real-time chime
+          const wasInside = existing.nearestPoi?.isInsideZone;
+          const updatedNearestPoi = updatePoi(existing.nearestPoi);
+          const nowInside = updatedNearestPoi?.isInsideZone;
+
+          if (
+            !wasInside &&
+            nowInside &&
+            audioSettingsRef.current.enabled &&
+            audioSettingsRef.current.chimeOnZoneEntry
+          ) {
+            const now = Date.now();
+            const lastTime = lastChimedSymbolTimeRef.current[sym] || 0;
+            if (now - lastTime > 30000) {
+              lastChimedSymbolTimeRef.current[sym] = now;
+              playRadarChime(audioSettingsRef.current);
+              setToastMessage(`🚨 ${sym} entered ${updatedNearestPoi?.label || "active POI zone"}!`);
+              setTimeout(() => setToastMessage(null), 4000);
+            }
+          }
+
           next[sym] = {
             ...existing,
             price: newPrice,
             change24h: newChange24h || existing.change24h,
             high24h: Math.max(existing.high24h, newPrice),
             low24h: existing.low24h > 0 ? Math.min(existing.low24h, newPrice) : newPrice,
-            nearestPoi: updatePoi(existing.nearestPoi),
+            nearestPoi: updatedNearestPoi,
             nearestOb: updatePoi(existing.nearestOb),
             nearestSandwich: updatePoi(existing.nearestSandwich),
             nearestFvg: updatePoi(existing.nearestFvg),
@@ -359,6 +421,63 @@ export default function RadarPage() {
         return 0;
       });
   }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy]);
+
+  // Exportable items derived from filtered coins
+  const exportItems: ExportableRadarItem[] = useMemo(() => {
+    return filteredCoins.map(({ coin, data, selectedPoi }) => ({
+      symbol: coin.symbol,
+      name: coin.name,
+      price: data?.price ?? 0,
+      change24h: data?.change24h ?? 0,
+      volume24h: data?.volume24h ?? 0,
+      selectedPoi,
+    }));
+  }, [filteredCoins]);
+
+  const exportMeta: RadarExportMeta = useMemo(() => {
+    const universeName =
+      activeTab === "majors"
+        ? "Majors & Volume"
+        : activeTab === "memes"
+        ? "Top 50 Meme Coins"
+        : activeTab === "ai"
+        ? "Top 50 AI Coins"
+        : "Custom Watchlist";
+    const tfMap: Record<string, string> = {
+      "15m": "15m",
+      "60": "1H",
+      "240": "4H",
+      "1D": "1D",
+    };
+    return {
+      universeName,
+      categoryFilter: poiCategoryFilter,
+      timeframe: tfMap[activeTimeframe] || activeTimeframe,
+      totalCoins: filteredCoins.length,
+    };
+  }, [activeTab, poiCategoryFilter, activeTimeframe, filteredCoins.length]);
+
+  const handleExportCsv = () => {
+    downloadRadarCsv(exportItems, `mochex-radar-${activeTab}`);
+    setToastMessage(`✓ Exported ${exportItems.length} items to CSV`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleExportJson = () => {
+    downloadRadarJson(exportItems, exportMeta, `mochex-radar-${activeTab}`);
+    setToastMessage(`✓ Exported ${exportItems.length} items to JSON`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleCopyClipboard = async () => {
+    const ok = await copyRadarToClipboard(exportItems, exportMeta);
+    if (ok) {
+      setToastMessage(`✓ Copied ${exportItems.length} scanned POIs to clipboard!`);
+    } else {
+      setToastMessage("Failed to copy to clipboard");
+    }
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // Aggregate stats
   const totalDetectedPois = useMemo(() => {
@@ -478,6 +597,24 @@ export default function RadarPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Audio Chimes Quick Settings Button */}
+          <button
+            type="button"
+            onClick={() => setIsAudioModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+              audioSettings.enabled
+                ? "bg-[#121824] border-[#233144] text-[#b6c4ff] hover:text-white hover:bg-[#1a2332]"
+                : "bg-[#121824] border-[#ff3b30]/40 text-[#ff3b30] hover:bg-[#1a2332]"
+            }`}
+            title="Configure Radar Audio Chimes"
+          >
+            {audioSettings.enabled ? <Volume2 size={13} className="text-[#2962ff]" /> : <VolumeX size={13} />}
+            <span className="hidden sm:inline">Audio</span>
+            <span className="text-[10px] text-[#848e9c]">
+              {audioSettings.enabled ? `${Math.round(audioSettings.volume * 100)}%` : "Muted"}
+            </span>
+          </button>
+
           <button
             onClick={() => fetchRadarData(true)}
             disabled={refreshing}
@@ -718,6 +855,37 @@ export default function RadarPage() {
               <Filter size={13} />
               <span>&lt; 2% Near Zone</span>
             </button>
+
+            {/* 1-Click Export Suite */}
+            <div className="flex items-center gap-1.5 pl-2 border-l border-[#233144]">
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs text-[#848e9c] hover:text-white transition-colors cursor-pointer"
+                title="Download Scanned POIs as CSV"
+              >
+                <FileSpreadsheet size={13} className="text-[#00c087]" />
+                <span className="hidden sm:inline">CSV</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportJson}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs text-[#848e9c] hover:text-white transition-colors cursor-pointer"
+                title="Download Scanned POIs as JSON"
+              >
+                <FileJson size={13} className="text-[#2962ff]" />
+                <span className="hidden sm:inline">JSON</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyClipboard}
+                className="flex items-center gap-1 px-2.5 py-2 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs text-[#848e9c] hover:text-white transition-colors cursor-pointer"
+                title="Copy Markdown Summary to Clipboard"
+              >
+                <Copy size={13} className="text-amber-400" />
+                <span className="hidden sm:inline">Copy</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -1272,6 +1440,12 @@ export default function RadarPage() {
           }}
         />
       )}
+
+      {/* 7. RADAR AUDIO SETTINGS MODAL */}
+      <RadarAudioSettingsModal
+        isOpen={isAudioModalOpen}
+        onClose={() => setIsAudioModalOpen(false)}
+      />
 
       {/* Toast Notification */}
       {toastMessage && (

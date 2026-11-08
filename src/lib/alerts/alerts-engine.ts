@@ -57,6 +57,8 @@ export interface PriceAlert {
   /** Optional channel delivery overrides (DEC-130) */
   notifyDiscord?: boolean;
   notifyTelegram?: boolean;
+  /** Optional custom chime sound preset (DEC-140) */
+  soundType?: string;
 }
 
 export interface AlertLogEntry {
