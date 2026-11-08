@@ -62,6 +62,7 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Proximity %",
     "Reaction Win-Rate %",
     "Reaction Samples",
+    "Liquidity Sweep",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -77,7 +78,9 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       : "None";
 
     const statusLabel = poi
-      ? poi.status === "testing" || poi.isInsideZone
+      ? poi.status === "sweep" || poi.sweep
+        ? "Liquidity Sweep Reversal"
+        : poi.status === "testing" || poi.isInsideZone
         ? "Testing In-Zone"
         : poi.status === "mitigated"
         ? "Mitigated"
@@ -112,6 +115,7 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi ? poi.distanceToEntryPct.toFixed(2) : "",
       poi?.metrics ? `${poi.metrics.winRatePct}%` : "N/A",
       poi?.metrics ? poi.metrics.sampleDescription : "N/A",
+      poi?.sweep ? `YES (${poi.sweep.label})` : "NO",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -145,16 +149,17 @@ export function downloadRadarCsv(items: ExportableRadarItem[], baseName = "moche
  */
 export function generateRadarJson(
   items: ExportableRadarItem[],
-  meta: RadarExportMeta
+  meta?: Partial<RadarExportMeta>
 ): string {
+  const safeMeta = meta || {};
   const payload = {
     radar: "Mochex POI Radar",
     version: "2.0",
-    exportedAt: meta.exportedAt || new Date().toISOString(),
-    universe: meta.universeName,
-    timeframe: meta.timeframe,
-    categoryFilter: meta.categoryFilter,
-    totalCoinsCount: meta.totalCoins,
+    exportedAt: safeMeta.exportedAt || new Date().toISOString(),
+    universe: safeMeta.universeName || "Active Watchlist",
+    timeframe: safeMeta.timeframe || "15m",
+    categoryFilter: safeMeta.categoryFilter || "all",
+    totalCoinsCount: safeMeta.totalCoins ?? items.length,
     scannedItemsCount: items.length,
     items: items.map((i) => ({
       symbol: i.symbol,
@@ -184,6 +189,7 @@ export function generateRadarJson(
             distanceToEntryPct: i.selectedPoi.distanceToEntryPct,
             distanceToMtPct: i.selectedPoi.distanceToMtPct,
             metrics: i.selectedPoi.metrics || null,
+            sweep: i.selectedPoi.sweep || null,
           }
         : null,
     })),
@@ -221,16 +227,19 @@ export function downloadRadarJson(
  */
 export function generateRadarClipboardMarkdown(
   items: ExportableRadarItem[],
-  meta: RadarExportMeta
+  meta?: Partial<RadarExportMeta>
 ): string {
-  const timestamp = meta.exportedAt || new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  const safeMeta = meta || {};
+  const timestamp =
+    safeMeta.exportedAt ||
+    new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const itemsWithPois = items.filter((i) => i.selectedPoi !== null);
   const inZoneCount = items.filter(
     (i) => i.selectedPoi && (i.selectedPoi.isInsideZone || i.selectedPoi.status === "testing")
   ).length;
 
   let md = `### 📡 Mochex Institutional POI Radar Report\n`;
-  md += `**Universe:** ${meta.universeName} | **Timeframe:** ${meta.timeframe} | **Filter:** ${meta.categoryFilter}\n`;
+  md += `**Universe:** ${safeMeta.universeName || "Active Watchlist"} | **Timeframe:** ${safeMeta.timeframe || "15m"} | **Filter:** ${safeMeta.categoryFilter || "all"}\n`;
   md += `**Total Scanned:** ${items.length} pairs | **Active POIs:** ${itemsWithPois.length} | **🚨 In-Zone:** ${inZoneCount}\n`;
   md += `*Generated: ${timestamp}*\n\n`;
 
@@ -252,7 +261,12 @@ export function generateRadarClipboardMarkdown(
     const typeEmoji = poi.type === "BULLISH" ? "🟢" : "🔴";
     const plusTag = poi.isPlus ? " ⭐++" : "";
     const poiLabel = `${typeEmoji} ${poi.label}${plusTag}`;
-    const statusTag = poi.isInsideZone || poi.status === "testing" ? "🚨 IN-ZONE" : poi.status.toUpperCase();
+    const statusTag =
+      poi.sweep || poi.status === "sweep"
+        ? "🧹 SWEEP"
+        : poi.isInsideZone || poi.status === "testing"
+        ? "🚨 IN-ZONE"
+        : poi.status.toUpperCase();
     const proxTag = poi.isInsideZone ? "0.00%" : `${poi.distanceToEntryPct.toFixed(2)}%`;
     const entryFormatted = `$${poi.entryPrice >= 1 ? poi.entryPrice.toFixed(2) : poi.entryPrice.toFixed(4)}`;
     const mtFormatted = `$${poi.meanThreshold >= 1 ? poi.meanThreshold.toFixed(2) : poi.meanThreshold.toFixed(4)}`;

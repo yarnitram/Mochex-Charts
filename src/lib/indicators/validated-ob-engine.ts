@@ -33,7 +33,8 @@ export interface ValidatedOrderBlock {
 export interface ObDetectionOptions {
   minGapPct?: number;       // Minimum FVG gap size % (default: 0.05%)
   minObBodyPct?: number;    // Minimum OB candle body size % (default: 0.05%)
-  includeMitigated?: boolean; // Whether to include already mitigated OBs
+  includeMitigated?: boolean;
+  includeBroken?: boolean; // Whether to include already mitigated OBs
   maxLookbackBars?: number; // Maximum historical bars to inspect (default: 250)
 }
 
@@ -216,7 +217,7 @@ export function computeValidatedOrderBlocks(
 
   // Return non-broken order blocks first, sorted by closest proximity to current price
   return detectedBlocks
-    .filter((ob) => ob.status !== "broken")
+    .filter((ob) => (options.includeBroken ?? false) || ob.status !== "broken")
     .sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
 }
 
