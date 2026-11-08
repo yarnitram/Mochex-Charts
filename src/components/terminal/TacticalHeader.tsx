@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   CandlestickChart,
   ChevronDown,
@@ -391,6 +392,16 @@ export function TacticalHeader({
 
       {/* Right: Screener + Studio Toggle + Layout Manager Dropdown + User Profile */}
       <div className="flex items-center gap-1.5">
+        {/* Institutional POI Radar Page Link */}
+        <Link
+          href="/radar"
+          title="Open Institutional POI Radar & Smart Watchlist"
+          className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#00c087]/10 hover:bg-[#00c087]/20 text-[#00c087] border border-[#00c087]/30 text-[11px] font-mono font-bold transition-colors cursor-pointer"
+        >
+          <Radar size={13} className="animate-pulse" />
+          <span className="hidden sm:inline">POI Radar</span>
+        </Link>
+
         {/* Crypto Technical Screener Dock Toggle */}
         {onToggleScreener && (
           <button
