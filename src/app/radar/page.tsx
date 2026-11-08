@@ -29,12 +29,14 @@ import {
   FileJson,
   Copy,
   Globe,
+  Target,
 } from "lucide-react";
 import {
   SupportedExchange,
   ExchangeFilter,
   SUPPORTED_EXCHANGES,
 } from "@/lib/screener/multi-exchange-client";
+import { PoiHistoricalMetrics } from "@/lib/indicators/poi-backtest-metrics";
 import {
   getUniverseCoins,
   RadarUniverseTab,
@@ -84,6 +86,7 @@ interface RadarCoinData {
   nearestFvg: RadarPoiItem | null;
   poisByTimeframe: Record<string, RadarPoiItem[]>;
   exchange?: string;
+  metrics?: PoiHistoricalMetrics | null;
 }
 
 export default function RadarPage() {
@@ -115,7 +118,7 @@ export default function RadarPage() {
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<"ALL" | PoiCategory>("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
-  const [sortBy, setSortBy] = useState<"proximity" | "volume" | "change">("proximity");
+  const [sortBy, setSortBy] = useState<"proximity" | "volume" | "change" | "winrate">("proximity");
 
   // Loaded POI radar data
   const [radarData, setRadarData] = useState<Record<string, RadarCoinData>>({});
@@ -469,6 +472,11 @@ export default function RadarPage() {
           const chgA = a.data?.change24h ?? 0;
           const chgB = b.data?.change24h ?? 0;
           return Math.abs(chgB) - Math.abs(chgA);
+        }
+        if (sortBy === "winrate") {
+          const wrA = a.selectedPoi?.metrics?.winRatePct ?? -1;
+          const wrB = b.selectedPoi?.metrics?.winRatePct ?? -1;
+          return wrB - wrA;
         }
         return 0;
       });
@@ -918,6 +926,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer"
             >
               <option value="proximity">Sort: Closest to Zone</option>
+              <option value="winrate">Sort: Highest POI Win-Rate</option>
               <option value="volume">Sort: 24h Volume</option>
               <option value="change">Sort: 24h Change %</option>
             </select>
@@ -1127,6 +1136,23 @@ export default function RadarPage() {
                                 <span className="px-1.5 py-0.2 rounded bg-[#172233] text-[#b6c4ff] text-[9px] font-bold">
                                   {selectedPoi.timeframe}
                                 </span>
+
+                                {/* Historical Win Rate Badge (DEC-144) */}
+                                {selectedPoi.metrics && selectedPoi.metrics.totalTested > 0 && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                      selectedPoi.metrics.winRatePct >= 70
+                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                        : selectedPoi.metrics.winRatePct >= 50
+                                        ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                        : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                                    }`}
+                                    title={`Empirical Reaction: ${selectedPoi.metrics.wins} wins / ${selectedPoi.metrics.losses} losses (${selectedPoi.metrics.avgRr}R avg)`}
+                                  >
+                                    <span>🎯 {selectedPoi.metrics.winRatePct}%</span>
+                                    <span className="text-[7px] text-[#848e9c]">({selectedPoi.metrics.wins}/{selectedPoi.metrics.totalTested})</span>
+                                  </span>
+                                )}
 
                                 {/* Sandwich ++ Badge */}
                                 {selectedPoi.isPlus && (
@@ -1429,6 +1455,22 @@ export default function RadarPage() {
                               <span className="px-1.5 py-0.2 rounded bg-[#172233] text-[#b6c4ff] text-[9px] font-bold">
                                 {selectedPoi.timeframe}
                               </span>
+
+                              {/* Historical Win Rate Badge (DEC-144) */}
+                              {selectedPoi.metrics && selectedPoi.metrics.totalTested > 0 && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                    selectedPoi.metrics.winRatePct >= 70
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                      : selectedPoi.metrics.winRatePct >= 50
+                                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                      : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                                  }`}
+                                  title={`Historical Win Rate: ${selectedPoi.metrics.wins} wins / ${selectedPoi.metrics.losses} losses (${selectedPoi.metrics.avgRr}R avg)`}
+                                >
+                                  <span>🎯 {selectedPoi.metrics.winRatePct}%</span>
+                                </span>
+                              )}
 
                               {selectedPoi.isPlus && (
                                 <span className="px-1.5 py-0.2 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 text-[8px] font-bold flex items-center gap-0.5">
