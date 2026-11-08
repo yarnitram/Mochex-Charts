@@ -18,6 +18,10 @@ import {
   SupportedExchange,
   SUPPORTED_EXCHANGES,
 } from "@/lib/screener/multi-exchange-client";
+import {
+  PoiHistoricalMetrics,
+  calculateHistoricalPoiMetrics,
+} from "./poi-backtest-metrics";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -49,6 +53,8 @@ export interface RadarPoiItem {
   // Multi-Exchange metadata (DEC-143)
   exchange?: SupportedExchange;
   exchangeLabel?: string;
+  // Historical reaction backtest metrics (DEC-144)
+  metrics?: PoiHistoricalMetrics;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -79,6 +85,12 @@ export function computeRadarPois(
   const exchangeConfig = SUPPORTED_EXCHANGES[exchange];
   const exchangeLabel = exchangeConfig?.badgeLabel || exchange.toUpperCase();
 
+  // Compute empirical historical reaction win-rate & statistical metrics (DEC-144)
+  const historicalMetrics = calculateHistoricalPoiMetrics(bars, {
+    targetRr: 1.5,
+    touchLevel: "fifty_pct",
+  });
+
   // 1. COMPUTE VALIDATED ORDER BLOCKS (OB + 2C FVG)
   const orderBlocks = computeValidatedOrderBlocks(bars, symbol, timeframe, {
     minGapPct: 0.05,
@@ -108,6 +120,7 @@ export function computeRadarPois(
       time: ob.obTime,
       exchange,
       exchangeLabel,
+      metrics: historicalMetrics,
     });
   }
 
@@ -206,6 +219,7 @@ export function computeRadarPois(
           time: sz.sourceCandleTime,
           exchange,
           exchangeLabel,
+          metrics: historicalMetrics,
         });
       }
     }
@@ -276,6 +290,7 @@ export function computeRadarPois(
         time: fvg.startTime,
         exchange,
         exchangeLabel,
+        metrics: historicalMetrics,
       });
     }
   } catch (err) {

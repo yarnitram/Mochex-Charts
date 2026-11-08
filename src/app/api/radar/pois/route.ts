@@ -29,6 +29,7 @@ interface CachedPoiEntry {
     nearestFvg: RadarPoiItem | null;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
     exchange?: string;
+    metrics?: any;
   };
 }
 
@@ -155,6 +156,7 @@ export async function POST(request: NextRequest) {
           nearestFvg,
           poisByTimeframe,
           exchange: exchangeFilter,
+          metrics: nearestPoi?.metrics || null,
         };
 
         radarPoiCache.set(cacheKey, { timestamp: now, data });

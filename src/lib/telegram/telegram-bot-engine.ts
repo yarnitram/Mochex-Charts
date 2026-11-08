@@ -174,9 +174,10 @@ export function formatTelegramRadarReport(
       const midLabel = p.category === "fvg" ? "50% CE" : "50% MT";
 
       const exTag = p.exchange ? `[${p.exchange.toUpperCase()}] ` : "";
+      const metricsTag = p.metrics && p.metrics.totalTested > 0 ? ` | 🎯 <b>${p.metrics.winRatePct}%</b> (${p.metrics.wins}/${p.metrics.totalTested})` : "";
       text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}\n`;
       text += `  • Entry: <code>$${pEntry}</code> | ${midLabel}: <code>$${pMt}</code>\n`;
-      text += `  • Status: ${statusTag}\n\n`;
+      text += `  • Status: ${statusTag}${metricsTag}\n\n`;
     }
 
     if (filtered.length > displayList.length) {

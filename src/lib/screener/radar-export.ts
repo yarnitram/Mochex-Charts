@@ -60,6 +60,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Zone Top",
     "Zone Bottom",
     "Proximity %",
+    "Reaction Win-Rate %",
+    "Reaction Samples",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -108,6 +110,8 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi ? poi.top.toFixed(poi.top >= 1 ? 4 : 8) : "",
       poi ? poi.bottom.toFixed(poi.bottom >= 1 ? 4 : 8) : "",
       poi ? poi.distanceToEntryPct.toFixed(2) : "",
+      poi?.metrics ? `${poi.metrics.winRatePct}%` : "N/A",
+      poi?.metrics ? poi.metrics.sampleDescription : "N/A",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -179,6 +183,7 @@ export function generateRadarJson(
             isInsideZone: i.selectedPoi.isInsideZone,
             distanceToEntryPct: i.selectedPoi.distanceToEntryPct,
             distanceToMtPct: i.selectedPoi.distanceToMtPct,
+            metrics: i.selectedPoi.metrics || null,
           }
         : null,
     })),
@@ -229,8 +234,8 @@ export function generateRadarClipboardMarkdown(
   md += `**Total Scanned:** ${items.length} pairs | **Active POIs:** ${itemsWithPois.length} | **🚨 In-Zone:** ${inZoneCount}\n`;
   md += `*Generated: ${timestamp}*\n\n`;
 
-  md += `| Exchange | Ticker | Price | 24h % | POI Type | TF | Status | Proximity | Entry | 50% MT/CE |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| Exchange | Ticker | Price | 24h % | POI Type | TF | Win Rate | Status | Proximity | Entry | 50% MT/CE |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
   for (const item of items) {
     const p = item.price;
@@ -240,7 +245,7 @@ export function generateRadarClipboardMarkdown(
     const exBadge = poi?.exchange ? poi.exchange.toUpperCase() : item.exchange ? item.exchange.toUpperCase() : "MEXC";
 
     if (!poi) {
-      md += `| ${exBadge} | ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - |\n`;
+      md += `| ${exBadge} | ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - | - |\n`;
       continue;
     }
 
@@ -251,8 +256,9 @@ export function generateRadarClipboardMarkdown(
     const proxTag = poi.isInsideZone ? "0.00%" : `${poi.distanceToEntryPct.toFixed(2)}%`;
     const entryFormatted = `$${poi.entryPrice >= 1 ? poi.entryPrice.toFixed(2) : poi.entryPrice.toFixed(4)}`;
     const mtFormatted = `$${poi.meanThreshold >= 1 ? poi.meanThreshold.toFixed(2) : poi.meanThreshold.toFixed(4)}`;
+    const winRateText = poi.metrics ? `${poi.metrics.winRatePct}% (${poi.metrics.wins}/${poi.metrics.totalTested})` : "N/A";
 
-    md += `| **${exBadge}** | **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} |\n`;
+    md += `| **${exBadge}** | **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${winRateText} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} |\n`;
   }
 
   return md;

@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Clock,
   Crosshair,
+  Target,
 } from "lucide-react";
 import {
   createChart,
@@ -363,6 +364,33 @@ export function PoiQuickPreviewDrawer({
               </span>
             </div>
           </div>
+
+          {/* Historical POI Reaction Metrics (DEC-144) */}
+          {poi.metrics && poi.metrics.totalTested > 0 && (
+            <div className="flex items-center justify-between p-2 rounded-lg bg-[#0e141f] border border-[#1b2535]">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#848e9c] uppercase font-bold flex items-center gap-1">
+                  <Target size={11} className="text-[#00c087]" />
+                  <span>Reaction Rate</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    poi.metrics.winRatePct >= 70
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                      : poi.metrics.winRatePct >= 50
+                      ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                      : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                  }`}
+                >
+                  🎯 {poi.metrics.winRatePct}% Win Rate
+                </span>
+              </div>
+              <div className="text-[10px] text-[#848e9c]">
+                <span>{poi.metrics.wins} wins / {poi.metrics.losses} losses</span>
+                <span className="ml-1 text-white font-semibold">({poi.metrics.avgRr}R avg)</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Lightweight Chart Canvas Area */}
