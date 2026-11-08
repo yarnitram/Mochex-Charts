@@ -152,12 +152,12 @@ export default function RadarPage() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<
-    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | PoiCategory
+    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | "absorption" | PoiCategory
   >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
   const [sortBy, setSortBy] = useState<
-    "proximity" | "confluence" | "liquidity" | "volume" | "change" | "winrate"
+    "proximity" | "confluence" | "liquidity" | "volume" | "change" | "winrate" | "imbalance"
   >("proximity");
 
   // Loaded POI radar data
@@ -524,6 +524,12 @@ export default function RadarPage() {
             (selectedTimeframes.length === 4 && data?.nearestPoi?.status === "broken"
               ? data.nearestPoi
               : null);
+        } else if (poiCategoryFilter === "absorption") {
+          const sortedByAbs = [...candidatePois].sort(
+            (a, b) => (b.orderFlow?.absorptionScore ?? 0) - (a.orderFlow?.absorptionScore ?? 0)
+          );
+          selectedPoi =
+            sortedByAbs[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "confluence") {
           const sortedByConf = [...candidatePois].sort(
             (a, b) => (b.confluence?.score ?? 0) - (a.confluence?.score ?? 0)
@@ -568,6 +574,11 @@ export default function RadarPage() {
         // Invalidation / Broken filter (DEC-150)
         if (poiCategoryFilter === "broken") {
           if (!selectedPoi || (selectedPoi.status !== "broken" && !selectedPoi.breakTelemetry)) return false;
+        }
+
+        // Order Flow Absorption filter (DEC-153)
+        if (poiCategoryFilter === "absorption") {
+          if (!selectedPoi || !selectedPoi.orderFlow || !selectedPoi.orderFlow.isAbsorptionConfirmed) return false;
         }
 
         // Direction filter
@@ -619,6 +630,14 @@ export default function RadarPage() {
           const wrA = a.selectedPoi?.metrics?.winRatePct ?? -1;
           const wrB = b.selectedPoi?.metrics?.winRatePct ?? -1;
           return wrB - wrA;
+        }
+        if (sortBy === "imbalance") {
+          const imbA = a.selectedPoi?.orderFlow?.absorptionScore ?? 0;
+          const imbB = b.selectedPoi?.orderFlow?.absorptionScore ?? 0;
+          if (imbB !== imbA) return imbB - imbA;
+          const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
+          const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
+          return distA - distB;
         }
         return 0;
       });
@@ -1046,6 +1065,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
+              <option value="absorption">🛡️ Order Flow Absorption & CVD Div (≥ 65%)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
               <option value="liquidity">💧 High Liquidity Magnets (≥ 70%)</option>
               <option value="broken">🚨 Invalidated / Stop-Out Zones</option>
@@ -1113,6 +1133,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer"
             >
               <option value="proximity">Sort: Closest to Zone</option>
+              <option value="imbalance">Sort: Strongest Orderbook Imbalance</option>
               <option value="confluence">Sort: Highest MTF Confluence</option>
               <option value="liquidity">Sort: Highest Liquidity Density</option>
               <option value="winrate">Sort: Highest POI Win-Rate</option>
@@ -1394,6 +1415,26 @@ export default function RadarPage() {
                                       {selectedPoi.liquidity.isPeakMagnet ? "🧲 " : "💧 "}
                                       {selectedPoi.liquidity.densityPercentile.toFixed(0)}% Liq
                                     </span>
+                                  </span>
+                                )}
+
+                                {/* Order Flow & CVD Absorption Badge (DEC-153) */}
+                                {selectedPoi.orderFlow && (
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                      selectedPoi.orderFlow.isAbsorptionConfirmed
+                                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse"
+                                        : selectedPoi.orderFlow.verdict === "LIMIT_WALL_DEFENSE"
+                                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                                        : selectedPoi.orderFlow.verdict === "CVD_DIVERGENCE"
+                                        ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                                        : selectedPoi.orderFlow.verdict === "PRESSURE_RISK"
+                                        ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                        : "bg-[#172233] text-[#848e9c] border-[#233144]"
+                                    }`}
+                                    title={`Order Flow: ${selectedPoi.orderFlow.summaryText} (Absorption Score: ${selectedPoi.orderFlow.absorptionScore}/100)`}
+                                  >
+                                    <span>{selectedPoi.orderFlow.badgeLabel}</span>
                                   </span>
                                 )}
                               </div>
@@ -1766,6 +1807,26 @@ export default function RadarPage() {
                                     {selectedPoi.liquidity.isPeakMagnet ? "🧲 " : "💧 "}
                                     {selectedPoi.liquidity.densityPercentile.toFixed(0)}% Liq
                                   </span>
+                                </span>
+                              )}
+
+                              {/* Order Flow & CVD Absorption Badge (DEC-153) */}
+                              {selectedPoi.orderFlow && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border flex items-center gap-0.5 ${
+                                    selectedPoi.orderFlow.isAbsorptionConfirmed
+                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse"
+                                      : selectedPoi.orderFlow.verdict === "LIMIT_WALL_DEFENSE"
+                                      ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                                      : selectedPoi.orderFlow.verdict === "CVD_DIVERGENCE"
+                                      ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                                      : selectedPoi.orderFlow.verdict === "PRESSURE_RISK"
+                                      ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                      : "bg-[#172233] text-[#848e9c] border-[#233144]"
+                                  }`}
+                                  title={`Order Flow: ${selectedPoi.orderFlow.summaryText} (Absorption Score: ${selectedPoi.orderFlow.absorptionScore}/100)`}
+                                >
+                                  <span>{selectedPoi.orderFlow.badgeLabel}</span>
                                 </span>
                               )}
                             </div>

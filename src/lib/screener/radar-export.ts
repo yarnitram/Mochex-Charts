@@ -70,6 +70,11 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
     "Peak Magnet",
     "Invalidation Status",
     "Stop-Out Overshoot %",
+    "Order Flow Verdict",
+    "Orderbook Imbalance %",
+    "Bid Depth %",
+    "Absorption Score",
+    "CVD Divergence",
   ];
 
   const lines: string[] = [headers.map(escapeCsvCell).join(",")];
@@ -130,6 +135,11 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
       poi?.liquidity?.isPeakMagnet ? "YES (Peak Magnet)" : "NO",
       poi?.status === "broken" || poi?.breakTelemetry ? `BROKEN (${poi.breakTelemetry?.severity || "STOP-OUT"})` : "INTACT",
       poi?.breakTelemetry ? `-${poi.breakTelemetry.overshootPct}%` : "0.00%",
+      poi?.orderFlow ? poi.orderFlow.verdict : "N/A",
+      poi?.orderFlow ? `${poi.orderFlow.imbalance.imbalancePct}%` : "N/A",
+      poi?.orderFlow ? `${poi.orderFlow.imbalance.bidRatioPct}%` : "N/A",
+      poi?.orderFlow ? `${poi.orderFlow.absorptionScore}/100` : "N/A",
+      poi?.orderFlow?.divergence ? poi.orderFlow.divergence.label : "None",
     ];
 
     lines.push(row.map(escapeCsvCell).join(","));
@@ -207,6 +217,7 @@ export function generateRadarJson(
             confluence: i.selectedPoi.confluence || null,
             liquidity: i.selectedPoi.liquidity || null,
             breakTelemetry: i.selectedPoi.breakTelemetry || null,
+            orderFlow: i.selectedPoi.orderFlow || null,
           }
         : null,
     })),

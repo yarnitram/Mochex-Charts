@@ -522,6 +522,71 @@ export function PoiQuickPreviewDrawer({
               )}
             </div>
           )}
+
+          {/* Institutional Orderbook Imbalance & CVD Absorption Banner (DEC-153) */}
+          {poi.orderFlow && (
+            <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-[#0e1626] border border-[#1b2a42]">
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-1 ${
+                      poi.orderFlow.isAbsorptionConfirmed
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] animate-pulse"
+                        : poi.orderFlow.verdict === "LIMIT_WALL_DEFENSE"
+                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                        : poi.orderFlow.verdict === "CVD_DIVERGENCE"
+                        ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                        : poi.orderFlow.verdict === "PRESSURE_RISK"
+                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                        : "bg-[#172233] text-[#848e9c]"
+                    }`}
+                  >
+                    <span>{poi.orderFlow.badgeLabel}</span>
+                  </span>
+                  <span className="text-[10px] text-[#d1d4dc] font-medium truncate max-w-[240px]">
+                    {poi.orderFlow.summaryText}
+                  </span>
+                </div>
+                <div className="text-[10px] font-bold text-right flex items-center gap-1.5">
+                  <span className="text-[#848e9c]">Absorption:</span>
+                  <span
+                    className={`font-mono ${
+                      poi.orderFlow.absorptionScore >= 65
+                        ? "text-emerald-400 font-extrabold"
+                        : poi.orderFlow.absorptionScore >= 45
+                        ? "text-amber-400 font-semibold"
+                        : "text-rose-400"
+                    }`}
+                  >
+                    {poi.orderFlow.absorptionScore}/100
+                  </span>
+                </div>
+              </div>
+
+              {/* Real-Time Order Book Bid/Ask Depth Meter */}
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between text-[9px] font-mono">
+                  <span className="text-[#00c087] font-bold">
+                    Bids: {poi.orderFlow.imbalance.bidRatioPct}%
+                  </span>
+                  <span className="text-[#848e9c]">L2 Order Book Liquidity</span>
+                  <span className="text-[#ff3b30] font-bold">
+                    Asks: {poi.orderFlow.imbalance.askRatioPct}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full bg-[#1b2535] rounded-full overflow-hidden flex">
+                  <div
+                    className="h-full bg-[#00c087] transition-all duration-300"
+                    style={{ width: `${poi.orderFlow.imbalance.bidRatioPct}%` }}
+                  />
+                  <div
+                    className="h-full bg-[#ff3b30] transition-all duration-300"
+                    style={{ width: `${poi.orderFlow.imbalance.askRatioPct}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Lightweight Chart Canvas Area */}

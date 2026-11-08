@@ -136,6 +136,8 @@ export function formatTelegramRadarReport(
     filtered = filtered.filter((p) => p.status === "sweep" || Boolean(p.sweep));
   } else if (categoryFilter === "broken") {
     filtered = filtered.filter((p) => p.status === "broken" || Boolean(p.breakTelemetry));
+  } else if (categoryFilter === "absorption") {
+    filtered = filtered.filter((p) => Boolean(p.orderFlow && p.orderFlow.isAbsorptionConfirmed));
   } else if (categoryFilter === "sandwich") {
     filtered = filtered.filter((p) => p.category === "sandwich_zone");
   } else if (categoryFilter === "ob") {
@@ -157,6 +159,8 @@ export function formatTelegramRadarReport(
       ? `💧 <b>High Institutional Liquidity Magnets (>= 70% Density)</b>`
       : categoryFilter === "broken"
       ? `🚨 <b>Invalidated / Collapsed Setups (Stop-Out Telemetry)</b>`
+      : categoryFilter === "absorption"
+      ? `🛡️ <b>Order Flow Absorption & CVD Divergence (Confirmed)</b>`
       : categoryFilter === "sweep"
       ? `🧹 <b>Institutional Liquidity Sweeps / Fakeouts</b>`
       : categoryFilter === "inzone"
@@ -199,7 +203,8 @@ export function formatTelegramRadarReport(
       const mtfTag = p.confluence && p.confluence.score >= 2 ? ` | ${p.confluence.label} (${p.confluence.timeframes.join("·")})` : "";
       const liqTag = p.liquidity && p.liquidity.densityPercentile >= 50 ? ` | 💧 <b>${p.liquidity.densityPercentile}% Liq</b>` : "";
       const breakTag = p.status === "broken" || p.breakTelemetry ? ` | 🚨 <b>BROKEN (-${p.breakTelemetry?.overshootPct ?? 0.2}%)</b>` : "";
-      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}${mtfTag}${liqTag}${breakTag}\n`;
+      const flowTag = p.orderFlow && p.orderFlow.isAbsorptionConfirmed ? ` | 🛡️ <b>${p.orderFlow.badgeLabel}</b>` : "";
+      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}${mtfTag}${liqTag}${flowTag}${breakTag}\n`;
       text += `  • Entry: <code>$${pEntry}</code> | ${midLabel}: <code>$${pMt}</code>\n`;
       text += `  • Status: ${statusTag}${metricsTag}\n\n`;
     }
@@ -220,12 +225,15 @@ export function formatTelegramRadarReport(
       ],
       [
         { text: "🧹 Sweeps", callback_data: "cmd:radar:sweep" },
+        { text: "🛡️ Absorption", callback_data: "cmd:radar:absorption" },
         { text: "🥪 Sandwich ++", callback_data: "cmd:radar:sandwich" },
-        { text: "🚨 Broken", callback_data: "cmd:radar:broken" },
       ],
       [
+        { text: "🚨 Broken", callback_data: "cmd:radar:broken" },
         { text: "⚡ FVGs", callback_data: "cmd:radar:fvg" },
         { text: "🔄 All POIs", callback_data: "cmd:radar:all" },
+      ],
+      [
         { text: "🌐 Open Web Radar", url: "http://192.168.2.22:3018/radar" },
       ],
     ],
@@ -504,6 +512,20 @@ export async function processTelegramUpdate(
           replyMarkup: report.replyMarkup,
         });
         return { handled: true, command: "broken" };
+      }
+
+      case "absorption": {
+        const targetCoin = args[0] ? args[0].toUpperCase() : undefined;
+        let pois = options?.samplePois || [];
+        if (targetCoin) {
+          pois = pois.filter((p) => p.symbol.includes(targetCoin));
+        }
+
+        const report = formatTelegramRadarReport(pois, "absorption", targetCoin);
+        await sendTelegramBotMessage(botToken, chatId, report.text, {
+          replyMarkup: report.replyMarkup,
+        });
+        return { handled: true, command: "absorption" };
       }
 
       case "alerts": {
