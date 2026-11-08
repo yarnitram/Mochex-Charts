@@ -42,8 +42,14 @@ import {
   PoiStatus,
 } from "@/lib/indicators/radar-poi-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
+import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
+import {
+  loadStoredPaperAccount,
+  saveStoredPaperAccount,
+  evaluatePaperTick,
+} from "@/lib/trading/paper-trading-engine";
 import {
   RadarAudioSettings,
   getRadarAudioSettings,
@@ -120,6 +126,13 @@ export default function RadarPage() {
     poi: RadarPoiItem;
     currentPrice: number;
     change24h: number;
+  } | null>(null);
+
+  // Selected coin for POI Paper Trade Modal (DEC-142)
+  const [paperTradeModalData, setPaperTradeModalData] = useState<{
+    symbol: string;
+    poi: RadarPoiItem;
+    currentPrice: number;
   } | null>(null);
 
   // Live WebSocket Tick Flashing state
@@ -317,6 +330,34 @@ export default function RadarPage() {
               setTimeout(() => setToastMessage(null), 4000);
             }
           }
+
+          // Automated Paper Trading Limit & Bracket Evaluation on Tick (DEC-142)
+          try {
+            const paperAcc = loadStoredPaperAccount();
+            if (
+              paperAcc.orders.some((o) => o.symbol === sym) ||
+              paperAcc.positions.some((p) => p.symbol === sym)
+            ) {
+              const tickRes = evaluatePaperTick(paperAcc, sym, newPrice);
+              if (tickRes.filledOrders.length > 0 || tickRes.closedTrades.length > 0) {
+                saveStoredPaperAccount(tickRes.state);
+                playRadarChime({ soundType: "cyber_blip", volume: 0.8, enabled: true });
+                if (tickRes.filledOrders.length > 0) {
+                  const ord = tickRes.filledOrders[0];
+                  setToastMessage(
+                    `⚡ Paper Limit Filled: ${ord.side.toUpperCase()} ${ord.quantity.toFixed(4)} ${ord.symbol} @ $${ord.limitPrice.toFixed(2)}!`
+                  );
+                } else if (tickRes.closedTrades.length > 0) {
+                  const trd = tickRes.closedTrades[0];
+                  const pnlSign = trd.realizedPnl >= 0 ? "+" : "";
+                  setToastMessage(
+                    `🎯 Paper Trade Closed (${trd.exitReason}): ${pnlSign}$${trd.realizedPnl.toFixed(2)} on ${trd.symbol}!`
+                  );
+                }
+                setTimeout(() => setToastMessage(null), 4500);
+              }
+            }
+          } catch {}
 
           next[sym] = {
             ...existing,
@@ -1170,6 +1211,21 @@ export default function RadarPage() {
                                   <Bell size={12} />
                                   <span className="hidden sm:inline">Set Alarm</span>
                                 </button>
+
+                                <button
+                                  onClick={() =>
+                                    setPaperTradeModalData({
+                                      symbol: coin.symbol,
+                                      poi: selectedPoi,
+                                      currentPrice: price,
+                                    })
+                                  }
+                                  title={`Arm Automated Paper Trade on ${coin.symbol}`}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#00c087]/15 hover:bg-[#00c087] text-[#00c087] hover:text-black border border-[#00c087]/30 text-[11px] font-bold transition-all cursor-pointer"
+                                >
+                                  <Zap size={12} className="fill-current" />
+                                  <span className="hidden md:inline">Trade</span>
+                                </button>
                               </>
                             )}
 
@@ -1385,6 +1441,20 @@ export default function RadarPage() {
                               <span>24/7 Cloud Alarm</span>
                             </button>
 
+                            <button
+                              onClick={() =>
+                                setPaperTradeModalData({
+                                  symbol: coin.symbol,
+                                  poi: selectedPoi,
+                                  currentPrice: price,
+                                })
+                              }
+                              title={`Arm Paper Trade on ${coin.symbol}`}
+                              className="p-1.5 rounded-lg bg-[#00c087]/15 hover:bg-[#00c087] text-[#00c087] hover:text-black border border-[#00c087]/30 transition-colors cursor-pointer"
+                            >
+                              <Zap size={12} className="fill-current" />
+                            </button>
+
                             <Link
                               href={`/chart?symbol=${coin.symbol}`}
                               title="Open in Terminal"
@@ -1438,6 +1508,13 @@ export default function RadarPage() {
               poisByTimeframe: coinData?.poisByTimeframe || {},
             });
           }}
+          onOpenPaperTradeModal={() => {
+            setPaperTradeModalData({
+              symbol: previewData.symbol,
+              poi: previewData.poi,
+              currentPrice: previewData.currentPrice,
+            });
+          }}
         />
       )}
 
@@ -1446,6 +1523,20 @@ export default function RadarPage() {
         isOpen={isAudioModalOpen}
         onClose={() => setIsAudioModalOpen(false)}
       />
+
+      {/* 8. POI PAPER TRADE MODAL (DEC-142) */}
+      {paperTradeModalData && (
+        <PoiPaperTradeModal
+          isOpen={Boolean(paperTradeModalData)}
+          onClose={() => setPaperTradeModalData(null)}
+          poi={paperTradeModalData.poi}
+          currentPrice={paperTradeModalData.currentPrice}
+          onSuccess={(msg) => {
+            setToastMessage(`⚡ ${msg}`);
+            setTimeout(() => setToastMessage(null), 4000);
+          }}
+        />
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (

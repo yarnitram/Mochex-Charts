@@ -39,6 +39,7 @@ interface PoiQuickPreviewDrawerProps {
   currentPrice: number;
   change24h: number;
   onOpenAlarmModal: () => void;
+  onOpenPaperTradeModal?: () => void;
 }
 
 export function PoiQuickPreviewDrawer({
@@ -50,6 +51,7 @@ export function PoiQuickPreviewDrawer({
   currentPrice,
   change24h,
   onOpenAlarmModal,
+  onOpenPaperTradeModal,
 }: PoiQuickPreviewDrawerProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartApiRef = useRef<IChartApi | null>(null);
@@ -370,7 +372,24 @@ export function PoiQuickPreviewDrawer({
         </div>
 
         {/* Action Toolbar Footer */}
-        <div className="p-4 border-t border-[#1b2535] bg-[#0c1017] flex items-center justify-between gap-3 shrink-0">
+        <div className="p-4 border-t border-[#1b2535] bg-[#0c1017] flex items-center justify-between gap-2 shrink-0">
+          {onOpenPaperTradeModal && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenPaperTradeModal();
+              }}
+              className={`py-2.5 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-md ${
+                isBullish
+                  ? "bg-[#00c087] hover:bg-[#00a876] text-black shadow-[#00c087]/20"
+                  : "bg-[#ff3b30] hover:bg-[#e03026] text-white shadow-[#ff3b30]/20"
+              }`}
+            >
+              <Zap size={13} className="fill-current" />
+              <span>Arm Paper Trade</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               onClose();
@@ -379,14 +398,14 @@ export function PoiQuickPreviewDrawer({
             className="flex-1 py-2.5 px-3 rounded-lg bg-[#2962ff] hover:bg-[#1e50db] text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-md shadow-[#2962ff]/20"
           >
             <Bell size={13} />
-            <span>Set 24/7 Cloud Alarm</span>
+            <span>24/7 Cloud Alarm</span>
           </button>
 
           <Link
             href={`/chart?symbol=${symbol}`}
-            className="py-2.5 px-4 rounded-lg bg-[#121824] hover:bg-[#1a2332] text-white border border-[#233144] font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="py-2.5 px-3 rounded-lg bg-[#121824] hover:bg-[#1a2332] text-white border border-[#233144] font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
-            <span>Workstation Chart</span>
+            <span className="hidden sm:inline">Chart</span>
             <ExternalLink size={13} />
           </Link>
         </div>
