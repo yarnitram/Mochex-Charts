@@ -137,6 +137,17 @@ export function PoiPaperTradeModal({
                 >
                   {isLong ? "LONG (Demand)" : "SHORT (Supply)"}
                 </span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase border ${
+                    poi.exchange === "binance"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                      : poi.exchange === "bybit"
+                      ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  }`}
+                >
+                  {poi.exchangeLabel || (poi.exchange ? poi.exchange.toUpperCase() : "MEXC")}
+                </span>
               </div>
               <div className="text-[10px] text-[#848e9c] flex items-center gap-1.5">
                 <span>{poi.label}</span>

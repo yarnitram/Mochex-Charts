@@ -196,6 +196,17 @@ export function PoiAlarmModal({
                   </span>
                 )}
                 <span
+                  className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border ${
+                    poi.exchange === "binance"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                      : poi.exchange === "bybit"
+                      ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  }`}
+                >
+                  {poi.exchangeLabel || (poi.exchange ? poi.exchange.toUpperCase() : "MEXC")}
+                </span>
+                <span
                   className={`text-[10px] px-2 py-0.5 rounded font-bold ${
                     poi.type === "BULLISH"
                       ? "bg-[#00c087]/15 text-[#00c087] border border-[#00c087]/30"

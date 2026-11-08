@@ -14,6 +14,10 @@ import { applyMitigationToZones } from "./sandwich/mitigation";
 import { DEFAULT_SANDWICH_SETTINGS } from "./sandwich/settings";
 import { SandwichTimeframeId, SandwichZone } from "./sandwich/types";
 import { Bar } from "@/types/tradingview.d";
+import {
+  SupportedExchange,
+  SUPPORTED_EXCHANGES,
+} from "@/lib/screener/multi-exchange-client";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -42,6 +46,9 @@ export interface RadarPoiItem {
   distanceToMtPct: number;
   currentPrice: number;
   time: number;
+  // Multi-Exchange metadata (DEC-143)
+  exchange?: SupportedExchange;
+  exchangeLabel?: string;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -60,7 +67,8 @@ function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; labe
 export function computeRadarPois(
   bars: CandlestickBar[],
   symbol: string,
-  timeframe: string
+  timeframe: string,
+  exchange: SupportedExchange = "mexc"
 ): RadarPoiItem[] {
   if (!bars || bars.length < 4) return [];
 
@@ -68,6 +76,8 @@ export function computeRadarPois(
   const currentPrice = currentBar.close;
   const { tfId, label: tfLabel } = mapTimeframeToSandwichTf(timeframe);
   const items: RadarPoiItem[] = [];
+  const exchangeConfig = SUPPORTED_EXCHANGES[exchange];
+  const exchangeLabel = exchangeConfig?.badgeLabel || exchange.toUpperCase();
 
   // 1. COMPUTE VALIDATED ORDER BLOCKS (OB + 2C FVG)
   const orderBlocks = computeValidatedOrderBlocks(bars, symbol, timeframe, {
@@ -76,8 +86,9 @@ export function computeRadarPois(
   });
 
   for (const ob of orderBlocks) {
+    const poiId = exchange !== "mexc" ? `${exchange}-${ob.id}` : ob.id;
     items.push({
-      id: ob.id,
+      id: poiId,
       symbol: ob.symbol,
       timeframe: ob.timeframe,
       category: "order_block",
@@ -95,6 +106,8 @@ export function computeRadarPois(
       distanceToMtPct: ob.distanceToMtPct,
       currentPrice,
       time: ob.obTime,
+      exchange,
+      exchangeLabel,
     });
   }
 
@@ -169,9 +182,10 @@ export function computeRadarPois(
         const type: PoiDirection = isBullish ? "BULLISH" : "BEARISH";
         const zoneTitle = isBullish ? "Demand Sandwich (GRGG)" : "Supply Sandwich (RGRR)";
         const label = sz.isPlus ? `${zoneTitle} ++` : zoneTitle;
+        const poiId = exchange !== "mexc" ? `${exchange}-${sz.id}` : sz.id;
 
         items.push({
-          id: sz.id,
+          id: poiId,
           symbol: symbol.toUpperCase(),
           timeframe,
           category: "sandwich_zone",
@@ -190,6 +204,8 @@ export function computeRadarPois(
           distanceToMtPct,
           currentPrice,
           time: sz.sourceCandleTime,
+          exchange,
+          exchangeLabel,
         });
       }
     }
@@ -234,8 +250,13 @@ export function computeRadarPois(
 
       if (status === "broken") continue;
 
+      const poiId =
+        exchange !== "mexc"
+          ? `${exchange}-fvg-${symbol}-${timeframe}-${fvg.startTime}`
+          : `fvg-${symbol}-${timeframe}-${fvg.startTime}`;
+
       items.push({
-        id: `fvg-${symbol}-${timeframe}-${fvg.startTime}`,
+        id: poiId,
         symbol: symbol.toUpperCase(),
         timeframe: tfLabel,
         category: "fvg",
@@ -253,6 +274,8 @@ export function computeRadarPois(
         distanceToMtPct,
         currentPrice,
         time: fvg.startTime,
+        exchange,
+        exchangeLabel,
       });
     }
   } catch (err) {

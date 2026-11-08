@@ -13,6 +13,8 @@ export interface ExportableRadarItem {
   change24h: number;
   volume24h?: number;
   selectedPoi: RadarPoiItem | null;
+  exchange?: string;
+  exchangeLabel?: string;
 }
 
 export interface RadarExportMeta {
@@ -40,6 +42,7 @@ function escapeCsvCell(val: string | number | boolean | null | undefined): strin
  */
 export function generateRadarCsv(items: ExportableRadarItem[]): string {
   const headers = [
+    "Exchange",
     "Symbol",
     "Asset Name",
     "Mark Price (USDT)",
@@ -81,7 +84,13 @@ export function generateRadarCsv(items: ExportableRadarItem[]): string {
         : "Fresh"
       : "N/A";
 
+    const exchangeLabel =
+      poi?.exchangeLabel ||
+      item.exchangeLabel ||
+      (poi?.exchange ? poi.exchange.toUpperCase() : item.exchange ? item.exchange.toUpperCase() : "MEXC Spot");
+
     const row = [
+      exchangeLabel,
       item.symbol,
       item.name || item.symbol.replace("USDT", ""),
       item.price.toFixed(item.price >= 1 ? 4 : 8),
@@ -146,12 +155,16 @@ export function generateRadarJson(
     items: items.map((i) => ({
       symbol: i.symbol,
       name: i.name,
+      exchange: i.selectedPoi?.exchange || i.exchange || "mexc",
+      exchangeLabel: i.selectedPoi?.exchangeLabel || i.exchangeLabel || "MEXC Spot",
       markPrice: i.price,
       change24hPct: i.change24h,
       volume24h: i.volume24h,
       poi: i.selectedPoi
         ? {
             id: i.selectedPoi.id,
+            exchange: i.selectedPoi.exchange,
+            exchangeLabel: i.selectedPoi.exchangeLabel,
             category: i.selectedPoi.category,
             type: i.selectedPoi.type,
             timeframe: i.selectedPoi.timeframe,
@@ -216,17 +229,18 @@ export function generateRadarClipboardMarkdown(
   md += `**Total Scanned:** ${items.length} pairs | **Active POIs:** ${itemsWithPois.length} | **🚨 In-Zone:** ${inZoneCount}\n`;
   md += `*Generated: ${timestamp}*\n\n`;
 
-  md += `| Ticker | Price | 24h % | POI Type | TF | Status | Proximity | Entry | 50% MT/CE |\n`;
-  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+  md += `| Exchange | Ticker | Price | 24h % | POI Type | TF | Status | Proximity | Entry | 50% MT/CE |\n`;
+  md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
   for (const item of items) {
     const p = item.price;
     const priceFormatted = `$${p >= 1 ? p.toFixed(2) : p.toFixed(4)}`;
     const chg = `${item.change24h >= 0 ? "+" : ""}${item.change24h.toFixed(2)}%`;
     const poi = item.selectedPoi;
+    const exBadge = poi?.exchange ? poi.exchange.toUpperCase() : item.exchange ? item.exchange.toUpperCase() : "MEXC";
 
     if (!poi) {
-      md += `| ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - |\n`;
+      md += `| ${exBadge} | ${item.symbol} | ${priceFormatted} | ${chg} | *No Active POI* | - | - | - | - | - |\n`;
       continue;
     }
 
@@ -238,7 +252,7 @@ export function generateRadarClipboardMarkdown(
     const entryFormatted = `$${poi.entryPrice >= 1 ? poi.entryPrice.toFixed(2) : poi.entryPrice.toFixed(4)}`;
     const mtFormatted = `$${poi.meanThreshold >= 1 ? poi.meanThreshold.toFixed(2) : poi.meanThreshold.toFixed(4)}`;
 
-    md += `| **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} |\n`;
+    md += `| **${exBadge}** | **${item.symbol}** | ${priceFormatted} | ${chg} | ${poiLabel} | ${poi.timeframe} | ${statusTag} | ${proxTag} | ${entryFormatted} | ${mtFormatted} |\n`;
   }
 
   return md;
