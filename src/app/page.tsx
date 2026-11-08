@@ -38,7 +38,7 @@ export default function LandingPage() {
   const terminalUrl = user ? "/chart" : "/login?callbackUrl=/chart";
 
   return (
-    <div className="min-h-screen bg-[#060b11] text-[#d9e3f3] selection:bg-[#2962ff] selection:text-white relative overflow-x-hidden font-sans">
+    <div className="min-h-screen w-full bg-[#060b11] text-[#d9e3f3] selection:bg-[#2962ff] selection:text-white relative font-sans overflow-x-clip">
       {/* Background Gradients & Ambient Glows */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[550px] bg-[radial-gradient(ellipse_at_center,rgba(41,98,255,0.18),transparent_70%)]" />
@@ -504,7 +504,7 @@ export default function LandingPage() {
       </section>
 
       {/* 4. CORE FEATURES DEEP DIVE (6 INSTITUTIONAL PILLARS) */}
-      <section id="features" className="py-20 bg-[#070e17] border-y border-[#141e2b] relative z-10">
+      <section id="features" className="py-20 bg-[#070e17] border-y border-[#141e2b] relative z-10 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-xs font-mono font-bold tracking-widest uppercase text-[#2962ff] mb-2">
@@ -520,7 +520,7 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Feature 1: Smart Money Concepts */}
-            <div id="smc" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#2962ff]/50 transition-all flex flex-col justify-between group">
+            <div id="smc" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#2962ff]/50 transition-all flex flex-col justify-between group scroll-mt-24">
               <div>
                 <div className="w-10 h-10 rounded-xl bg-[#2962ff]/10 border border-[#2962ff]/20 text-[#2962ff] flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <Layers size={20} />
@@ -545,7 +545,7 @@ export default function LandingPage() {
             </div>
 
             {/* Feature 2: Multi-Timeframe EMA Ribbon */}
-            <div id="indicators" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#00c087]/50 transition-all flex flex-col justify-between group">
+            <div id="indicators" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#00c087]/50 transition-all flex flex-col justify-between group scroll-mt-24">
               <div>
                 <div className="w-10 h-10 rounded-xl bg-[#00c087]/10 border border-[#00c087]/20 text-[#00c087] flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <TrendingUp size={20} />
@@ -620,7 +620,7 @@ export default function LandingPage() {
             </div>
 
             {/* Feature 5: Discord & Telegram Webhooks */}
-            <div id="alerts" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#b6c4ff]/50 transition-all flex flex-col justify-between group">
+            <div id="alerts" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#b6c4ff]/50 transition-all flex flex-col justify-between group scroll-mt-24">
               <div>
                 <div className="w-10 h-10 rounded-xl bg-[#b6c4ff]/10 border border-[#b6c4ff]/20 text-[#b6c4ff] flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <Bell size={20} />
@@ -645,7 +645,7 @@ export default function LandingPage() {
             </div>
 
             {/* Feature 6: Bar Replay Engine & Strategy Simulator */}
-            <div id="replay" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#ff3b30]/50 transition-all flex flex-col justify-between group">
+            <div id="replay" className="p-6 rounded-2xl bg-[#09121d] border border-[#1b2839] hover:border-[#ff3b30]/50 transition-all flex flex-col justify-between group scroll-mt-24">
               <div>
                 <div className="w-10 h-10 rounded-xl bg-[#ff3b30]/10 border border-[#ff3b30]/20 text-[#ff3b30] flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                   <Play size={20} />
@@ -762,7 +762,7 @@ export default function LandingPage() {
       </section>
 
       {/* 6. ARCHITECTURE & SECURITY MATRIX */}
-      <section id="architecture" className="py-20 bg-[#070e17] border-t border-[#141e2b] relative z-10">
+      <section id="architecture" className="py-20 bg-[#070e17] border-t border-[#141e2b] relative z-10 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-16">
             <h2 className="text-xs font-mono font-bold tracking-widest uppercase text-[#00c087] mb-2">
