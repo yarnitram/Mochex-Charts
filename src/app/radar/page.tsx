@@ -26,6 +26,7 @@ import {
   Volume2,
   VolumeX,
   Send,
+  ShieldAlert,
   FileSpreadsheet,
   FileJson,
   Copy,
@@ -52,6 +53,7 @@ import {
 } from "@/lib/indicators/radar-poi-engine";
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
+import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateForRisk, PoiCorrelationRiskInfo } from "@/lib/indicators/portfolio-risk-engine";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
@@ -98,6 +100,7 @@ interface RadarCoinData {
   poisByTimeframe: Record<string, RadarPoiItem[]>;
   exchange?: string;
   metrics?: PoiHistoricalMetrics | null;
+  correlation?: PoiCorrelationRiskInfo | null;
 }
 
 export default function RadarPage() {
@@ -155,12 +158,12 @@ export default function RadarPage() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<
-    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | "absorption" | PoiCategory
+    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | "absorption" | "risk_cluster" | PoiCategory
   >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
   const [sortBy, setSortBy] = useState<
-    "proximity" | "confluence" | "liquidity" | "volume" | "change" | "winrate" | "imbalance"
+    "proximity" | "correlation" | "confluence" | "liquidity" | "volume" | "change" | "winrate" | "imbalance"
   >("proximity");
 
   // Loaded POI radar data
@@ -176,6 +179,9 @@ export default function RadarPage() {
   } | null>(null);
 
   // Alert Channels Webhook Modal State (DEC-154)
+  // Portfolio Risk Heat & Sector Exposure State (DEC-155)
+  const [portfolioRiskSummary, setPortfolioRiskSummary] = useState<PortfolioRiskHeatSummary | null>(null);
+  const [isRiskDrawerOpen, setIsRiskDrawerOpen] = useState(false);
   const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
   const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
 
@@ -313,6 +319,9 @@ export default function RadarPage() {
             map[item.symbol] = item;
           });
           setRadarData((prev) => ({ ...prev, ...map }));
+          if (data.portfolioRisk) {
+            setPortfolioRiskSummary(data.portfolioRisk);
+          }
         }
       }
     } catch (err) {
@@ -552,6 +561,12 @@ export default function RadarPage() {
           );
           selectedPoi =
             sortedByAbs[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+        } else if (poiCategoryFilter === "risk_cluster") {
+          const sortedByRisk = [...candidatePois].sort(
+            (a, b) => (b.correlation?.clusterExposureScore ?? 0) - (a.correlation?.clusterExposureScore ?? 0)
+          );
+          selectedPoi =
+            sortedByRisk[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "confluence") {
           const sortedByConf = [...candidatePois].sort(
             (a, b) => (b.confluence?.score ?? 0) - (a.confluence?.score ?? 0)
@@ -653,6 +668,14 @@ export default function RadarPage() {
           const wrB = b.selectedPoi?.metrics?.winRatePct ?? -1;
           return wrB - wrA;
         }
+        if (sortBy === "correlation") {
+          const corrA = a.selectedPoi?.correlation?.btcCorrelation ?? 0;
+          const corrB = b.selectedPoi?.correlation?.btcCorrelation ?? 0;
+          if (corrB !== corrA) return corrB - corrA;
+          const distA = a.selectedPoi?.distanceToEntryPct ?? 999;
+          const distB = b.selectedPoi?.distanceToEntryPct ?? 999;
+          return distA - distB;
+        }
         if (sortBy === "imbalance") {
           const imbA = a.selectedPoi?.orderFlow?.absorptionScore ?? 0;
           const imbB = b.selectedPoi?.orderFlow?.absorptionScore ?? 0;
@@ -744,6 +767,21 @@ export default function RadarPage() {
     ).length;
   }, [radarData]);
 
+
+  // Live Portfolio Risk Heat & Skew Recalculation (DEC-155)
+  const livePortfolioRisk = useMemo(() => {
+    if (filteredCoins.length === 0) return portfolioRiskSummary;
+    const btcCoin = filteredCoins.find((c) => c.coin.symbol === "BTCUSDT");
+    const candidates: ScannedCandidateForRisk[] = filteredCoins.map((fc) => ({
+      symbol: fc.coin.symbol,
+      direction: fc.selectedPoi?.type || null,
+      distancePct: fc.selectedPoi?.distanceToEntryPct,
+      isInZone: fc.selectedPoi?.isInsideZone,
+      change24h: fc.data?.change24h || 0,
+      btcCorrelation: fc.selectedPoi?.correlation?.btcCorrelation,
+    }));
+    return evaluatePortfolioRiskHeat(candidates, btcCoin?.data?.change24h || 0);
+  }, [filteredCoins, portfolioRiskSummary]);
   // Partition filtered coins into Kanban Lanes
   const kanbanLanes = useMemo(() => {
     const sweeps: typeof filteredCoins = [];
@@ -951,7 +989,7 @@ export default function RadarPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 shrink-0">
             <div className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] text-center">
               <div className="text-[10px] text-[#848e9c] uppercase font-bold">Monitored Pairs</div>
               <div className="text-base font-bold text-white mt-0.5">{currentCoins.length}</div>
@@ -968,9 +1006,186 @@ export default function RadarPage() {
               <div className="text-[10px] text-[#00c087] uppercase font-bold">&lt; 1% Proximity</div>
               <div className="text-base font-bold text-[#00c087] mt-0.5">{totalNearPois}</div>
             </div>
+            {/* Portfolio Risk Heat Monitor Card (DEC-155) */}
+            <button
+              type="button"
+              onClick={() => setIsRiskDrawerOpen((prev) => !prev)}
+              className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+                isRiskDrawerOpen
+                  ? "bg-[#162032] border-[#2962ff] shadow-md shadow-[#2962ff]/20"
+                  : "bg-[#121824] border-[#233144] hover:border-[#2962ff]/50"
+              }`}
+              title="Click to toggle Portfolio Risk & Sector Heat Monitor"
+            >
+              <div className="text-[10px] text-amber-400 uppercase font-bold flex items-center gap-1">
+                <ShieldAlert size={11} />
+                <span>Risk Heat</span>
+              </div>
+              <div className="text-sm font-extrabold mt-0.5 flex items-center gap-1">
+                <span
+                  className={
+                    livePortfolioRisk?.riskTier === "EXTREME"
+                      ? "text-rose-400 font-black animate-pulse"
+                      : livePortfolioRisk?.riskTier === "ELEVATED"
+                      ? "text-amber-400 font-bold"
+                      : livePortfolioRisk?.riskTier === "MODERATE"
+                      ? "text-cyan-400 font-bold"
+                      : "text-emerald-400 font-bold"
+                  }
+                >
+                  {livePortfolioRisk?.overallRiskScore ?? 28}% {livePortfolioRisk?.riskTier ?? "LOW"}
+                </span>
+              </div>
+            </button>
           </div>
         </div>
       </section>
+
+      {/* 2.5 INTERACTIVE PORTFOLIO RISK & SECTOR HEAT MONITOR PANEL (DEC-155) */}
+      {isRiskDrawerOpen && livePortfolioRisk && (
+        <section className="bg-[#0b1019] border-b border-[#1b2535] px-4 sm:px-6 py-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="max-w-7xl mx-auto flex flex-col gap-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-400">
+                  <ShieldAlert size={16} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Portfolio Risk & Sector Exposure Monitor</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded font-extrabold border ${
+                        livePortfolioRisk.riskTier === "EXTREME"
+                          ? "bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse"
+                          : livePortfolioRisk.riskTier === "ELEVATED"
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          : livePortfolioRisk.riskTier === "MODERATE"
+                          ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                          : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      }`}
+                    >
+                      {livePortfolioRisk.overallRiskScore}/100 {livePortfolioRisk.riskTier} RISK
+                    </span>
+                  </h2>
+                  <p className="text-[11px] text-[#848e9c]">
+                    Real-time market directional skew, BTC correlation clustering, and sector concurrence telemetry to prevent correlated multi-asset drawdowns.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <div className="flex items-center gap-1.5 text-[#848e9c]">
+                  <span>Avg BTC Correlation:</span>
+                  <strong className="text-white">ρ +{livePortfolioRisk.averageBtcCorrelation.toFixed(2)}</strong>
+                </div>
+                <div className="flex items-center gap-1.5 text-[#848e9c]">
+                  <span>Concurrent In-Zone:</span>
+                  <strong className="text-amber-400 font-bold">{livePortfolioRisk.nearProximityPoisCount} pairs (&lt; 1.5%)</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Directional Skew Gauge */}
+            <div className="p-3 rounded-xl bg-[#121824] border border-[#233144] flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-[#00c087] flex items-center gap-1">
+                  <span>🟢 Bullish Demand:</span>
+                  <span>{livePortfolioRisk.bullishPoisCount} ({Math.round((livePortfolioRisk.bullishPoisCount / Math.max(1, livePortfolioRisk.bullishPoisCount + livePortfolioRisk.bearishPoisCount)) * 100)}%)</span>
+                </span>
+                <span className="text-[11px] font-mono text-[#b6c4ff]">
+                  Directional Skew: {livePortfolioRisk.directionalSkewPct >= 0 ? "+" : ""}{livePortfolioRisk.directionalSkewPct}% ({livePortfolioRisk.directionalBias.replace(/_/g, " ")})
+                </span>
+                <span className="text-[#ff3b30] flex items-center gap-1">
+                  <span>🔴 Bearish Supply:</span>
+                  <span>{livePortfolioRisk.bearishPoisCount} ({Math.round((livePortfolioRisk.bearishPoisCount / Math.max(1, livePortfolioRisk.bullishPoisCount + livePortfolioRisk.bearishPoisCount)) * 100)}%)</span>
+                </span>
+              </div>
+              <div className="h-2 w-full bg-[#1b2535] rounded-full overflow-hidden flex">
+                <div
+                  className="h-full bg-[#00c087] transition-all duration-500"
+                  style={{
+                    width: `${Math.round(
+                      (livePortfolioRisk.bullishPoisCount /
+                        Math.max(1, livePortfolioRisk.bullishPoisCount + livePortfolioRisk.bearishPoisCount)) *
+                        100
+                    )}%`,
+                  }}
+                />
+                <div
+                  className="h-full bg-[#ff3b30] transition-all duration-500"
+                  style={{
+                    width: `${Math.round(
+                      (livePortfolioRisk.bearishPoisCount /
+                        Math.max(1, livePortfolioRisk.bullishPoisCount + livePortfolioRisk.bearishPoisCount)) *
+                        100
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Sector Heat Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {Object.values(livePortfolioRisk.sectorBreakdown).map((sm) => {
+                if (sm.totalCoins === 0) return null;
+                return (
+                  <div
+                    key={sm.sector}
+                    className="p-2.5 rounded-lg bg-[#121824] border border-[#233144] flex flex-col gap-1 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white text-[11px] truncate">{sm.badge}</span>
+                      <span
+                        className={`text-[8px] font-extrabold px-1 rounded border ${
+                          sm.heatTier === "EXTREME"
+                            ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                            : sm.heatTier === "ELEVATED"
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                            : sm.heatTier === "MODERATE"
+                            ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                            : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                        }`}
+                      >
+                        {sm.heatTier}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-[#848e9c] font-mono mt-1">
+                      <span>Monitored: <strong className="text-white">{sm.totalCoins}</strong></span>
+                      <span>Near: <strong className={sm.nearProximityCount > 0 ? "text-amber-400 font-bold" : "text-white"}>{sm.nearProximityCount}</strong></span>
+                    </div>
+                    <div className="text-[10px] text-[#848e9c] font-mono flex justify-between">
+                      <span>BTC ρ:</span>
+                      <span className="text-cyan-400">+{sm.averageBtcCorrelation.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Sizing & Warning Banner */}
+            <div className="p-3 rounded-lg bg-[#121824] border border-[#233144] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+              <div className="flex flex-col gap-1 flex-1">
+                <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                  Institutional Risk Advisories
+                </span>
+                <div className="flex flex-col gap-0.5 text-[11px] text-[#d1d4dc]">
+                  {livePortfolioRisk.warningMessages.map((msg, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span>{msg}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#0e141f] border border-[#233144] md:max-w-xs shrink-0 flex flex-col gap-1">
+                <span className="text-[9px] text-[#848e9c] uppercase font-bold">Execution Guidance</span>
+                <span className="text-[11px] font-semibold text-white leading-tight">
+                  {livePortfolioRisk.sizingRecommendation}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 3. CONTROLS, TABS & FILTERS */}
       <section className="px-4 sm:px-6 py-4 max-w-7xl mx-auto w-full flex flex-col gap-3">
@@ -1121,6 +1336,7 @@ export default function RadarPage() {
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
               <option value="absorption">🛡️ Order Flow Absorption & CVD Div (≥ 65%)</option>
+              <option value="risk_cluster">⚠️ High Directional Cluster (≥ 50% Exposure)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
               <option value="liquidity">💧 High Liquidity Magnets (≥ 70%)</option>
               <option value="broken">🚨 Invalidated / Stop-Out Zones</option>
@@ -1428,6 +1644,28 @@ export default function RadarPage() {
                                   <span className="px-1.5 py-0.2 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 text-[8px] font-bold flex items-center gap-0.5">
                                     <Star size={8} className="fill-yellow-400" />
                                     <span>++ S/R</span>
+                                  </span>
+                                )}
+
+                                {/* Multi-Asset Sector & Correlation Badge (DEC-155) */}
+                                {selectedPoi.correlation && (
+                                  <span
+                                    className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-[#172233] text-[#b6c4ff] border border-[#233144] flex items-center gap-1 shrink-0"
+                                    title={`${selectedPoi.correlation.sectorLabel} | Correlation to BTC: ${selectedPoi.correlation.btcCorrelation >= 0 ? "+" : ""}${selectedPoi.correlation.btcCorrelation.toFixed(2)} | Cluster Risk: ${selectedPoi.correlation.clusterExposureScore}%`}
+                                  >
+                                    <span>{selectedPoi.correlation.sectorBadge}</span>
+                                    <span
+                                      className={
+                                        selectedPoi.correlation.btcCorrelation >= 0.7
+                                          ? "text-emerald-400 font-extrabold"
+                                          : selectedPoi.correlation.btcCorrelation >= 0.35
+                                          ? "text-cyan-400"
+                                          : "text-[#848e9c]"
+                                      }
+                                    >
+                                      ρ{selectedPoi.correlation.btcCorrelation >= 0 ? "+" : ""}
+                                      {selectedPoi.correlation.btcCorrelation.toFixed(2)}
+                                    </span>
                                   </span>
                                 )}
 
@@ -1811,6 +2049,24 @@ export default function RadarPage() {
                                   title={`Historical Win Rate: ${selectedPoi.metrics.wins} wins / ${selectedPoi.metrics.losses} losses (${selectedPoi.metrics.avgRr}R avg)`}
                                 >
                                   <span>🎯 {selectedPoi.metrics.winRatePct}%</span>
+                                </span>
+                              )}
+
+                              {selectedPoi.correlation && (
+                                <span
+                                  className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-[#172233] text-[#b6c4ff] border border-[#233144] flex items-center gap-1 shrink-0"
+                                  title={`${selectedPoi.correlation.sectorLabel} | Correlation to BTC: ${selectedPoi.correlation.btcCorrelation >= 0 ? "+" : ""}${selectedPoi.correlation.btcCorrelation.toFixed(2)}`}
+                                >
+                                  <span>{selectedPoi.correlation.sectorBadge}</span>
+                                  <span
+                                    className={
+                                      selectedPoi.correlation.btcCorrelation >= 0.7
+                                        ? "text-emerald-400 font-bold"
+                                        : "text-[#848e9c]"
+                                    }
+                                  >
+                                    ρ{selectedPoi.correlation.btcCorrelation >= 0 ? "+" : ""}{selectedPoi.correlation.btcCorrelation.toFixed(2)}
+                                  </span>
                                 </span>
                               )}
 

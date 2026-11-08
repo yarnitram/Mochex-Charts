@@ -4,6 +4,7 @@ import {
   formatTelegramHelpMessage,
   formatTelegramRadarReport,
   formatTelegramAlertsReport,
+  formatTelegramPortfolioRiskReport,
   processTelegramUpdate,
   TelegramUpdate,
 } from "../src/lib/telegram/telegram-bot-engine";
@@ -326,6 +327,40 @@ describe("Institutional Telegram Bot Engine (DEC-141)", () => {
       expect(res.handled).toBe(true);
       expect(res.command).toBe("callback:cmd:radar:inzone");
       expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+    it("formats portfolio risk heat report with directional skew and sizing guidance", () => {
+      const report = formatTelegramPortfolioRiskReport(samplePois);
+      expect(report.text).toContain("MOCHEX PORTFOLIO RISK & CORRELATED EXPOSURE REPORT");
+      expect(report.text).toContain("Overall Risk Heat");
+      expect(report.text).toContain("Directional Bias");
+      expect(report.text).toContain("SIZING GUIDANCE");
+      expect(report.replyMarkup.inline_keyboard.length).toBeGreaterThan(0);
+    });
+
+    it("handles /risk command and dispatches portfolio risk report", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ ok: true, result: { message_id: 105 } }),
+      } as any);
+
+      const update: TelegramUpdate = {
+        update_id: 5,
+        message: {
+          message_id: 20,
+          chat: { id: 777888, type: "private" },
+          date: 1730000000,
+          text: "/risk",
+        },
+      };
+
+      const res = await processTelegramUpdate(update, {
+        defaultBotToken: "123456:ABC-DEF-MOCK-TOKEN",
+        samplePois,
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.command).toBe("risk");
+      expect(fetchSpy).toHaveBeenCalled();
     });
   });
 });

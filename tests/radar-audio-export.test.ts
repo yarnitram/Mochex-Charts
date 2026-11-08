@@ -148,6 +148,15 @@ describe("Institutional Radar Export Engine", () => {
         distanceToMtPct: 1.36,
         currentPrice: 76540.25,
         time: 1730000000,
+        correlation: {
+          btcCorrelation: 1.0,
+          correlationTier: "HIGH",
+          sector: "majors_l1",
+          sectorLabel: "Layer 1 / Majors",
+          sectorBadge: "🏛️ L1/Majors",
+          clusterExposureScore: 75,
+          correlatedPeersCount: 3,
+        },
       },
     },
     {
@@ -202,6 +211,7 @@ describe("Institutional Radar Export Engine", () => {
     expect(lines.length).toBe(4); // 1 header + 3 rows
     expect(lines[0]).toContain("Symbol,Asset Name,Mark Price (USDT),24h Change %");
     expect(lines[0]).toContain("Zone Entry Price,50% Midpoint (MT/CE)");
+    expect(lines[0]).toContain("BTC Correlation (rho),Sector,Cluster Risk %");
 
     // BTC Row
     expect(lines[1]).toContain("BTCUSDT,Bitcoin,76540.2500,3.45");
@@ -231,6 +241,7 @@ describe("Institutional Radar Export Engine", () => {
     expect(parsed.items[0].symbol).toBe("BTCUSDT");
     expect(parsed.items[0].poi.category).toBe("order_block");
     expect(parsed.items[0].poi.isInsideZone).toBe(true);
+    expect(parsed.items[0].poi.correlation.sector).toBe("majors_l1");
 
     expect(parsed.items[2].symbol).toBe("SOLUSDT");
     expect(parsed.items[2].poi).toBeNull();

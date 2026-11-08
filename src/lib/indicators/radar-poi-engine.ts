@@ -30,6 +30,7 @@ import { PoiConfluenceInfo } from "./poi-confluence-matrix";
 import { PoiLiquiditySummary } from "./poi-liquidity-heatmap";
 import { PoiBreakTelemetry } from "./poi-invalidation-engine";
 import { PoiOrderFlowTelemetry, evaluatePoiOrderFlow } from "./orderbook-cvd-engine";
+import { PoiCorrelationRiskInfo, evaluatePoiCorrelationRisk, estimateBtcCorrelation } from "./portfolio-risk-engine";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type PoiDirection = "BULLISH" | "BEARISH";
@@ -74,6 +75,8 @@ export interface RadarPoiItem {
   breakTelemetry?: PoiBreakTelemetry | null;
   // Institutional Orderbook Imbalance & CVD Absorption Divergence (DEC-153)
   orderFlow?: PoiOrderFlowTelemetry | null;
+  // Multi-Asset Portfolio Risk & Correlated Exposure (DEC-155)
+  correlation?: PoiCorrelationRiskInfo | null;
 }
 
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
@@ -366,10 +369,18 @@ export function computeRadarPois(
     console.warn(`[radar-poi-engine] Error computing FVGs for ${symbol}:`, err);
   }
 
-  // Attach Order Flow & CVD Absorption Telemetry (DEC-153)
+  // Attach Order Flow (DEC-153) & Portfolio Correlation Risk (DEC-155)
+  const btcCorr = estimateBtcCorrelation(symbol, 0, 0);
   for (const item of items) {
     try {
       item.orderFlow = evaluatePoiOrderFlow(bars, item);
+      item.correlation = evaluatePoiCorrelationRisk(
+        symbol,
+        item.type,
+        item.distanceToEntryPct,
+        btcCorr,
+        1
+      );
     } catch {}
   }
 
