@@ -54,6 +54,9 @@ export interface PriceAlert {
   triggeredCount: number;
   lastTriggeredAt?: number;
   createdAt: number;
+  /** Optional channel delivery overrides (DEC-130) */
+  notifyDiscord?: boolean;
+  notifyTelegram?: boolean;
 }
 
 export interface AlertLogEntry {
@@ -441,6 +444,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
     ];
   }
@@ -467,6 +472,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
     ];
   }
@@ -487,6 +494,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
       {
         id: `alert-${drawing.id}-rect-bot-${nowMs}`,
@@ -500,6 +509,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
     ];
   }
@@ -524,6 +535,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
       {
         id: `alert-${drawing.id}-sl-${nowMs}`,
@@ -537,6 +550,8 @@ export function createAlertsFromDrawing(
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
+        notifyDiscord: true,
+        notifyTelegram: true,
       },
     ];
   }
@@ -604,3 +619,6 @@ export function playInstitutionalAlertChime(): void {
     // Ignore audio context autoplay restrictions
   }
 }
+
+// Re-export Webhook Dispatcher types (DEC-130)
+export * from "./webhook-dispatcher";
