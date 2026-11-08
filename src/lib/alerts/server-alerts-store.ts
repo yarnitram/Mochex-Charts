@@ -129,6 +129,25 @@ export async function getServerWebhooks(userId: string): Promise<AlertWebhookCon
 }
 
 /**
+ * Finds user profile and webhook configuration matching a Telegram Chat ID (DEC-141)
+ */
+export async function findUserByTelegramChatId(chatId: string | number): Promise<{
+  userId: string;
+  webhooks: AlertWebhookConfig;
+} | null> {
+  const map = readJsonFile<UserWebhooksMap>(WEBHOOKS_FILE, {});
+  const target = String(chatId).trim();
+  if (!target) return null;
+
+  for (const [userId, config] of Object.entries(map)) {
+    if (config.telegramChatId && String(config.telegramChatId).trim() === target) {
+      return { userId, webhooks: config };
+    }
+  }
+  return null;
+}
+
+/**
  * Saves webhook configuration for a user
  */
 export async function saveServerWebhooks(
