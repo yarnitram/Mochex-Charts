@@ -22,6 +22,7 @@ import {
   Kanban,
   Table,
   Zap,
+  Eye,
 } from "lucide-react";
 import {
   getUniverseCoins,
@@ -33,8 +34,11 @@ import {
   RadarPoiItem,
   PoiCategory,
   PoiDirection,
+  PoiStatus,
 } from "@/lib/indicators/radar-poi-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
+import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
+import { mexcWsManager, MiniTickerCallback } from "@/lib/mexc/websocket";
 import { useAuth } from "@/lib/auth/use-auth";
 
 interface RadarCoinData {
@@ -90,6 +94,19 @@ export default function RadarPage() {
     poi: RadarPoiItem;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
   } | null>(null);
+
+  // Selected coin for Quick Preview Drawer
+  const [previewData, setPreviewData] = useState<{
+    symbol: string;
+    coinName?: string;
+    poi: RadarPoiItem;
+    currentPrice: number;
+    change24h: number;
+  } | null>(null);
+
+  // Live WebSocket Tick Flashing state
+  const [priceFlashing, setPriceFlashing] = useState<Record<string, "up" | "down">>({});
+  const [isWsConnected, setIsWsConnected] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -181,6 +198,102 @@ export default function RadarPage() {
     }, 15000);
     return () => clearInterval(interval);
   }, [fetchRadarData]);
+
+  // Live MEXC WebSocket miniTickers stream for instant price updates & proximity adjustments
+  useEffect(() => {
+    let isMounted = true;
+    setIsWsConnected(true);
+
+    const handleMiniTickers: MiniTickerCallback = (tickers) => {
+      if (!isMounted || !tickers || tickers.length === 0) return;
+
+      setRadarData((prev) => {
+        let hasUpdates = false;
+        const next = { ...prev };
+        const flashMap: Record<string, "up" | "down"> = {};
+
+        for (const t of tickers) {
+          const sym = t.s.toUpperCase();
+          const existing = next[sym];
+          if (!existing) continue;
+
+          const newPrice = parseFloat(t.p);
+          if (!newPrice || isNaN(newPrice) || newPrice === existing.price) continue;
+
+          const rawR = parseFloat(t.r || "0");
+          const newChange24h = Math.abs(rawR) <= 1.0 ? rawR * 100 : rawR;
+          const direction: "up" | "down" = newPrice > existing.price ? "up" : "down";
+          flashMap[sym] = direction;
+          hasUpdates = true;
+
+          // Helper to recalculate a POI's dynamic metrics
+          const updatePoi = (poi: RadarPoiItem | null): RadarPoiItem | null => {
+            if (!poi) return null;
+            const isInside = newPrice >= poi.bottom && newPrice <= poi.top;
+            const distEntry =
+              newPrice > poi.entryPrice
+                ? ((newPrice - poi.entryPrice) / newPrice) * 100
+                : newPrice < poi.entryPrice
+                ? ((poi.entryPrice - newPrice) / newPrice) * 100
+                : 0;
+            const distMt = (Math.abs(newPrice - poi.meanThreshold) / newPrice) * 100;
+            const isBroken = poi.type === "BULLISH" ? newPrice < poi.bottom : newPrice > poi.top;
+            const status: PoiStatus = isBroken
+              ? "broken"
+              : isInside
+              ? "testing"
+              : poi.status === "mitigated"
+              ? "mitigated"
+              : "fresh";
+
+            return {
+              ...poi,
+              currentPrice: newPrice,
+              isInsideZone: isInside,
+              distanceToEntryPct: distEntry,
+              distanceToMtPct: distMt,
+              status,
+            };
+          };
+
+          next[sym] = {
+            ...existing,
+            price: newPrice,
+            change24h: newChange24h || existing.change24h,
+            high24h: Math.max(existing.high24h, newPrice),
+            low24h: existing.low24h > 0 ? Math.min(existing.low24h, newPrice) : newPrice,
+            nearestPoi: updatePoi(existing.nearestPoi),
+            nearestOb: updatePoi(existing.nearestOb),
+            nearestSandwich: updatePoi(existing.nearestSandwich),
+            nearestFvg: updatePoi(existing.nearestFvg),
+          };
+        }
+
+        if (Object.keys(flashMap).length > 0) {
+          setPriceFlashing((f) => ({ ...f, ...flashMap }));
+          setTimeout(() => {
+            if (isMounted) {
+              setPriceFlashing((f) => {
+                const cleared = { ...f };
+                Object.keys(flashMap).forEach((k) => delete cleared[k]);
+                return cleared;
+              });
+            }
+          }, 600);
+        }
+
+        return hasUpdates ? next : prev;
+      });
+    };
+
+    mexcWsManager.connect();
+    mexcWsManager.subscribeMiniTickers(handleMiniTickers);
+
+    return () => {
+      isMounted = false;
+      mexcWsManager.unsubscribeMiniTickers(handleMiniTickers);
+    };
+  }, []);
 
   // Filter and Sort coins
   const filteredCoins = useMemo(() => {
@@ -350,6 +463,16 @@ export default function RadarPage() {
             <span className="w-2 h-2 rounded-full bg-[#00c087] animate-pulse" />
             <span className="text-[11px] text-[#00c087] font-semibold">
               24/7 Cloud Offline Alarms Active
+            </span>
+          </div>
+
+          <div className="hidden lg:flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-full bg-[#00c087]/10 border border-[#00c087]/30">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00c087] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00c087]" />
+            </span>
+            <span className="text-[10px] text-[#00c087] font-bold tracking-tight">
+              LIVE WS TICKER
             </span>
           </div>
         </div>
@@ -689,8 +812,18 @@ export default function RadarPage() {
                         </td>
 
                         {/* 2. PRICE */}
-                        <td className="py-3.5 px-4 font-mono font-bold text-white">
-                          ${formattedPrice}
+                        <td className="py-3.5 px-4 font-mono font-bold">
+                          <span
+                            className={`px-1.5 py-0.5 rounded transition-all duration-200 ${
+                              priceFlashing[coin.symbol] === "up"
+                                ? "bg-[#00c087]/20 text-[#00c087]"
+                                : priceFlashing[coin.symbol] === "down"
+                                ? "bg-[#ff3b30]/20 text-[#ff3b30]"
+                                : "text-white"
+                            }`}
+                          >
+                            ${formattedPrice}
+                          </span>
                         </td>
 
                         {/* 3. 24H CHANGE & VOL */}
@@ -838,20 +971,38 @@ export default function RadarPage() {
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {selectedPoi && (
-                              <button
-                                onClick={() =>
-                                  setAlarmModalData({
-                                    symbol: coin.symbol,
-                                    poi: selectedPoi,
-                                    poisByTimeframe: data?.poisByTimeframe || {},
-                                  })
-                                }
-                                title="Set 24/7 Cloud Offline Alarm"
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30 text-[11px] font-bold transition-all cursor-pointer"
-                              >
-                                <Bell size={12} />
-                                <span className="hidden sm:inline">Set Alarm</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={() =>
+                                    setPreviewData({
+                                      symbol: coin.symbol,
+                                      coinName: coin.name,
+                                      poi: selectedPoi,
+                                      currentPrice: price,
+                                      change24h,
+                                    })
+                                  }
+                                  title="Quick Chart Preview"
+                                  className="p-1.5 rounded bg-[#121824] hover:bg-[#1a2332] text-[#848e9c] hover:text-[#2962ff] border border-[#233144] transition-colors cursor-pointer"
+                                >
+                                  <Eye size={13} />
+                                </button>
+
+                                <button
+                                  onClick={() =>
+                                    setAlarmModalData({
+                                      symbol: coin.symbol,
+                                      poi: selectedPoi,
+                                      poisByTimeframe: data?.poisByTimeframe || {},
+                                    })
+                                  }
+                                  title="Set 24/7 Cloud Offline Alarm"
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30 text-[11px] font-bold transition-all cursor-pointer"
+                                >
+                                  <Bell size={12} />
+                                  <span className="hidden sm:inline">Set Alarm</span>
+                                </button>
+                              </>
                             )}
 
                             <Link
@@ -954,7 +1105,15 @@ export default function RadarPage() {
                                 {isPositive ? "+" : ""}
                                 {change24h.toFixed(2)}%
                               </span>
-                              <span className="text-[10px] text-[#848e9c] block font-mono">
+                              <span
+                                className={`text-[10px] block font-mono font-bold transition-all duration-200 ${
+                                  priceFlashing[coin.symbol] === "up"
+                                    ? "text-[#00c087]"
+                                    : priceFlashing[coin.symbol] === "down"
+                                    ? "text-[#ff3b30]"
+                                    : "text-[#848e9c]"
+                                }`}
+                              >
                                 ${formattedPrice}
                               </span>
                             </div>
@@ -1030,6 +1189,22 @@ export default function RadarPage() {
                           <div className="flex items-center gap-1.5 pt-1">
                             <button
                               onClick={() =>
+                                setPreviewData({
+                                  symbol: coin.symbol,
+                                  coinName: coin.name,
+                                  poi: selectedPoi,
+                                  currentPrice: price,
+                                  change24h,
+                                })
+                              }
+                              title="Quick Chart Preview"
+                              className="p-1.5 rounded-lg bg-[#121824] hover:bg-[#1a2332] text-[#848e9c] hover:text-[#2962ff] border border-[#233144] transition-colors cursor-pointer"
+                            >
+                              <Eye size={12} />
+                            </button>
+
+                            <button
+                              onClick={() =>
                                 setAlarmModalData({
                                   symbol: coin.symbol,
                                   poi: selectedPoi,
@@ -1072,6 +1247,28 @@ export default function RadarPage() {
           onSuccess={(count) => {
             setToastMessage(`Created ${count} 24/7 Cloud POI Alarm(s)!`);
             setTimeout(() => setToastMessage(null), 4000);
+          }}
+        />
+      )}
+
+      {/* 6. POI QUICK CHART PREVIEW DRAWER */}
+      {previewData && (
+        <PoiQuickPreviewDrawer
+          isOpen={Boolean(previewData)}
+          onClose={() => setPreviewData(null)}
+          symbol={previewData.symbol}
+          coinName={previewData.coinName}
+          poi={previewData.poi}
+          currentPrice={previewData.currentPrice}
+          change24h={previewData.change24h}
+          onOpenAlarmModal={() => {
+            const sym = previewData.symbol;
+            const coinData = radarData[sym];
+            setAlarmModalData({
+              symbol: sym,
+              poi: previewData.poi,
+              poisByTimeframe: coinData?.poisByTimeframe || {},
+            });
           }}
         />
       )}
