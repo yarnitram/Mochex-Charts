@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Bell, Check, Loader2, Sparkles, Send, Star } from "lucide-react";
+import { X, Bell, Check, Loader2, Sparkles, Send, Star, Volume2, Play } from "lucide-react";
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
@@ -9,6 +9,12 @@ import {
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import {
+  RadarChimeType,
+  RADAR_CHIME_PRESETS,
+  playRadarChime,
+  getRadarAudioSettings,
+} from "@/lib/audio/sound-effects";
 
 interface PoiAlarmModalProps {
   isOpen: boolean;
@@ -38,6 +44,11 @@ export function PoiAlarmModal({
   // Notification delivery preferences
   const [notifyDiscord, setNotifyDiscord] = useState(true);
   const [notifyTelegram, setNotifyTelegram] = useState(true);
+
+  // Audio chime selection
+  const [alarmChime, setAlarmChime] = useState<RadarChimeType>(
+    () => getRadarAudioSettings().soundType
+  );
 
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -95,6 +106,7 @@ export function PoiAlarmModal({
           createdAt: now,
           notifyDiscord,
           notifyTelegram,
+          soundType: alarmChime,
         };
 
         // 1. Post to Server API (DEC-135) for 24/7 offline cloud listening
@@ -354,6 +366,47 @@ export function PoiAlarmModal({
                   <TelegramIcon size={14} /> Telegram Bot
                 </span>
               </label>
+            </div>
+          </div>
+
+          {/* 4. Trigger Audio Chime */}
+          <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1f2c3f]">
+            <div className="flex items-center justify-between text-[11px] text-[#b6c4ff] font-semibold">
+              <span className="flex items-center gap-1.5">
+                <Volume2 size={13} className="text-[#2962ff]" />
+                <span>Trigger Audio Chime</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => playRadarChime({ soundType: alarmChime, volume: 0.8, enabled: true })}
+                className="text-[10px] text-[#2962ff] hover:text-[#7096ff] flex items-center gap-1 cursor-pointer font-bold transition-colors"
+              >
+                <Play size={10} className="fill-current" />
+                <span>Preview Chime</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {RADAR_CHIME_PRESETS.map((p) => {
+                const isSel = alarmChime === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setAlarmChime(p.id);
+                      playRadarChime({ soundType: p.id, volume: 0.8, enabled: true });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg border text-left text-[10px] font-semibold transition-colors flex items-center justify-between cursor-pointer ${
+                      isSel
+                        ? "bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]"
+                        : "bg-[#0e141f] text-[#848e9c] border-[#1f2c3f] hover:text-white"
+                    }`}
+                  >
+                    <span className="truncate">{p.label}</span>
+                    {isSel && <Check size={11} className="shrink-0 ml-1 text-[#2962ff]" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
