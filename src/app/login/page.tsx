@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CandlestickChart,
   Lock,
@@ -17,12 +17,15 @@ import {
   Zap,
   Activity,
   Layers,
+  ChevronLeft,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/use-auth";
 
-export default function LoginPage() {
+function LoginFormContent() {
   const router = useRouter();
-  const { login, register } = useAuth();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/chart";
+  const { user, isLoading, login, register } = useAuth();
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
@@ -34,6 +37,13 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If already authenticated, redirect straight to workstation or callbackUrl
+  useEffect(() => {
+    if (!isLoading && user) {
+      router.push(callbackUrl);
+    }
+  }, [isLoading, user, router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +73,7 @@ export default function LoginPage() {
       } else {
         setSuccessMessage("Account created! Redirecting to workstation...");
         setTimeout(() => {
-          router.push("/");
+          router.push(callbackUrl);
           router.refresh();
         }, 800);
       }
@@ -82,7 +92,7 @@ export default function LoginPage() {
       } else {
         setSuccessMessage("Authentication successful! Loading charts...");
         setTimeout(() => {
-          router.push("/");
+          router.push(callbackUrl);
           router.refresh();
         }, 800);
       }
@@ -115,8 +125,8 @@ export default function LoginPage() {
           href="/"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container border border-border text-xs font-mono font-medium text-muted hover:text-white transition-colors"
         >
-          <span>Open Chart</span>
-          <ArrowRight size={13} />
+          <ChevronLeft size={13} />
+          <span>Platform Overview</span>
         </a>
       </header>
 
@@ -128,233 +138,212 @@ export default function LoginPage() {
             {/* Top Glow Accent Bar */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary-container via-cyan to-secondary" />
 
-            {/* Title & Subtitle */}
-            <div className="text-center mb-6">
-              <h1 className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-white">
-                {mode === "login" ? "Welcome Back to Mochex Charts" : "Create Trader Account"}
-              </h1>
-              <p className="text-xs text-muted mt-1.5 font-sans">
-                {mode === "login"
-                  ? "Access your synced cloud layouts, indicators, and watchlists"
-                  : "Start syncing layouts and custom indicators across all your devices"}
-              </p>
+            {/* Title / Switcher Tabs */}
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-xl font-bold font-sans text-white tracking-tight">
+                  {mode === "login" ? "Institutional Access" : "Create Trader Account"}
+                </h1>
+                <p className="text-xs text-muted mt-1 font-sans">
+                  {mode === "login"
+                    ? "Enter your credentials to unlock terminal charts"
+                    : "Register to sync layouts, indicators, and alerts"}
+                </p>
+              </div>
+
+              <div className="p-1 bg-[#111923] rounded-xl border border-[#1f2937] flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("login");
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`px-3 py-1 text-xs font-mono font-medium rounded-lg transition-all ${
+                    mode === "login"
+                      ? "bg-primary-container text-white shadow-xs"
+                      : "text-muted hover:text-white"
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("register");
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`px-3 py-1 text-xs font-mono font-medium rounded-lg transition-all ${
+                    mode === "register"
+                      ? "bg-primary-container text-white shadow-xs"
+                      : "text-muted hover:text-white"
+                  }`}
+                >
+                  Register
+                </button>
+              </div>
             </div>
 
-            {/* Mode Switcher Tabs */}
-            <div className="flex p-1 rounded-xl bg-[#060c14] border border-[#1c2635] mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("login");
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
-                }}
-                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  mode === "login"
-                    ? "bg-primary-container text-white shadow-md shadow-primary-container/20"
-                    : "text-muted hover:text-white"
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("register");
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
-                }}
-                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
-                  mode === "register"
-                    ? "bg-primary-container text-white shadow-md shadow-primary-container/20"
-                    : "text-muted hover:text-white"
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
-
-            {/* Error & Success Feedback Alerts */}
+            {/* Error / Success Feedback */}
             {errorMessage && (
-              <div className="mb-5 p-3 rounded-xl bg-tertiary/15 border border-tertiary/30 flex items-start gap-2.5 text-xs text-rose-300 animate-in fade-in duration-150">
-                <AlertCircle size={15} className="text-tertiary shrink-0 mt-0.5" />
-                <span className="leading-tight">{errorMessage}</span>
+              <div className="mb-4 p-3 rounded-xl bg-error/10 border border-error/20 flex items-center gap-2.5 text-xs text-error font-mono animate-in fade-in duration-150">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{errorMessage}</span>
               </div>
             )}
-
             {successMessage && (
-              <div className="mb-5 p-3 rounded-xl bg-secondary/15 border border-secondary/30 flex items-start gap-2.5 text-xs text-emerald-300 animate-in fade-in duration-150">
-                <CheckCircle2 size={15} className="text-secondary shrink-0 mt-0.5" />
-                <span className="leading-tight">{successMessage}</span>
+              <div className="mb-4 p-3 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center gap-2.5 text-xs text-secondary font-mono animate-in fade-in duration-150">
+                <CheckCircle2 size={15} className="shrink-0" />
+                <span>{successMessage}</span>
               </div>
             )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
-              {mode === "login" ? (
-                /* Login Fields */
+              {mode === "register" ? (
                 <>
+                  {/* Username */}
                   <div>
-                    <label className="block text-xs font-medium text-muted mb-1.5">
-                      Username or Email
+                    <label className="block text-xs font-mono text-muted uppercase tracking-wider mb-1.5">
+                      Username
                     </label>
                     <div className="relative">
-                      <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                        <User size={15} />
+                      </div>
                       <input
                         type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="trader_quant"
                         autoComplete="username"
-                        required
-                        value={usernameOrEmail}
-                        onChange={(e) => setUsernameOrEmail(e.target.value)}
-                        placeholder="trader@mochex.io or ymatt"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-3.5 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
+                        className="w-full pl-9 pr-3 py-2.5 bg-[#070e17] border border-[#1f2937] focus:border-primary-container rounded-xl text-xs font-mono text-white placeholder:text-muted/50 focus:outline-hidden transition-all shadow-inner"
                       />
                     </div>
                   </div>
 
+                  {/* Email */}
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-muted">Password</label>
-                    </div>
+                    <label className="block text-xs font-mono text-muted uppercase tracking-wider mb-1.5">
+                      Email Address
+                    </label>
                     <div className="relative">
-                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                        <Mail size={15} />
+                      </div>
                       <input
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="current-password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-10 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="trader@mochex.io"
+                        autoComplete="email"
+                        className="w-full pl-9 pr-3 py-2.5 bg-[#070e17] border border-[#1f2937] focus:border-primary-container rounded-xl text-xs font-mono text-white placeholder:text-muted/50 focus:outline-hidden transition-all shadow-inner"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors"
-                      >
-                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
                     </div>
                   </div>
                 </>
               ) : (
-                /* Register Fields */
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1.5">
-                      Trader Username
-                    </label>
-                    <div className="relative">
-                      <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
-                      <input
-                        type="text"
-                        autoComplete="username"
-                        required
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder="crypto_trader"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-3.5 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
-                      />
+                /* Login Username or Email */
+                <div>
+                  <label className="block text-xs font-mono text-muted uppercase tracking-wider mb-1.5">
+                    Username or Email
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                      <User size={15} />
                     </div>
+                    <input
+                      type="text"
+                      value={usernameOrEmail}
+                      onChange={(e) => setUsernameOrEmail(e.target.value)}
+                      placeholder="trader_quant or trader@mochex.io"
+                      autoComplete="username"
+                      className="w-full pl-9 pr-3 py-2.5 bg-[#070e17] border border-[#1f2937] focus:border-primary-container rounded-xl text-xs font-mono text-white placeholder:text-muted/50 focus:outline-hidden transition-all shadow-inner"
+                    />
                   </div>
+                </div>
+              )}
 
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1.5">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
-                      <input
-                        type="email"
-                        autoComplete="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="trader@mochex.io"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-3.5 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
-                      />
-                    </div>
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-mono text-muted uppercase tracking-wider mb-1.5">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                    <Lock size={15} />
                   </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    autoComplete={mode === "register" ? "new-password" : "current-password"}
+                    className="w-full pl-9 pr-10 py-2.5 bg-[#070e17] border border-[#1f2937] focus:border-primary-container rounded-xl text-xs font-mono text-white placeholder:text-muted/50 focus:outline-hidden transition-all shadow-inner"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-muted hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1.5">
-                      Password (min. 6 characters)
-                    </label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-10 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors"
-                      >
-                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
+              {/* Confirm Password (Register mode only) */}
+              {mode === "register" && (
+                <div>
+                  <label className="block text-xs font-mono text-muted uppercase tracking-wider mb-1.5">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                      <Lock size={15} />
                     </div>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      autoComplete="new-password"
+                      className="w-full pl-9 pr-3 py-2.5 bg-[#070e17] border border-[#1f2937] focus:border-primary-container rounded-xl text-xs font-mono text-white placeholder:text-muted/50 focus:outline-hidden transition-all shadow-inner"
+                    />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1.5">
-                      Confirm Password
-                    </label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        required
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-[#070e17] text-white placeholder:text-muted/60 text-xs pl-10 pr-3.5 py-2.5 rounded-xl border border-[#1f2937] focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-hidden transition-all"
-                      />
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
 
               {/* Submit Button */}
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full mt-2 py-3 px-4 rounded-xl bg-primary-container hover:bg-blue-600 active:scale-[0.99] text-white text-xs font-bold tracking-wide transition-all shadow-lg shadow-primary-container/25 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                className="w-full mt-2 py-3 px-4 rounded-xl bg-primary-container hover:bg-accent-hover text-white text-xs font-mono font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-primary-container/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 {isSubmitting ? (
-                  <span className="inline-block animate-pulse">Authenticating with PocketBase...</span>
-                ) : mode === "login" ? (
-                  <>
-                    <span>Sign In to Workstation</span>
-                    <ArrowRight size={14} />
-                  </>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>Create Account & Sync Workstation</span>
-                    <ArrowRight size={14} />
+                    <span>
+                      {mode === "login" ? "Unlock Terminal" : "Register & Open Workstation"}
+                    </span>
+                    <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                   </>
                 )}
               </button>
             </form>
 
-            {/* Guest Access Alternative */}
+            {/* Direct Landing Link */}
             <div className="mt-6 pt-5 border-t border-[#1a2332] text-center">
-              <p className="text-[11px] text-muted mb-3 font-sans">
-                Prefer not to sign in right now?
+              <p className="text-[11px] text-muted mb-2 font-sans">
+                Looking for features, indicator docs, or live market metrics?
               </p>
               <a
                 href="/"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#111923] hover:bg-[#162130] border border-[#212c3b] text-xs font-mono text-[#d9e3f3] hover:text-white transition-all shadow-xs"
+                className="inline-flex items-center gap-1.5 text-xs font-mono text-primary hover:text-white transition-colors"
               >
-                <Zap size={13} className="text-amber-400" />
-                <span>Continue as Guest Trader</span>
-                <span className="text-[10px] text-muted">(Full Charting Available)</span>
+                <span>Return to Mochex Platform Overview</span>
+                <ArrowRight size={12} />
               </a>
             </div>
           </div>
@@ -382,5 +371,19 @@ export default function LoginPage() {
         Mochex Charts &bull; Institutional MEXC Technical Analysis &bull; PocketBase Cloud Active
       </footer>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen w-full bg-[#070d14] flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[#2962ff] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <LoginFormContent />
+    </Suspense>
   );
 }
