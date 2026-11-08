@@ -173,7 +173,8 @@ export function formatTelegramRadarReport(
       const pMt = p.meanThreshold >= 1 ? p.meanThreshold.toFixed(2) : p.meanThreshold.toFixed(4);
       const midLabel = p.category === "fvg" ? "50% CE" : "50% MT";
 
-      text += `${typeEmoji} <b>${p.symbol}</b> [${p.timeframe}] — ${p.label}${plusTag}\n`;
+      const exTag = p.exchange ? `[${p.exchange.toUpperCase()}] ` : "";
+      text += `${typeEmoji} <b>${p.symbol}</b> ${exTag}[${p.timeframe}] — ${p.label}${plusTag}\n`;
       text += `  • Entry: <code>$${pEntry}</code> | ${midLabel}: <code>$${pMt}</code>\n`;
       text += `  • Status: ${statusTag}\n\n`;
     }

@@ -28,7 +28,13 @@ import {
   FileSpreadsheet,
   FileJson,
   Copy,
+  Globe,
 } from "lucide-react";
+import {
+  SupportedExchange,
+  ExchangeFilter,
+  SUPPORTED_EXCHANGES,
+} from "@/lib/screener/multi-exchange-client";
 import {
   getUniverseCoins,
   RadarUniverseTab,
@@ -77,6 +83,7 @@ interface RadarCoinData {
   nearestSandwich: RadarPoiItem | null;
   nearestFvg: RadarPoiItem | null;
   poisByTimeframe: Record<string, RadarPoiItem[]>;
+  exchange?: string;
 }
 
 export default function RadarPage() {
@@ -99,6 +106,9 @@ export default function RadarPage() {
 
   // Timeframe filter for detection: "15m" | "60" | "240" | "1D"
   const [activeTimeframe, setActiveTimeframe] = useState<string>("240"); // Default 4H
+
+  // Active Exchange Filter: "all" | "mexc" | "binance" | "bybit" (DEC-143)
+  const [activeExchange, setActiveExchange] = useState<ExchangeFilter>("mexc");
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -219,6 +229,7 @@ export default function RadarPage() {
         body: JSON.stringify({
           symbols: symbolsToScan,
           timeframes: [activeTimeframe, "240", "60", "15m"],
+          exchange: activeExchange,
         }),
       });
 
@@ -238,7 +249,7 @@ export default function RadarPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentCoins, activeTimeframe]);
+  }, [currentCoins, activeTimeframe, activeExchange]);
 
   // Refresh data when universe tab or active timeframe changes
   useEffect(() => {
@@ -472,8 +483,10 @@ export default function RadarPage() {
       change24h: data?.change24h ?? 0,
       volume24h: data?.volume24h ?? 0,
       selectedPoi,
+      exchange: selectedPoi?.exchange || data?.exchange || activeExchange,
+      exchangeLabel: selectedPoi?.exchangeLabel || (selectedPoi?.exchange ? selectedPoi.exchange.toUpperCase() : undefined),
     }));
-  }, [filteredCoins]);
+  }, [filteredCoins, activeExchange]);
 
   const exportMeta: RadarExportMeta = useMemo(() => {
     const universeName =
@@ -800,6 +813,31 @@ export default function RadarPage() {
 
           {/* Filter Dropdowns */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Exchange Source Selector (DEC-143) */}
+            <div className="flex items-center rounded-lg bg-[#121824] border border-[#233144] p-0.5">
+              {[
+                { id: "all", short: "All Feeds", title: "All Exchanges Aggregated" },
+                { id: "mexc", short: "MEXC", title: "MEXC Spot" },
+                { id: "binance", short: "Binance", title: "Binance Futures (USDT-M)" },
+                { id: "bybit", short: "Bybit", title: "Bybit Linear Perpetuals" },
+              ].map((ex) => (
+                <button
+                  key={ex.id}
+                  type="button"
+                  onClick={() => setActiveExchange(ex.id as any)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md font-bold text-xs transition-colors cursor-pointer ${
+                    activeExchange === ex.id
+                      ? "bg-[#2962ff] text-white shadow-xs"
+                      : "text-[#848e9c] hover:text-white"
+                  }`}
+                  title={ex.title}
+                >
+                  <Globe size={12} className={activeExchange === ex.id ? "text-white" : "text-[#848e9c]"} />
+                  <span className="hidden sm:inline">{ex.short}</span>
+                </button>
+              ))}
+            </div>
+
             {/* View Mode Toggle: Table vs Kanban */}
             <div className="flex items-center rounded-lg bg-[#121824] border border-[#233144] p-0.5">
               <button
@@ -1003,6 +1041,17 @@ export default function RadarPage() {
                                 >
                                   {coin.symbol.replace("USDT", "/USDT")}
                                 </Link>
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border ${
+                                    (selectedPoi?.exchange || data?.exchange) === "binance"
+                                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                      : (selectedPoi?.exchange || data?.exchange) === "bybit"
+                                      ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                  }`}
+                                >
+                                  {selectedPoi?.exchangeLabel || (selectedPoi?.exchange ? selectedPoi.exchange.toUpperCase() : data?.exchange ? data.exchange.toUpperCase() : "MEXC")}
+                                </span>
                               </div>
                               <div className="text-[10px] text-[#848e9c] truncate max-w-[120px]">
                                 {coin.name}
@@ -1310,12 +1359,25 @@ export default function RadarPage() {
                           {/* Asset Header */}
                           <div className="flex items-center justify-between">
                             <div className="flex flex-col">
-                              <Link
-                                href={`/chart?symbol=${coin.symbol}`}
-                                className="font-bold text-white text-xs hover:text-[#2962ff] transition-colors"
-                              >
-                                {coin.symbol.replace("USDT", "/USDT")}
-                              </Link>
+                              <div className="flex items-center gap-1.5">
+                                <Link
+                                  href={`/chart?symbol=${coin.symbol}`}
+                                  className="font-bold text-white text-xs hover:text-[#2962ff] transition-colors"
+                                >
+                                  {coin.symbol.replace("USDT", "/USDT")}
+                                </Link>
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[8px] font-bold border ${
+                                    (selectedPoi.exchange || data?.exchange) === "binance"
+                                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                      : (selectedPoi.exchange || data?.exchange) === "bybit"
+                                      ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                  }`}
+                                >
+                                  {selectedPoi.exchangeLabel || (selectedPoi.exchange ? selectedPoi.exchange.toUpperCase() : data?.exchange ? data.exchange.toUpperCase() : "MEXC")}
+                                </span>
+                              </div>
                               <span className="text-[10px] text-[#848e9c] truncate max-w-[120px]">
                                 {coin.name}
                               </span>

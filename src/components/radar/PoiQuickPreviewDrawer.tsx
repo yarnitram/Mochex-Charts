@@ -27,8 +27,11 @@ import {
   type Time,
 } from "lightweight-charts";
 import { RadarPoiItem } from "@/lib/indicators/radar-poi-engine";
-import { mexcClient } from "@/lib/mexc/client";
 import { CandlestickBar } from "@/lib/mexc/types";
+import {
+  fetchExchangeKlines,
+  SUPPORTED_EXCHANGES,
+} from "@/lib/screener/multi-exchange-client";
 
 interface PoiQuickPreviewDrawerProps {
   isOpen: boolean;
@@ -141,15 +144,11 @@ export function PoiQuickPreviewDrawer({
     });
     seriesRef.current = candleSeries;
 
-    // Fetch historical candles from MEXC
+    // Fetch historical candles from exchange
     async function loadCandles() {
       try {
-        const bars = await mexcClient.getKlines({
-          symbol: symbol.toUpperCase(),
-          resolution,
-          limit: 100,
-          forceProxy: false,
-        });
+        const exchange = poi.exchange || "mexc";
+        const bars = await fetchExchangeKlines(exchange, symbol.toUpperCase(), resolution, 100);
 
         if (!isMounted) return;
 
@@ -299,6 +298,19 @@ export function PoiQuickPreviewDrawer({
 
               <span className="px-2 py-0.5 rounded bg-[#172233] text-[#b6c4ff] text-[10px] font-bold">
                 {poi.timeframe}
+              </span>
+
+              {/* Exchange Badge (DEC-143) */}
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  poi.exchange === "binance"
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                    : poi.exchange === "bybit"
+                    ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                }`}
+              >
+                {poi.exchangeLabel || (poi.exchange ? poi.exchange.toUpperCase() : "MEXC")}
               </span>
 
               {poi.isPlus && (

@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MexcClient } from "@/lib/mexc/client";
 import {
   computeRadarPois,
   RadarPoiItem,
 } from "@/lib/indicators/radar-poi-engine";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
+import {
+  SupportedExchange,
+  ExchangeFilter,
+  fetchExchangeKlines,
+  fetchExchangeTickers,
+  ExchangeTicker,
+} from "@/lib/screener/multi-exchange-client";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +26,9 @@ interface CachedPoiEntry {
     nearestPoi: RadarPoiItem | null;
     nearestOb: RadarPoiItem | null;
     nearestSandwich: RadarPoiItem | null;
+    nearestFvg: RadarPoiItem | null;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
+    exchange?: string;
   };
 }
 
@@ -39,92 +47,89 @@ export async function POST(request: NextRequest) {
       ? body.timeframes
       : ["240"]; // Default 4H
 
+    const rawExchange: string = (body.exchange || "mexc").toLowerCase();
+    const exchangeFilter: ExchangeFilter =
+      rawExchange === "binance"
+        ? "binance"
+        : rawExchange === "bybit"
+        ? "bybit"
+        : rawExchange === "all"
+        ? "all"
+        : "mexc";
+
     // Limit batch to max 60 symbols per request to prevent timeouts
     const symbols = rawSymbols.slice(0, 60);
-
-    const mexcClient = new MexcClient();
     const now = Date.now();
 
-    // 1. Fetch 24h tickers
-    let tickerMap = new Map<string, { price: number; change24h: number; volume24h: number; high24h: number; low24h: number }>();
-    try {
-      const mexcBase = process.env.NEXT_PUBLIC_MEXC_API_BASE || "https://api.mexc.co";
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(`${mexcBase}/api/v3/ticker/24hr`, {
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+    // 1. Fetch 24h tickers based on exchange filter
+    let tickerMaps: Partial<Record<SupportedExchange, Map<string, ExchangeTicker>>> = {};
 
-      if (res.ok) {
-        const tickers = await res.json();
-        if (Array.isArray(tickers)) {
-          tickers.forEach((t: any) => {
-            tickerMap.set(t.symbol, {
-              price: parseFloat(t.lastPrice || t.price || "0"),
-              change24h: parseFloat(t.priceChangePercent || "0"),
-              volume24h: parseFloat(t.quoteVolume || t.volume || "0"),
-              high24h: parseFloat(t.highPrice || "0"),
-              low24h: parseFloat(t.lowPrice || "0"),
-            });
-          });
-        }
-      }
-    } catch {}
+    if (exchangeFilter === "all") {
+      const [mexcT, binanceT, bybitT] = await Promise.all([
+        fetchExchangeTickers("mexc").catch(() => new Map<string, ExchangeTicker>()),
+        fetchExchangeTickers("binance").catch(() => new Map<string, ExchangeTicker>()),
+        fetchExchangeTickers("bybit").catch(() => new Map<string, ExchangeTicker>()),
+      ]);
+      tickerMaps.mexc = mexcT;
+      tickerMaps.binance = binanceT;
+      tickerMaps.bybit = bybitT;
+    } else {
+      const tMap = await fetchExchangeTickers(exchangeFilter).catch(
+        () => new Map<string, ExchangeTicker>()
+      );
+      tickerMaps[exchangeFilter] = tMap;
+    }
 
-    // 2. Compute Validated POIs per symbol across requested timeframes
+    const targetExchanges: SupportedExchange[] =
+      exchangeFilter === "all" ? ["mexc", "binance", "bybit"] : [exchangeFilter];
+
+    // 2. Compute Validated POIs per symbol across requested timeframes and exchanges
     const results = await Promise.all(
       symbols.map(async (sym) => {
         const upperSym = sym.toUpperCase();
-        const cacheKey = `${upperSym}_${timeframes.sort().join("_")}`;
+        const cacheKey = `${exchangeFilter}_${upperSym}_${timeframes.sort().join("_")}`;
         const cached = radarPoiCache.get(cacheKey);
 
         if (cached && now - cached.timestamp < CACHE_TTL_MS) {
           return cached.data;
         }
 
-        const ticker = tickerMap.get(upperSym) || {
+        // Resolve primary ticker
+        let primaryTicker: ExchangeTicker | undefined;
+        for (const ex of targetExchanges) {
+          const map = tickerMaps[ex];
+          if (map && map.has(upperSym)) {
+            primaryTicker = map.get(upperSym);
+            break;
+          }
+        }
+
+        const ticker = primaryTicker || {
+          symbol: upperSym,
           price: 0,
           change24h: 0,
           volume24h: 0,
           high24h: 0,
           low24h: 0,
+          exchange: targetExchanges[0],
         };
 
         const poisByTimeframe: Record<string, RadarPoiItem[]> = {};
         const allPois: RadarPoiItem[] = [];
 
         for (const tf of timeframes) {
-          try {
-            // Map common resolution strings
-            const resolution =
-              tf === "15m" || tf === "15"
-                ? "15"
-                : tf === "1H" || tf === "60"
-                ? "60"
-                : tf === "4H" || tf === "240"
-                ? "240"
-                : tf === "1D" || tf === "D"
-                ? "1D"
-                : tf;
+          poisByTimeframe[tf] = [];
 
-            const bars = await mexcClient.getKlines({
-              symbol: upperSym,
-              resolution,
-              limit: 100,
-              forceProxy: false,
-            });
-
-            if (bars && bars.length >= 4) {
-              const detected = computeRadarPois(bars, upperSym, tf);
-              poisByTimeframe[tf] = detected;
-              allPois.push(...detected);
-            } else {
-              poisByTimeframe[tf] = [];
-            }
-          } catch {
-            poisByTimeframe[tf] = [];
+          // Query each target exchange
+          for (const ex of targetExchanges) {
+            try {
+              const bars = await fetchExchangeKlines(ex, upperSym, tf, 100);
+              if (bars && bars.length >= 4) {
+                const detected = computeRadarPois(bars, upperSym, tf, ex);
+                poisByTimeframe[tf].push(...detected);
+                allPois.push(...detected);
+              }
+            } catch {}
           }
         }
 
@@ -149,6 +154,7 @@ export async function POST(request: NextRequest) {
           nearestSandwich,
           nearestFvg,
           poisByTimeframe,
+          exchange: exchangeFilter,
         };
 
         radarPoiCache.set(cacheKey, { timestamp: now, data });
@@ -158,6 +164,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      exchange: exchangeFilter,
       count: results.length,
       results,
     });
