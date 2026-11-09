@@ -27,6 +27,11 @@ import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/term
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
+  loadClientAlerts,
+  saveClientAlerts,
+  mergeClientAndServerAlerts,
+} from "@/lib/alerts/alerts-sync";
+import {
   RadarChimeType,
   RADAR_CHIME_PRESETS,
   playRadarChime,
@@ -208,6 +213,7 @@ export function PoiAlarmModal({
     const now = Date.now();
 
     try {
+      const alertsToCreate: PriceAlert[] = [];
       for (const tf of selectedTimeframes) {
         // Find matching POI for this timeframe, or fallback to the current poi
         const tfPois = availablePoisByTimeframe[tf] || [];
@@ -259,30 +265,40 @@ export function PoiAlarmModal({
           },
           soundType: alarmChime,
         };
-
-        // 1. Post to Server API (DEC-135) for 24/7 offline cloud listening
-        const res = await fetch("/api/alerts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(alert),
-        });
-
-        if (res.ok) {
-          createdCount++;
-        }
-
-        // 2. Local storage cache sync
-        try {
-          const raw = localStorage.getItem("mochex:price_alerts");
-          const existing = raw ? JSON.parse(raw) : [];
-          localStorage.setItem("mochex:price_alerts", JSON.stringify([alert, ...existing]));
-          window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
-        } catch {}
+        alertsToCreate.push(alert);
       }
 
-      setStatusMessage(`Successfully set ${createdCount} 24/7 Cloud POI Alarm(s)!`);
+      if (alertsToCreate.length === 0) {
+        setStatusMessage("No matching POI found for selected timeframes");
+        return;
+      }
+
+      // 1. Post batch to Server API (DEC-135) for 24/7 offline cloud listening
+      const res = await fetch("/api/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alerts: alertsToCreate }),
+      });
+
+      if (res.ok) {
+        createdCount = alertsToCreate.length;
+      }
+
+      // 2. Local storage cache resilient sync
+      const currentLocal = loadClientAlerts();
+      const merged = mergeClientAndServerAlerts(currentLocal, alertsToCreate);
+      saveClientAlerts(merged);
+
+      // 3. Dispatch update event ONLY ONCE after server & local storage are safely updated
+      window.dispatchEvent(
+        new CustomEvent("mochex:alerts-updated", {
+          detail: { count: alertsToCreate.length, alerts: alertsToCreate },
+        })
+      );
+
+      setStatusMessage(`Successfully set ${alertsToCreate.length} 24/7 Cloud POI Alarm(s)!`);
       if (onSuccess) {
-        onSuccess(createdCount);
+        onSuccess(alertsToCreate.length);
       }
       setTimeout(() => {
         onClose();

@@ -67,6 +67,12 @@ import {
   StrategyAlertEvaluationContext,
 } from "@/lib/alerts/alerts-engine";
 import {
+  loadClientAlerts,
+  saveClientAlerts,
+  syncAlerts,
+  recordDeletedAlertIds,
+} from "@/lib/alerts/alerts-sync";
+import {
   PaperAccountState,
   PaperOrderInput,
   OrderSide,
@@ -256,7 +262,7 @@ export function RightSidebar({
 
   // Live Price, Drawing & Strategy Crossing Alerts State (DEC-069 & DEC-079)
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
-  const [alertsSubTab, setAlertsSubTab] = useState<"chart" | "radar">("chart");
+  const [alertsSubTab, setAlertsSubTab] = useState<"all" | "chart" | "radar">("all");
 
   const isRadarAlert = useCallback((a: PriceAlert) => {
     return Boolean(a.poiMetadata || a.id.startsWith("alert-poi-") || a.id.startsWith("bulk-poi-"));
@@ -269,6 +275,12 @@ export function RightSidebar({
   const radarAlerts = useMemo(() => {
     return alerts.filter(isRadarAlert);
   }, [alerts, isRadarAlert]);
+
+  const displayedAlerts = useMemo(() => {
+    if (alertsSubTab === "chart") return chartAlerts;
+    if (alertsSubTab === "radar") return radarAlerts;
+    return alerts;
+  }, [alertsSubTab, alerts, chartAlerts, radarAlerts]);
   const [alertLogs, setAlertLogs] = useState<AlertLogEntry[]>([]);
   const [alertFormMode, setAlertFormMode] = useState<"price" | "strategy">("price");
   const [newAlertPrice, setNewAlertPrice] = useState<string>("");
@@ -313,29 +325,15 @@ export function RightSidebar({
   const saveAlerts = useCallback((nextAlerts: PriceAlert[]) => {
     alertsRef.current = nextAlerts;
     setAlerts(nextAlerts);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("mochex:price_alerts", JSON.stringify(nextAlerts));
-      } catch {}
-      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
-    }
+    saveClientAlerts(nextAlerts);
   }, []);
-
 
   useEffect(() => {
     const handleAlertsUpdated = () => {
-      fetch("/api/alerts")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data && Array.isArray(data.alerts)) {
-            setAlerts(data.alerts);
-            alertsRef.current = data.alerts;
-            try {
-              localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
-            } catch {}
-          }
-        })
-        .catch(() => {});
+      syncAlerts((merged) => {
+        setAlerts(merged);
+        alertsRef.current = merged;
+      });
     };
     window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
     return () => {
@@ -370,13 +368,10 @@ export function RightSidebar({
         } catch {}
       }
 
-      const savedAlerts = localStorage.getItem("mochex:price_alerts");
-      if (savedAlerts) {
-        const parsed = JSON.parse(savedAlerts);
-        if (Array.isArray(parsed)) {
-          alertsRef.current = parsed;
-          setAlerts(parsed);
-        }
+      const savedAlerts = loadClientAlerts();
+      if (savedAlerts.length > 0) {
+        alertsRef.current = savedAlerts;
+        setAlerts(savedAlerts);
       }
       const savedLogs = localStorage.getItem("mochex:alert_logs");
       if (savedLogs) {
@@ -395,36 +390,10 @@ export function RightSidebar({
       }
 
       // Synchronize with 24/7 Server Alert Daemon (DEC-135)
-      fetch("/api/alerts")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data && Array.isArray(data.alerts)) {
-            setAlerts((prev) => {
-              const map = new Map<string, PriceAlert>();
-              prev.forEach((a) => map.set(a.id, a));
-              data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
-              const merged = Array.from(map.values());
-              alertsRef.current = merged;
-              try {
-                localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
-              } catch {}
-              return merged;
-            });
-            if (Array.isArray(data.logs) && data.logs.length > 0) {
-              setAlertLogs((prev) => {
-                const map = new Map<string, AlertLogEntry>();
-                prev.forEach((l) => map.set(l.id, l));
-                data.logs.forEach((l: AlertLogEntry) => map.set(l.id, l));
-                const mergedLogs = Array.from(map.values()).slice(0, 50);
-                try {
-                  localStorage.setItem("mochex:alert_logs", JSON.stringify(mergedLogs));
-                } catch {}
-                return mergedLogs;
-              });
-            }
-          }
-        })
-        .catch(() => {});
+      syncAlerts((merged) => {
+        alertsRef.current = merged;
+        setAlerts(merged);
+      });
 
       fetch("/api/alerts/webhooks")
         .then((res) => (res.ok ? res.json() : null))
@@ -1010,9 +979,13 @@ export function RightSidebar({
         notifyTelegram: newAlertTelegram,
       };
 
-      saveAlerts([created, ...alertsRef.current]);
+      const nextAlerts = [created, ...alertsRef.current];
+      saveAlerts(nextAlerts);
       syncAlertToServer(created);
       setNewAlertLabel("");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+      }
     } else {
       const isScriptCondition = newAlertCondition === "script_condition";
       const isIndicator = newAlertCondition.startsWith("indicator_");
@@ -1036,9 +1009,13 @@ export function RightSidebar({
         notifyTelegram: newAlertTelegram,
       };
 
-      saveAlerts([created, ...alertsRef.current]);
+      const nextAlerts = [created, ...alertsRef.current];
+      saveAlerts(nextAlerts);
       syncAlertToServer(created);
       setNewAlertLabel("");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+      }
     }
   };
 
@@ -1059,6 +1036,7 @@ export function RightSidebar({
   };
 
   const handleDeleteAlert = (id: string) => {
+    recordDeletedAlertIds([id]);
     const next = alertsRef.current.filter((a) => a.id !== id);
     saveAlerts(next);
 
@@ -1066,6 +1044,10 @@ export function RightSidebar({
     fetch(`/api/alerts/${id}`, {
       method: "DELETE",
     }).catch(() => {});
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+    }
   };
 
   const handleSubmitPaperOrder = (e: React.FormEvent) => {
@@ -2124,6 +2106,18 @@ export function RightSidebar({
           <div className="flex items-center border-b border-border bg-surface-container-lowest px-2 pt-2 gap-1.5 shrink-0">
             <button
               type="button"
+              onClick={() => setAlertsSubTab("all")}
+              className={`flex-1 py-1.5 px-2 rounded-t text-xs font-bold transition-all flex items-center justify-center gap-1.5 border-t border-x cursor-pointer ${
+                alertsSubTab === "all"
+                  ? "bg-surface-container-low text-white border-border border-b-transparent shadow-xs"
+                  : "bg-transparent text-muted hover:text-on-surface border-transparent"
+              }`}
+            >
+              <Bell size={12} className={alertsSubTab === "all" ? "text-amber-400" : ""} />
+              <span>All ({alerts.length})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setAlertsSubTab("chart")}
               className={`flex-1 py-1.5 px-2 rounded-t text-xs font-bold transition-all flex items-center justify-center gap-1.5 border-t border-x cursor-pointer ${
                 alertsSubTab === "chart"
@@ -2132,10 +2126,7 @@ export function RightSidebar({
               }`}
             >
               <TrendingUp size={12} />
-              <span>Chart Alerts</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-mono">
-                {chartAlerts.length}
-              </span>
+              <span>Chart ({chartAlerts.length})</span>
             </button>
             <button
               type="button"
@@ -2147,10 +2138,7 @@ export function RightSidebar({
               }`}
             >
               <Radio size={12} className={alertsSubTab === "radar" ? "text-amber-400 animate-pulse" : ""} />
-              <span>Radar Alarms</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono">
-                {radarAlerts.length}
-              </span>
+              <span>Radar ({radarAlerts.length})</span>
             </button>
           </div>
 
@@ -2511,7 +2499,11 @@ export function RightSidebar({
           {/* Active & Paused Alerts List */}
           <div className="px-3 py-1.5 text-[10px] text-muted uppercase tracking-wider border-b border-border bg-surface-container-lowest flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span>Configured Alerts ({alerts.length})</span>
+              <span>
+                {alertsSubTab === "all"
+                  ? `All Configured Alerts (${alerts.length})`
+                  : `Chart Alerts (${chartAlerts.length})`}
+              </span>
               <span
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-semibold"
                 title="Monitored 24/7 on server even if your browser is closed"
@@ -2524,15 +2516,35 @@ export function RightSidebar({
           </div>
 
           <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-border/40">
-            {chartAlerts.length === 0 ? (
+            {displayedAlerts.length === 0 ? (
               <div className="p-4 text-center text-[11px] text-muted">
-                No alerts configured yet. Add a price level or strategy condition above, or click the{" "}
-                <strong className="text-gold">Bell +</strong> icon on drawings/scripts.
+                {alertsSubTab === "all"
+                  ? "No alerts configured yet. Add a price level above, or create Radar Alarms on /radar."
+                  : "No chart-specific alerts configured yet. Switch to 'All (0)' tab to see Radar POI alarms."}
               </div>
             ) : (
-              chartAlerts.map((a: PriceAlert) => {
+              displayedAlerts.map((a: PriceAlert) => {
                 const formattedTarget =
                   a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                const isRadar = isRadarAlert(a);
+                const category = a.poiMetadata?.category;
+                const catBadge =
+                  category === "order_block"
+                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                    : category === "sandwich_zone"
+                    ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                    : category === "fvg"
+                    ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                    : "bg-surface-container-high text-muted border-border";
+                const catLabel =
+                  category === "order_block"
+                    ? "OB"
+                    : category === "sandwich_zone"
+                    ? "Sandwich"
+                    : category === "fvg"
+                    ? "FVG"
+                    : a.sourceType.replace(/_/g, " ");
+
                 return (
                   <div
                     key={a.id}
@@ -2548,9 +2560,14 @@ export function RightSidebar({
                         >
                           {a.symbol.replace("USDT", "/USDT")}
                         </span>
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-surface-container-high text-muted uppercase">
-                          {a.sourceType.replace(/_/g, " ")}
+                        <span className={`text-[9px] px-1 py-0.2 rounded border font-semibold ${catBadge}`}>
+                          {catLabel}
                         </span>
+                        {isRadar && a.poiMetadata?.timeframe && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-surface-container-high text-on-surface font-mono">
+                            {a.poiMetadata.timeframe}
+                          </span>
+                        )}
                         {a.scriptName && (
                           <span className="text-[9px] px-1 py-0.2 rounded bg-primary-container/20 text-primary truncate max-w-[100px]">
                             {a.scriptName}

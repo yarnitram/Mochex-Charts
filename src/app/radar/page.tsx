@@ -56,6 +56,7 @@ import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-en
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { loadClientAlerts, syncAlerts } from "@/lib/alerts/alerts-sync";
 
 import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateForRisk, PoiCorrelationRiskInfo } from "@/lib/indicators/portfolio-risk-engine";
 import { BrokerCredentialsModal } from "@/components/terminal/BrokerCredentialsModal";
@@ -227,29 +228,16 @@ export default function RadarPage() {
   const [isBulkAlarmModalOpen, setIsBulkAlarmModalOpen] = useState(false);
 
   const fetchActiveAlerts = useCallback(() => {
-    fetch("/api/alerts")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && Array.isArray(data.alerts)) {
-          setActiveAlerts(data.alerts);
-          try {
-            localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
-          } catch {}
-        }
-      })
-      .catch(() => {});
+    syncAlerts((merged) => {
+      setActiveAlerts(merged);
+    });
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("mochex:price_alerts");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setActiveAlerts(parsed);
-        }
-      }
-    } catch {}
+    const saved = loadClientAlerts();
+    if (saved.length > 0) {
+      setActiveAlerts(saved);
+    }
     fetchActiveAlerts();
     const handleAlertsUpdated = () => fetchActiveAlerts();
     window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
