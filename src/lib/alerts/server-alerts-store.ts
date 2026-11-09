@@ -78,6 +78,32 @@ export async function saveServerAlert(alert: PriceAlert, userId: string): Promis
 }
 
 /**
+ * Saves multiple alerts in batch for a user
+ */
+export async function saveServerAlertsBatch(
+  alerts: PriceAlert[],
+  userId: string
+): Promise<PriceAlert[]> {
+  if (!alerts || alerts.length === 0) return [];
+  const map = readJsonFile<UserAlertsMap>(ALERTS_FILE, {});
+  const userAlerts = map[userId] || [];
+
+  for (const alert of alerts) {
+    const existingIdx = userAlerts.findIndex((a) => a.id === alert.id);
+    if (existingIdx >= 0) {
+      userAlerts[existingIdx] = alert;
+    } else {
+      userAlerts.push(alert);
+    }
+  }
+
+  map[userId] = userAlerts;
+  writeJsonFile(ALERTS_FILE, map);
+  return alerts;
+}
+
+
+/**
  * Updates partial fields of an alert for a user
  */
 export async function updateServerAlert(

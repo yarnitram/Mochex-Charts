@@ -54,6 +54,9 @@ import {
 } from "@/lib/indicators/radar-poi-engine";
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
+import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
+import { PriceAlert } from "@/lib/alerts/alerts-engine";
+
 import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateForRisk, PoiCorrelationRiskInfo } from "@/lib/indicators/portfolio-risk-engine";
 import { BrokerCredentialsModal } from "@/components/terminal/BrokerCredentialsModal";
 import { PoiLiveTradeModal } from "@/components/radar/PoiLiveTradeModal";
@@ -161,7 +164,7 @@ export default function RadarPage() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [poiCategoryFilter, setPoiCategoryFilter] = useState<
-    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | "absorption" | "risk_cluster" | PoiCategory
+    "ALL" | "confluence" | "sweep" | "liquidity" | "broken" | "absorption" | "risk_cluster" | "has_alarms" | PoiCategory
   >("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | PoiDirection>("ALL");
   const [onlyNearPois, setOnlyNearPois] = useState(false);
@@ -218,6 +221,42 @@ export default function RadarPage() {
     poi: RadarPoiItem;
     currentPrice: number;
   } | null>(null);
+
+  // Active Server Alerts & Bulk Alarm State (DEC-157)
+  const [activeAlerts, setActiveAlerts] = useState<PriceAlert[]>([]);
+  const [isBulkAlarmModalOpen, setIsBulkAlarmModalOpen] = useState(false);
+
+  const fetchActiveAlerts = useCallback(() => {
+    fetch("/api/alerts")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.alerts) {
+          setActiveAlerts(data.alerts);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchActiveAlerts();
+    const handleAlertsUpdated = () => fetchActiveAlerts();
+    window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
+    return () => {
+      window.removeEventListener("mochex:alerts-updated", handleAlertsUpdated);
+    };
+  }, [fetchActiveAlerts]);
+
+  // Index active alerts by normalized symbol
+  const alertsBySymbol = useMemo(() => {
+    const map: Record<string, PriceAlert[]> = {};
+    for (const a of activeAlerts) {
+      if (!a.active) continue;
+      const key = a.symbol.toUpperCase().replace(/[\/\-_]/g, "");
+      if (!map[key]) map[key] = [];
+      map[key].push(a);
+    }
+    return map;
+  }, [activeAlerts]);
 
   // Multi-Broker Direct Execution States (DEC-156)
   const [isBrokerModalOpen, setIsBrokerModalOpen] = useState(false);
@@ -713,7 +752,39 @@ export default function RadarPage() {
         }
         return 0;
       });
-  }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy, selectedTimeframes]);
+  }, [currentCoins, radarData, searchQuery, poiCategoryFilter, directionFilter, onlyNearPois, sortBy, selectedTimeframes, alertsBySymbol]);
+
+
+
+  const currentUniverseLabel =
+    activeTab === "majors"
+      ? "Majors & Volume"
+      : activeTab === "memes"
+      ? "Top 50 Meme Coins"
+      : activeTab === "ai"
+      ? "Top 50 AI Coins"
+      : "Custom Watchlist";
+
+  // Candidate coins for bulk alarm setup (DEC-157)
+  const candidateCoinsForBulk: CandidateCoinForBulkAlarm[] = useMemo(() => {
+    const list: CandidateCoinForBulkAlarm[] = [];
+    for (const { coin, data, selectedPoi } of filteredCoins) {
+      const allPois: RadarPoiItem[] = [];
+      Object.values(data?.poisByTimeframe || {}).forEach((tPois) => {
+        if (Array.isArray(tPois)) allPois.push(...tPois);
+      });
+      if (allPois.length > 0 || selectedPoi) {
+        list.push({
+          symbol: coin.symbol,
+          name: coin.name,
+          price: data?.price || 0,
+          pois: allPois.length > 0 ? allPois : (selectedPoi ? [selectedPoi] : []),
+          poisByTimeframe: data?.poisByTimeframe || {},
+        });
+      }
+    }
+    return list;
+  }, [filteredCoins]);
 
   // Exportable items derived from filtered coins
   const exportItems: ExportableRadarItem[] = useMemo(() => {
@@ -969,6 +1040,26 @@ export default function RadarPage() {
                 <span className="w-1.5 h-1.5 rounded-full bg-[#229ED9]" title="Telegram Active" />
               )}
             </div>
+          </button>
+
+
+          {/* Bulk Alarm Trigger Button (DEC-157) */}
+          <button
+            type="button"
+            onClick={() => setIsBulkAlarmModalOpen(true)}
+            disabled={candidateCoinsForBulk.length === 0}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer disabled:opacity-40 ${
+              candidateCoinsForBulk.length > 0
+                ? "bg-amber-500/15 border-amber-500/50 text-amber-300 hover:bg-amber-500 hover:text-black shadow-md shadow-amber-500/10"
+                : "bg-[#121824] border-[#233144] text-[#848e9c]"
+            }`}
+            title={`Bulk Arm 24/7 Cloud Alarms across ${candidateCoinsForBulk.length} matching coins`}
+          >
+            <Zap size={13} className="fill-current text-amber-400" />
+            <span className="hidden sm:inline">Bulk Alarm</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-mono font-bold">
+              {candidateCoinsForBulk.length}
+            </span>
           </button>
 
           {/* Direct link to Active Alerts Manager in Chart */}
@@ -1382,6 +1473,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
+              <option value="has_alarms">🔔 Armed Alarms Only ({Object.keys(alertsBySymbol).length})</option>
               <option value="absorption">🛡️ Order Flow Absorption & CVD Div (≥ 65%)</option>
               <option value="risk_cluster">⚠️ High Directional Cluster (≥ 50% Exposure)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>
@@ -1593,6 +1685,16 @@ export default function RadarPage() {
                                 >
                                   {selectedPoi?.exchangeLabel || (selectedPoi?.exchange ? selectedPoi.exchange.toUpperCase() : data?.exchange ? data.exchange.toUpperCase() : "MEXC")}
                                 </span>
+                                {alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0 && (
+                                  <span
+                                    className="px-1.5 py-0.2 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[9px] font-mono font-bold flex items-center gap-1 shadow-sm"
+                                    title={`${alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")].length} active 24/7 cloud alarm(s) set on ${coin.symbol}`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                    <span>{alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")].length} Armed</span>
+                                  </span>
+                                )}
+
                               </div>
                               <div className="text-[10px] text-[#848e9c] truncate max-w-[120px]">
                                 {coin.name}
@@ -1908,10 +2010,14 @@ export default function RadarPage() {
                                     })
                                   }
                                   title="Set 24/7 Cloud Offline Alarm"
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30 text-[11px] font-bold transition-all cursor-pointer"
+                                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                                    alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0
+                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500 hover:text-black shadow-sm"
+                                      : "bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30"
+                                  }`}
                                 >
-                                  <Bell size={12} />
-                                  <span className="hidden sm:inline">Set Alarm</span>
+                                  <Bell size={12} className={alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0 ? "fill-amber-400 text-amber-400" : ""} />
+                                  <span className="hidden sm:inline">{alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0 ? `${alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")].length} Armed` : "Set Alarm"}</span>
                                 </button>
 
                                 <button
@@ -2269,10 +2375,14 @@ export default function RadarPage() {
                                   poisByTimeframe: data?.poisByTimeframe || {},
                                 })
                               }
-                              className="flex-1 py-1.5 px-2 rounded-lg bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30 text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                              className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                              alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0
+                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500 hover:text-black"
+                                : "bg-[#2962ff]/15 hover:bg-[#2962ff] text-[#2962ff] hover:text-white border border-[#2962ff]/30"
+                            }`}
                             >
-                              <Bell size={11} />
-                              <span>24/7 Cloud Alarm</span>
+                              <Bell size={11} className={alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0 ? "fill-amber-400 text-amber-400" : ""} />
+                              <span>{alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")]?.length > 0 ? `${alertsBySymbol[coin.symbol.toUpperCase().replace(/[\/\-_]/g, "")].length} Armed` : "24/7 Cloud Alarm"}</span>
                             </button>
 
                             <button
@@ -2316,6 +2426,7 @@ export default function RadarPage() {
           symbol={alarmModalData.symbol}
           poi={alarmModalData.poi}
           availablePoisByTimeframe={alarmModalData.poisByTimeframe}
+          existingAlerts={activeAlerts}
           onSuccess={(count) => {
             setToastMessage(`Created ${count} 24/7 Cloud POI Alarm(s)!`);
             setTimeout(() => setToastMessage(null), 4000);
@@ -2333,6 +2444,7 @@ export default function RadarPage() {
           poi={previewData.poi}
           currentPrice={previewData.currentPrice}
           change24h={previewData.change24h}
+          activeAlerts={alertsBySymbol[previewData.symbol.toUpperCase().replace(/[\/\-_]/g, "")] || []}
           onOpenAlarmModal={() => {
             const sym = previewData.symbol;
             const coinData = radarData[sym];
@@ -2407,6 +2519,23 @@ export default function RadarPage() {
           }}
         />
       )}
+
+      
+      {/* 12. POI BULK ALARM CONFIGURATION MODAL (DEC-157) */}
+      <PoiBulkAlarmModal
+        isOpen={isBulkAlarmModalOpen}
+        onClose={() => setIsBulkAlarmModalOpen(false)}
+        coins={candidateCoinsForBulk}
+        currentUniverseLabel={currentUniverseLabel}
+        currentExchange={activeExchange}
+        defaultSelectedTimeframes={selectedTimeframes}
+        existingAlerts={activeAlerts}
+        onSuccess={(count) => {
+          setToastMessage(`⚡ Successfully armed ${count} 24/7 Cloud POI Alarms!`);
+          setTimeout(() => setToastMessage(null), 4000);
+          fetchActiveAlerts();
+        }}
+      />
 
       {/* Toast Notification */}
       {toastMessage && (

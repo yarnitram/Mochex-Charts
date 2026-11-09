@@ -47,6 +47,7 @@ interface PoiAlarmModalProps {
   symbol: string;
   poi: RadarPoiItem;
   availablePoisByTimeframe?: Record<string, RadarPoiItem[]>;
+  existingAlerts?: PriceAlert[];
   onSuccess?: (createdAlertsCount: number) => void;
 }
 
@@ -56,8 +57,18 @@ export function PoiAlarmModal({
   symbol,
   poi,
   availablePoisByTimeframe = {},
+  existingAlerts = [],
   onSuccess,
 }: PoiAlarmModalProps) {
+
+  // Matching active alerts for this symbol
+  const matchingActiveAlerts = React.useMemo(() => {
+    const cleanSym = symbol.toUpperCase().replace(/[\/\-_]/g, "");
+    return (existingAlerts || []).filter(
+      (a) => a.active && a.symbol.toUpperCase().replace(/[\/\-_]/g, "") === cleanSym
+    );
+  }, [existingAlerts, symbol]);
+
   // Multi-select timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
     poi.timeframe || "4H",
@@ -374,6 +385,37 @@ export function PoiAlarmModal({
               </div>
             </div>
           </div>
+
+          
+          {/* Active Alarms on this Coin Info Box */}
+          {matchingActiveAlerts.length > 0 && (
+            <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl space-y-1.5 text-xs text-amber-300">
+              <div className="flex items-center justify-between font-semibold">
+                <div className="flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-amber-400 fill-amber-400/30" />
+                  <span>
+                    {matchingActiveAlerts.length} Active 24/7 Cloud Alarm{matchingActiveAlerts.length > 1 ? "s" : ""} Already Set on {symbol}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/50">
+                  Armed & Tracking
+                </span>
+              </div>
+              <div className="space-y-1 pt-1 max-h-24 overflow-y-auto">
+                {matchingActiveAlerts.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded text-[11px] font-mono text-slate-300 border border-amber-800/30"
+                  >
+                    <span className="truncate pr-2">{a.label || a.conditionMessage}</span>
+                    <span className="text-amber-400 font-bold shrink-0">
+                      ${a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 1. Timeframe Selection (Multi-Select) */}
           <div className="flex flex-col gap-1.5">

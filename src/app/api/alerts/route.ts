@@ -3,6 +3,7 @@ import { verifyToken, UserPayload } from "@/lib/auth/jwt";
 import {
   getServerAlerts,
   saveServerAlert,
+  saveServerAlertsBatch,
   getServerAlertLogs,
 } from "@/lib/alerts/server-alerts-store";
 import { serverAlertDaemon } from "@/lib/alerts/server-alert-daemon";
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/alerts - Creates or updates an alert and triggers daemon subscription
+ * POST /api/alerts - Creates or updates alert(s) in single or batch mode, and triggers daemon subscription
  */
 export async function POST(request: NextRequest) {
   const user = await getAuthUser(request);
@@ -61,7 +62,29 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const alertData = (await request.json()) as PriceAlert;
+    const body = await request.json();
+
+    // Check if batch payload: { alerts: PriceAlert[] } or Array.isArray(body)
+    const alertList: PriceAlert[] | null = Array.isArray(body)
+      ? body
+      : Array.isArray(body?.alerts)
+      ? body.alerts
+      : null;
+
+    if (alertList) {
+      if (alertList.length === 0) {
+        return NextResponse.json({ success: true, count: 0, alerts: [] });
+      }
+      const validAlerts = alertList.filter((a) => a && a.symbol && a.id);
+      const saved = await saveServerAlertsBatch(validAlerts, user.userId);
+
+      // Notify 24/7 background worker to subscribe to new symbols immediately
+      serverAlertDaemon.notifyAlertsChanged().catch(() => {});
+
+      return NextResponse.json({ success: true, count: saved.length, alerts: saved });
+    }
+
+    const alertData = body as PriceAlert;
     if (!alertData || !alertData.symbol || !alertData.id) {
       return NextResponse.json(
         { error: "Invalid alert payload. Symbol and ID required." },
