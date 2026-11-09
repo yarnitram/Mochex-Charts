@@ -97,6 +97,7 @@ describe("POI Bulk Alarms & Active Alarm Indicators (DEC-157)", () => {
 
       const alertInitial: PriceAlert = {
         id: alertId,
+        label: "SOL Initial",
         symbol: "SOLUSDT",
         targetPrice: 155.0,
         condition: "crossing_down",
@@ -136,6 +137,7 @@ describe("POI Bulk Alarms & Active Alarm Indicators (DEC-157)", () => {
         {
           id: "1",
           symbol: "BTCUSDT",
+          label: "BTC 1",
           targetPrice: 65000,
           condition: "crossing_down",
           frequency: "only_once",
@@ -147,6 +149,7 @@ describe("POI Bulk Alarms & Active Alarm Indicators (DEC-157)", () => {
         {
           id: "2",
           symbol: "BTC/USDT",
+          label: "BTC 2",
           targetPrice: 64200,
           condition: "crossing_down",
           frequency: "only_once",
@@ -158,6 +161,7 @@ describe("POI Bulk Alarms & Active Alarm Indicators (DEC-157)", () => {
         {
           id: "3",
           symbol: "BTC-USDT",
+          label: "BTC 3",
           targetPrice: 63000,
           condition: "crossing_down",
           frequency: "only_once",
@@ -169,6 +173,7 @@ describe("POI Bulk Alarms & Active Alarm Indicators (DEC-157)", () => {
         {
           id: "4",
           symbol: "SOLUSDT",
+          label: "SOL 4",
           targetPrice: 150,
           condition: "crossing_up",
           frequency: "only_once",

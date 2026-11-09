@@ -4,6 +4,8 @@ import {
   getServerAlerts,
   saveServerAlert,
   saveServerAlertsBatch,
+  deleteServerAlertsBatch,
+  updateServerAlertsBatch,
   getServerAlertLogs,
 } from "@/lib/alerts/server-alerts-store";
 import { serverAlertDaemon } from "@/lib/alerts/server-alert-daemon";
@@ -101,6 +103,63 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to save alert" },
+      { status: 500 }
+    );
+  }
+}
+
+
+/**
+ * DELETE /api/alerts - Batch deletes alerts by IDs (DEC-158)
+ */
+export async function DELETE(request: NextRequest) {
+  const user = await getAuthUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const ids: string[] = Array.isArray(body?.ids) ? body.ids : Array.isArray(body) ? body : [];
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "No alert IDs provided" }, { status: 400 });
+    }
+
+    const count = await deleteServerAlertsBatch(ids, user.userId);
+    serverAlertDaemon.notifyAlertsChanged().catch(() => {});
+    return NextResponse.json({ success: true, count });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Failed to batch delete alerts" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/alerts - Batch updates alerts (e.g. pause/resume) (DEC-158)
+ */
+export async function PATCH(request: NextRequest) {
+  const user = await getAuthUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const ids: string[] = Array.isArray(body?.ids) ? body.ids : [];
+    const updates: Partial<PriceAlert> = body?.updates || {};
+
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "No alert IDs provided" }, { status: 400 });
+    }
+
+    const count = await updateServerAlertsBatch(ids, updates, user.userId);
+    serverAlertDaemon.notifyAlertsChanged().catch(() => {});
+    return NextResponse.json({ success: true, count });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Failed to batch update alerts" },
       { status: 500 }
     );
   }
