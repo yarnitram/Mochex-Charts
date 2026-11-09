@@ -341,6 +341,30 @@ export function RightSidebar({
     };
   }, []);
 
+  useEffect(() => {
+    const handleWebhooksUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<AlertWebhookConfig>;
+      if (customEvent.detail) {
+        setWebhookConfig(customEvent.detail);
+        webhookConfigRef.current = customEvent.detail;
+      } else {
+        fetch("/api/alerts/webhooks")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d?.config) {
+              setWebhookConfig(d.config);
+              webhookConfigRef.current = d.config;
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    return () => {
+      window.removeEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    };
+  }, []);
+
   const saveAlertLogs = useCallback((nextLogs: AlertLogEntry[]) => {
     const capped = nextLogs.slice(0, 50);
     setAlertLogs(capped);

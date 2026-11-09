@@ -37,6 +37,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_up",
       frequency: "only_once",
       sourceType: "price",
+      label: "BTC Cross Up",
+      triggeredCount: 0,
       active: true,
       createdAt: 1000,
     };
@@ -48,6 +50,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_down",
       frequency: "only_once",
       sourceType: "price",
+      label: "ETH Cross Down",
+      triggeredCount: 0,
       active: true,
       createdAt: 1000,
     };
@@ -69,6 +73,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_up",
       frequency: "only_once",
       sourceType: "price",
+      label: "SOL Alert",
+      triggeredCount: 0,
       active: true,
       createdAt: 500,
     };
@@ -80,6 +86,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_up",
       frequency: "only_once",
       sourceType: "price",
+      label: "AVAX Alert",
+      triggeredCount: 0,
       active: true,
       createdAt: 600,
     };
@@ -97,6 +105,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_up",
       frequency: "only_once",
       sourceType: "price",
+      label: "DOGE Alert",
+      triggeredCount: 0,
       active: false,
       createdAt: 1000,
     };
@@ -108,6 +118,8 @@ describe("Alerts Resilient Sync & Merge Module", () => {
       condition: "crossing_up",
       frequency: "only_once",
       sourceType: "price",
+      label: "DOGE Alert",
+      triggeredCount: 0,
       active: true, // User resumed it locally
       createdAt: 1050,
     };

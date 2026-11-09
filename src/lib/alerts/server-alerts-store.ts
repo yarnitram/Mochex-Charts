@@ -206,11 +206,40 @@ export async function updateServerAlertsBatch(
 }
 
 /**
- * Returns saved webhook configuration for a user
+ * Returns saved webhook configuration for a user with cross-account resilience
  */
 export async function getServerWebhooks(userId: string): Promise<AlertWebhookConfig | null> {
   const map = readJsonFile<UserWebhooksMap>(WEBHOOKS_FILE, {});
-  return map[userId] || null;
+  const userConfig = map[userId] || null;
+
+  // Cross-account resilience 1: if logged-in user has no webhooks, check if "default-trader" has them
+  if (
+    (!userConfig || (!userConfig.discordWebhookUrl && !userConfig.telegramBotToken && !userConfig.tradingWebhook?.webhookUrl)) &&
+    userId !== "default-trader" &&
+    map["default-trader"] &&
+    (map["default-trader"].discordWebhookUrl || map["default-trader"].telegramBotToken || map["default-trader"].tradingWebhook?.webhookUrl)
+  ) {
+    map[userId] = { ...map["default-trader"] };
+    writeJsonFile(WEBHOOKS_FILE, map);
+    return map[userId];
+  }
+
+  // Cross-account resilience 2: if default-trader has no webhooks, check if any authenticated user configured webhooks
+  if (
+    (!userConfig || (!userConfig.discordWebhookUrl && !userConfig.telegramBotToken && !userConfig.tradingWebhook?.webhookUrl)) &&
+    userId === "default-trader"
+  ) {
+    const populated = Object.entries(map).find(
+      ([k, v]) => k !== "default-trader" && (v.discordWebhookUrl || v.telegramBotToken || v.tradingWebhook?.webhookUrl)
+    );
+    if (populated) {
+      map["default-trader"] = { ...populated[1] };
+      writeJsonFile(WEBHOOKS_FILE, map);
+      return map["default-trader"];
+    }
+  }
+
+  return userConfig;
 }
 
 /**
@@ -233,7 +262,7 @@ export async function findUserByTelegramChatId(chatId: string | number): Promise
 }
 
 /**
- * Saves webhook configuration for a user
+ * Saves webhook configuration for a user and keeps fallback profile synchronized
  */
 export async function saveServerWebhooks(
   userId: string,
@@ -241,6 +270,12 @@ export async function saveServerWebhooks(
 ): Promise<AlertWebhookConfig> {
   const map = readJsonFile<UserWebhooksMap>(WEBHOOKS_FILE, {});
   map[userId] = config;
+
+  // Always keep default-trader in sync so unauthenticated browsing doesn't lose credentials
+  if (userId !== "default-trader") {
+    map["default-trader"] = { ...config };
+  }
+
   writeJsonFile(WEBHOOKS_FILE, map);
   return config;
 }
@@ -283,7 +318,10 @@ export async function getAllActiveServerAlerts(): Promise<ActiveAlertContext[]> 
 
   for (const [userId, alerts] of Object.entries(alertsMap)) {
     if (!Array.isArray(alerts)) continue;
-    const userWebhooks = webhooksMap[userId];
+    const userWebhooks =
+      webhooksMap[userId] ||
+      webhooksMap["default-trader"] ||
+      Object.values(webhooksMap).find((w) => w && (w.discordWebhookUrl || w.telegramBotToken));
 
     for (const alert of alerts) {
       if (alert && alert.active) {

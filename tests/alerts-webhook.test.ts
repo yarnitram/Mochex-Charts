@@ -124,4 +124,66 @@ describe("Discord & Telegram Alert Webhook Dispatcher (DEC-130)", () => {
       );
     });
   });
+
+  describe("Per-Account Webhook Database Persistence (DEC-162)", () => {
+    const testUserA = "test-trader-account-a";
+    const testUserB = "test-trader-account-b";
+
+    it("saves and isolates webhooks per user account", async () => {
+      const { saveServerWebhooks, getServerWebhooks } = await import(
+        "../src/lib/alerts/server-alerts-store"
+      );
+
+      const cfgA = {
+        discordWebhookUrl: "https://discord.com/api/webhooks/111/aaa",
+        discordEnabled: true,
+        telegramBotToken: "111:token-a",
+        telegramChatId: "99901",
+        telegramEnabled: true,
+      };
+
+      const cfgB = {
+        discordWebhookUrl: "https://discord.com/api/webhooks/222/bbb",
+        discordEnabled: true,
+        telegramBotToken: "222:token-b",
+        telegramChatId: "99902",
+        telegramEnabled: true,
+      };
+
+      await saveServerWebhooks(testUserA, cfgA);
+      await saveServerWebhooks(testUserB, cfgB);
+
+      const fetchedA = await getServerWebhooks(testUserA);
+      const fetchedB = await getServerWebhooks(testUserB);
+
+      expect(fetchedA?.discordWebhookUrl).toBe(cfgA.discordWebhookUrl);
+      expect(fetchedA?.telegramBotToken).toBe(cfgA.telegramBotToken);
+
+      expect(fetchedB?.discordWebhookUrl).toBe(cfgB.discordWebhookUrl);
+      expect(fetchedB?.telegramBotToken).toBe(cfgB.telegramBotToken);
+    });
+
+    it("migrates default-trader webhooks to new authenticated user accounts", async () => {
+      const { saveServerWebhooks, getServerWebhooks } = await import(
+        "../src/lib/alerts/server-alerts-store"
+      );
+
+      const unauthenticatedCfg = {
+        discordWebhookUrl: "https://discord.com/api/webhooks/default/xyz",
+        discordEnabled: true,
+        telegramBotToken: "333:token-default",
+        telegramChatId: "99903",
+        telegramEnabled: true,
+      };
+
+      await saveServerWebhooks("default-trader", unauthenticatedCfg);
+
+      const freshUser = "newly-registered-user-999";
+      const migrated = await getServerWebhooks(freshUser);
+
+      expect(migrated).toBeDefined();
+      expect(migrated?.discordWebhookUrl).toBe(unauthenticatedCfg.discordWebhookUrl);
+      expect(migrated?.telegramBotToken).toBe(unauthenticatedCfg.telegramBotToken);
+    });
+  });
 });
