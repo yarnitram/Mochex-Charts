@@ -55,7 +55,20 @@ export type UserAlertLogsMap = Record<string, AlertLogEntry[]>;
  */
 export async function getServerAlerts(userId: string): Promise<PriceAlert[]> {
   const map = readJsonFile<UserAlertsMap>(ALERTS_FILE, {});
-  return map[userId] || [];
+  const userAlerts = map[userId] || [];
+  // Cross-session resilience: if an authenticated user has no alerts, check if "default-trader" has unauthenticated alerts
+  if (
+    userAlerts.length === 0 &&
+    userId !== "default-trader" &&
+    Array.isArray(map["default-trader"]) &&
+    map["default-trader"].length > 0
+  ) {
+    // Migrate default-trader alerts to this user so they don't vanish upon sign-in
+    map[userId] = [...map["default-trader"]];
+    writeJsonFile(ALERTS_FILE, map);
+    return map[userId];
+  }
+  return userAlerts;
 }
 
 /**

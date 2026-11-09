@@ -27,6 +27,12 @@ import {
   Sparkles,
 } from "lucide-react";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import {
+  loadClientAlerts,
+  saveClientAlerts,
+  syncAlerts,
+  recordDeletedAlertIds,
+} from "@/lib/alerts/alerts-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import {
   RadarAudioSettings,
@@ -46,6 +52,7 @@ export default function RadarAlertsPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Filters
+  const [sourceFilter, setSourceFilter] = useState<"ALL" | "RADAR" | "CHART">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"ALL" | "order_block" | "sandwich_zone" | "fvg">("ALL");
   const [timeframeFilter, setTimeframeFilter] = useState<string>("ALL");
@@ -73,22 +80,15 @@ export default function RadarAlertsPage() {
   // Candidate coins for bulk alarm modal
   const [candidateCoins, setCandidateCoins] = useState<CandidateCoinForBulkAlarm[]>([]);
 
-  // Fetch all server alerts with local storage merge
+  // Fetch all server alerts with resilient two-way merge
   const fetchAlerts = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     else setRefreshing(true);
 
     try {
-      const res = await fetch("/api/alerts");
-      if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.alerts)) {
-          setAlerts(data.alerts);
-          try {
-            localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
-          } catch {}
-        }
-      }
+      await syncAlerts((updated) => {
+        setAlerts(updated);
+      });
     } catch (err) {
       console.warn("Failed to fetch alerts:", err);
     } finally {
@@ -101,13 +101,10 @@ export default function RadarAlertsPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        const raw = localStorage.getItem("mochex:price_alerts");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setAlerts(parsed);
-            setLoading(false);
-          }
+        const saved = loadClientAlerts();
+        if (saved.length > 0) {
+          setAlerts(saved);
+          setLoading(false);
         }
         const params = new URLSearchParams(window.location.search);
         const s = params.get("search");
@@ -226,13 +223,23 @@ export default function RadarAlertsPage() {
   }, []);
 
   // Filtered radar alerts list
+  const chartAlerts = useMemo(() => {
+    return alerts.filter((a) => !isRadarAlert(a));
+  }, [alerts, isRadarAlert]);
+
   const radarAlerts = useMemo(() => {
     return alerts.filter(isRadarAlert);
   }, [alerts, isRadarAlert]);
 
+  const sourceAlerts = useMemo(() => {
+    if (sourceFilter === "RADAR") return radarAlerts;
+    if (sourceFilter === "CHART") return chartAlerts;
+    return alerts;
+  }, [sourceFilter, alerts, radarAlerts, chartAlerts]);
+
   // Filtered according to UI controls
   const filteredAlerts = useMemo(() => {
-    return radarAlerts.filter((a) => {
+    return sourceAlerts.filter((a) => {
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -269,15 +276,15 @@ export default function RadarAlertsPage() {
 
       return true;
     });
-  }, [radarAlerts, searchQuery, categoryFilter, timeframeFilter, statusFilter, directionFilter]);
+  }, [sourceAlerts, searchQuery, categoryFilter, timeframeFilter, statusFilter, directionFilter]);
 
   // Summary Metrics
   const metrics = useMemo(() => {
-    const total = radarAlerts.length;
-    const active = radarAlerts.filter((a) => a.active).length;
+    const total = sourceAlerts.length;
+    const active = sourceAlerts.filter((a) => a.active).length;
     const paused = total - active;
-    const uniqueSymbols = new Set(radarAlerts.map((a) => a.symbol.toUpperCase().replace(/[\/\-_]/g, "")));
-    const totalTriggers = radarAlerts.reduce((acc, a) => acc + (a.triggeredCount || 0), 0);
+    const uniqueSymbols = new Set(sourceAlerts.map((a) => a.symbol.toUpperCase().replace(/[\/\-_]/g, "")));
+    const totalTriggers = sourceAlerts.reduce((acc, a) => acc + (a.triggeredCount || 0), 0);
 
     return {
       total,
@@ -286,7 +293,7 @@ export default function RadarAlertsPage() {
       uniqueCoinsCount: uniqueSymbols.size,
       totalTriggers,
     };
-  }, [radarAlerts]);
+  }, [sourceAlerts]);
 
   // Batch Selection Handlers
   const toggleSelectAllFiltered = () => {
@@ -334,22 +341,22 @@ export default function RadarAlertsPage() {
   // Delete single alert
   const handleDeleteAlert = async (id: string) => {
     try {
-      const res = await fetch(`/api/alerts/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setAlerts((prev) => {
-          const next = prev.filter((a) => a.id !== id);
-          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
-          return next;
-        });
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
-        setToastMessage("✓ Alarm deleted");
-        setTimeout(() => setToastMessage(null), 3000);
-      }
+      recordDeletedAlertIds([id]);
+      setAlerts((prev) => {
+        const next = prev.filter((a) => a.id !== id);
+        saveClientAlerts(next);
+        return next;
+      });
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+
+      fetch(`/api/alerts/${id}`, { method: "DELETE" }).catch(() => {});
+      setToastMessage("✓ Alarm deleted");
+      setTimeout(() => setToastMessage(null), 3000);
     } catch {
       setToastMessage("Failed to delete alarm");
       setTimeout(() => setToastMessage(null), 3000);
@@ -378,7 +385,7 @@ export default function RadarAlertsPage() {
         const idSet = new Set(idsToUpdate);
         setAlerts((prev) => {
           const next = prev.map((a) => (idSet.has(a.id) ? { ...a, active: targetActive } : a));
-          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
+          saveClientAlerts(next);
           return next;
         });
         window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
@@ -399,29 +406,29 @@ export default function RadarAlertsPage() {
 
     if (idsToDelete.length === 0) return;
 
-    if (!confirm(`Are you sure you want to permanently delete ${idsToDelete.length} radar alarm(s)?`)) {
+    if (!confirm(`Are you sure you want to permanently delete ${idsToDelete.length} alarm(s)?`)) {
       return;
     }
 
     try {
-      const res = await fetch("/api/alerts", {
+      recordDeletedAlertIds(idsToDelete);
+      const idSet = new Set(idsToDelete);
+      setAlerts((prev) => {
+        const next = prev.filter((a) => !idSet.has(a.id));
+        saveClientAlerts(next);
+        return next;
+      });
+      setSelectedIds(new Set());
+      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+
+      fetch("/api/alerts", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: idsToDelete }),
-      });
+      }).catch(() => {});
 
-      if (res.ok) {
-        const idSet = new Set(idsToDelete);
-        setAlerts((prev) => {
-          const next = prev.filter((a) => !idSet.has(a.id));
-          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
-          return next;
-        });
-        setSelectedIds(new Set());
-        window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
-        setToastMessage(`✓ Deleted ${idsToDelete.length} radar alarm(s)!`);
-        setTimeout(() => setToastMessage(null), 3500);
-      }
+      setToastMessage(`✓ Deleted ${idsToDelete.length} alarm(s)!`);
+      setTimeout(() => setToastMessage(null), 3500);
     } catch {
       setToastMessage("Failed to batch delete alarms");
       setTimeout(() => setToastMessage(null), 3000);
@@ -638,6 +645,46 @@ export default function RadarAlertsPage() {
 
       {/* 3. FILTER CONTROLS & BATCH TOOLBAR */}
       <section className="px-4 sm:px-6 pb-4 max-w-7xl mx-auto w-full flex flex-col gap-3">
+        {/* Source Segmented Control */}
+        <div className="flex items-center gap-2 p-1.5 rounded-xl bg-[#0c1017] border border-[#1b2535] overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setSourceFilter("ALL")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              sourceFilter === "ALL"
+                ? "bg-amber-500 text-black shadow-xs"
+                : "text-[#848e9c] hover:text-white"
+            }`}
+          >
+            <Bell size={12} />
+            <span>All Alarms ({alerts.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceFilter("RADAR")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              sourceFilter === "RADAR"
+                ? "bg-amber-500 text-black shadow-xs"
+                : "text-[#848e9c] hover:text-white"
+            }`}
+          >
+            <Radio size={12} className={sourceFilter === "RADAR" ? "animate-pulse" : ""} />
+            <span>Radar POI Alarms ({radarAlerts.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourceFilter("CHART")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              sourceFilter === "CHART"
+                ? "bg-[#2962ff] text-white shadow-xs"
+                : "text-[#848e9c] hover:text-white"
+            }`}
+          >
+            <Zap size={12} />
+            <span>Chart &amp; Indicators ({chartAlerts.length})</span>
+          </button>
+        </div>
+
         <div className="p-3 rounded-xl bg-[#0c1017] border border-[#1b2535] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           {/* Search Input */}
           <div className="relative flex-1 min-w-[200px]">
@@ -837,12 +884,15 @@ export default function RadarAlertsPage() {
                     const isSelected = selectedIds.has(a.id);
                     const formattedTarget =
                       a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                    const isRadar = isRadarAlert(a);
                     const category = a.poiMetadata?.category || "order_block";
                     const isOb = category === "order_block";
                     const isSandwich = category === "sandwich_zone";
                     const isFvg = category === "fvg";
 
-                    const isBullish = a.poiMetadata?.direction === "BULLISH";
+                    const isBullish = isRadar
+                      ? a.poiMetadata?.direction === "BULLISH"
+                      : a.condition.includes("up");
 
                     return (
                       <tr
@@ -882,14 +932,22 @@ export default function RadarAlertsPage() {
                             <div className="flex items-center gap-1">
                               <span
                                 className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
-                                  isOb
-                                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                                    : isSandwich
-                                    ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                                    : "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                                  isRadar
+                                    ? isOb
+                                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                      : isSandwich
+                                      ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                      : "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                                    : "bg-[#2962ff]/15 text-[#2962ff] border-[#2962ff]/30"
                                 }`}
                               >
-                                {isOb ? "📦 Validated OB" : isSandwich ? "🥪 Sandwich ++" : "⚡ FVG"}
+                                {isRadar
+                                  ? isOb
+                                    ? "📦 Validated OB"
+                                    : isSandwich
+                                    ? "🥪 Sandwich ++"
+                                    : "⚡ FVG"
+                                  : `📈 ${a.sourceType.replace(/_/g, " ").toUpperCase()}`}
                               </span>
                             </div>
                             <span className="text-[10px] text-[#848e9c] truncate max-w-[220px]" title={a.label}>
@@ -901,7 +959,7 @@ export default function RadarAlertsPage() {
                         {/* Timeframe */}
                         <td className="py-3 px-3">
                           <span className="px-1.5 py-0.5 rounded bg-[#121824] border border-[#233144] text-[10px] font-bold text-white">
-                            {a.poiMetadata?.timeframe || "1H"}
+                            {isRadar ? (a.poiMetadata?.timeframe || "1H") : "Chart"}
                           </span>
                         </td>
 

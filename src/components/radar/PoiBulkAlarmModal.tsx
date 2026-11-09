@@ -27,6 +27,11 @@ import {
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
+  loadClientAlerts,
+  saveClientAlerts,
+  mergeClientAndServerAlerts,
+} from "@/lib/alerts/alerts-sync";
+import {
   RadarChimeType,
   RADAR_CHIME_PRESETS,
   playRadarChime,
@@ -330,17 +335,10 @@ export function PoiBulkAlarmModal({
           : computedBatch.plannedAlerts;
       const count = data?.count || savedAlerts.length;
 
-      // 2. Commit saved alerts to localStorage
-      try {
-        const raw = localStorage.getItem("mochex:price_alerts");
-        const existing: PriceAlert[] = raw ? JSON.parse(raw) : [];
-        const map = new Map<string, PriceAlert>();
-        existing.forEach((a: PriceAlert) => map.set(a.id, a));
-        savedAlerts.forEach((a: PriceAlert) => map.set(a.id, a));
-        localStorage.setItem("mochex:price_alerts", JSON.stringify(Array.from(map.values())));
-      } catch (storageErr) {
-        console.warn("Could not write to localStorage:", storageErr);
-      }
+      // 2. Commit saved alerts to localStorage resiliently
+      const currentLocal = loadClientAlerts();
+      const merged = mergeClientAndServerAlerts(currentLocal, savedAlerts);
+      saveClientAlerts(merged);
 
       // 3. Dispatch update event ONLY AFTER server & localStorage have persisted
       window.dispatchEvent(
@@ -358,12 +356,9 @@ export function PoiBulkAlarmModal({
       console.warn("Background daemon alert sync notice:", err);
       // Fallback: If network failed, save to localStorage and alert user
       try {
-        const raw = localStorage.getItem("mochex:price_alerts");
-        const existing: PriceAlert[] = raw ? JSON.parse(raw) : [];
-        const map = new Map<string, PriceAlert>();
-        existing.forEach((a: PriceAlert) => map.set(a.id, a));
-        computedBatch.plannedAlerts.forEach((a) => map.set(a.id, a));
-        localStorage.setItem("mochex:price_alerts", JSON.stringify(Array.from(map.values())));
+        const currentLocal = loadClientAlerts();
+        const merged = mergeClientAndServerAlerts(currentLocal, computedBatch.plannedAlerts);
+        saveClientAlerts(merged);
         window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
         const count = computedBatch.plannedAlerts.length;
         setStatusMessage(`⚡ Armed ${count} Cloud POI Alarms in local cache (Offline Mode)`);
