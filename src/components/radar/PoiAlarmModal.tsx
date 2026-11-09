@@ -107,6 +107,17 @@ export function PoiAlarmModal({
         }
       })
       .catch(() => {});
+
+    const handleWebhooksUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<AlertWebhookConfig>;
+      if (customEvent.detail) {
+        setWebhookConfig(customEvent.detail);
+      }
+    };
+    window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    return () => {
+      window.removeEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    };
   }, []);
 
   // Audio chime selection & custom sounds (DEC-147)

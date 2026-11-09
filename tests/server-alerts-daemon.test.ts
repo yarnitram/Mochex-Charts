@@ -37,16 +37,37 @@ describe("24/7 Server-Side Offline Cloud Alert Engine (DEC-135)", () => {
   });
 
   afterEach(() => {
-    // Restore backed up files
+    // Restore backed up files or surgically remove testUserId without wiping global file
     try {
-      if (originalAlerts !== null) fs.writeFileSync(alertsFile, originalAlerts, "utf-8");
-      else if (fs.existsSync(alertsFile)) fs.unlinkSync(alertsFile);
+      if (originalAlerts !== null) {
+        fs.writeFileSync(alertsFile, originalAlerts, "utf-8");
+      } else if (fs.existsSync(alertsFile)) {
+        try {
+          const map = JSON.parse(fs.readFileSync(alertsFile, "utf-8"));
+          delete map[testUserId];
+          fs.writeFileSync(alertsFile, JSON.stringify(map, null, 2), "utf-8");
+        } catch {}
+      }
 
-      if (originalWebhooks !== null) fs.writeFileSync(webhooksFile, originalWebhooks, "utf-8");
-      else if (fs.existsSync(webhooksFile)) fs.unlinkSync(webhooksFile);
+      if (originalWebhooks !== null) {
+        fs.writeFileSync(webhooksFile, originalWebhooks, "utf-8");
+      } else if (fs.existsSync(webhooksFile)) {
+        try {
+          const map = JSON.parse(fs.readFileSync(webhooksFile, "utf-8"));
+          delete map[testUserId];
+          fs.writeFileSync(webhooksFile, JSON.stringify(map, null, 2), "utf-8");
+        } catch {}
+      }
 
-      if (originalLogs !== null) fs.writeFileSync(logsFile, originalLogs, "utf-8");
-      else if (fs.existsSync(logsFile)) fs.unlinkSync(logsFile);
+      if (originalLogs !== null) {
+        fs.writeFileSync(logsFile, originalLogs, "utf-8");
+      } else if (fs.existsSync(logsFile)) {
+        try {
+          const map = JSON.parse(fs.readFileSync(logsFile, "utf-8"));
+          delete map[testUserId];
+          fs.writeFileSync(logsFile, JSON.stringify(map, null, 2), "utf-8");
+        } catch {}
+      }
     } catch {}
     vi.restoreAllMocks();
   });

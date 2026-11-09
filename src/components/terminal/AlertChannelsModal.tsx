@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   X,
   Send,
@@ -78,6 +78,58 @@ export function AlertChannelsModal({
   );
   const [tradingTesting, setTradingTesting] = useState(false);
   const [tradingStatus, setTradingStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Synchronize internal state whenever initialConfig updates or modal opens
+  useEffect(() => {
+    if (initialConfig) {
+      setDiscordWebhookUrl(initialConfig.discordWebhookUrl || "");
+      setDiscordEnabled(initialConfig.discordEnabled ?? false);
+      setTelegramBotToken(initialConfig.telegramBotToken || "");
+      setTelegramChatId(initialConfig.telegramChatId || "");
+      setTelegramEnabled(initialConfig.telegramEnabled ?? false);
+      if (initialConfig.tradingWebhook) {
+        setTradingEnabled(initialConfig.tradingWebhook.enabled ?? false);
+        setTradingPlatform(initialConfig.tradingWebhook.platform || "3commas");
+        setTradingWebhookUrl(initialConfig.tradingWebhook.webhookUrl || "");
+        setTradingSecretToken(initialConfig.tradingWebhook.secretToken || "");
+        setTradingBotId(initialConfig.tradingWebhook.botId || "");
+        setTradingCustomTemplate(
+          initialConfig.tradingWebhook.customTemplate ||
+            getDefaultTradingWebhookTemplate(initialConfig.tradingWebhook.platform || "3commas")
+        );
+      }
+    }
+  }, [initialConfig, isOpen]);
+
+  // Query fresh server database webhooks directly upon opening
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch("/api/alerts/webhooks")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.config) {
+          const cfg = data.config;
+          if (cfg.discordWebhookUrl) setDiscordWebhookUrl(cfg.discordWebhookUrl);
+          if (typeof cfg.discordEnabled === "boolean") setDiscordEnabled(cfg.discordEnabled);
+          if (cfg.telegramBotToken) setTelegramBotToken(cfg.telegramBotToken);
+          if (cfg.telegramChatId) setTelegramChatId(cfg.telegramChatId);
+          if (typeof cfg.telegramEnabled === "boolean") setTelegramEnabled(cfg.telegramEnabled);
+          if (cfg.tradingWebhook) {
+            setTradingEnabled(cfg.tradingWebhook.enabled ?? false);
+            setTradingPlatform(cfg.tradingWebhook.platform || "3commas");
+            setTradingWebhookUrl(cfg.tradingWebhook.webhookUrl || "");
+            setTradingSecretToken(cfg.tradingWebhook.secretToken || "");
+            setTradingBotId(cfg.tradingWebhook.botId || "");
+            if (cfg.tradingWebhook.customTemplate) {
+              setTradingCustomTemplate(cfg.tradingWebhook.customTemplate);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -243,7 +295,9 @@ export function AlertChannelsModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveFeedback(null);
     const updated: AlertWebhookConfig = {
       discordWebhookUrl: discordWebhookUrl.trim(),
       discordEnabled: discordEnabled && discordWebhookUrl.trim().length > 0,
@@ -265,15 +319,48 @@ export function AlertChannelsModal({
       localStorage.setItem("mochex:alert_webhooks", JSON.stringify(updated));
     } catch {}
 
-    // Synchronize with 24/7 Server Alert Daemon (DEC-135)
-    fetch("/api/alerts/webhooks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updated),
-    }).catch(() => {});
+    try {
+      // Synchronize with 24/7 Server Alert Daemon (DEC-135)
+      const res = await fetch("/api/alerts/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
 
-    onSave(updated);
-    onClose();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || `Server responded with ${res.status}`);
+      }
+
+      // Notify all open components and pages across the app
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("mochex:webhooks-updated", { detail: updated })
+        );
+      }
+
+      setSaveFeedback({ ok: true, msg: "✓ Saved to account database successfully!" });
+      onSave(updated);
+      setTimeout(() => {
+        onClose();
+        setSaveFeedback(null);
+      }, 700);
+    } catch (err: any) {
+      console.warn("[AlertChannelsModal] Server webhook save notice:", err);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("mochex:webhooks-updated", { detail: updated })
+        );
+      }
+      onSave(updated);
+      setSaveFeedback({ ok: false, msg: `Saved locally (${err?.message || "server sync notice"})` });
+      setTimeout(() => {
+        onClose();
+        setSaveFeedback(null);
+      }, 1200);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -697,13 +784,26 @@ export function AlertChannelsModal({
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-surface-container-lowest shrink-0">
-          <span className="text-[10px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            24/7 Cloud Offline Sync Enabled
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              24/7 Cloud Offline Sync
+            </span>
+            {saveFeedback && (
+              <span
+                className={`text-[10px] flex items-center gap-1 font-semibold ${
+                  saveFeedback.ok ? "text-emerald-400" : "text-amber-400"
+                }`}
+              >
+                {saveFeedback.ok ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+                <span>{saveFeedback.msg}</span>
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
+              disabled={isSaving}
               onClick={onClose}
               className="px-3 py-1.5 rounded border border-border text-muted hover:text-on-surface hover:bg-surface transition-colors cursor-pointer text-[11px]"
             >
@@ -711,10 +811,12 @@ export function AlertChannelsModal({
             </button>
             <button
               type="button"
+              disabled={isSaving}
               onClick={handleSave}
-              className="px-4 py-1.5 rounded bg-primary-container hover:bg-primary text-white font-semibold transition-colors cursor-pointer text-[11px]"
+              className="px-4 py-1.5 rounded bg-primary-container hover:bg-primary text-white font-semibold transition-colors cursor-pointer text-[11px] flex items-center gap-1.5"
             >
-              Save Configuration
+              {isSaving && <Loader2 size={12} className="animate-spin" />}
+              <span>{isSaving ? "Saving to Database..." : "Save Configuration"}</span>
             </button>
           </div>
         </div>

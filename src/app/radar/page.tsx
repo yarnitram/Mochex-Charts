@@ -205,6 +205,24 @@ export default function RadarPage() {
         }
       })
       .catch(() => {});
+
+    const handleWebhooksUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<AlertWebhookConfig>;
+      if (customEvent.detail) {
+        setWebhookConfig(customEvent.detail);
+      } else {
+        fetch("/api/alerts/webhooks")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d?.config) setWebhookConfig(d.config);
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    return () => {
+      window.removeEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    };
   }, []);
 
   // Selected coin for Quick Preview Drawer

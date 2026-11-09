@@ -19,6 +19,7 @@ import {
   Shield,
   ChevronDown,
   ChevronUp,
+  Settings,
 } from "lucide-react";
 import {
   RadarPoiItem,
@@ -37,7 +38,8 @@ import {
   playRadarChime,
   getRadarAudioSettings,
 } from "@/lib/audio/sound-effects";
-import { DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
+import { DiscordIcon, TelegramIcon, AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
+import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 
 export interface CandidateCoinForBulkAlarm {
   symbol: string;
@@ -111,6 +113,36 @@ export function PoiBulkAlarmModal({
   const [touchLevel, setTouchLevel] = useState<OrderBlockTouchLevel>("fifty_pct");
 
   // Channels
+  const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({
+    discordWebhookUrl: "",
+    discordEnabled: false,
+    telegramBotToken: "",
+    telegramChatId: "",
+    telegramEnabled: false,
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("mochex:alert_webhooks");
+      if (raw) setWebhookConfig(JSON.parse(raw));
+    } catch {}
+
+    fetch("/api/alerts/webhooks")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.config) setWebhookConfig((prev: AlertWebhookConfig) => ({ ...prev, ...d.config }));
+      })
+      .catch(() => {});
+
+    const handleWebhooksUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<AlertWebhookConfig>;
+      if (customEvent.detail) setWebhookConfig(customEvent.detail);
+    };
+    window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+    return () => window.removeEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
+  }, []);
+
   const [notifyDiscord, setNotifyDiscord] = useState(true);
   const [notifyTelegram, setNotifyTelegram] = useState(true);
   const [notifyTradingWebhook, setNotifyTradingWebhook] = useState(false);
@@ -553,9 +585,20 @@ export function PoiBulkAlarmModal({
 
           {/* Notification Channels & Invalidation */}
           <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-3">
-            <span className="text-xs font-semibold text-slate-300 block">
-              24/7 Cloud Delivery Channels
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300 block">
+                24/7 Cloud Delivery Channels
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsChannelsModalOpen(true)}
+                className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                title="Configure Discord Webhook, Telegram Bot, or Trading Bot"
+              >
+                <Settings size={12} />
+                <span>Configure Channels ↗</span>
+              </button>
+            </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
               <label className="flex items-center gap-2 p-2 bg-slate-900 border border-slate-800 rounded-lg cursor-pointer hover:border-slate-700">
