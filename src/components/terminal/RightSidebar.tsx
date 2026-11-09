@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Search,
   Plus,
@@ -31,6 +31,8 @@ import {
   RotateCcw,
   Zap,
   Send,
+  Radio,
+  ExternalLink,
 } from "lucide-react";
 import { mexcWsManager } from "@/lib/mexc/websocket";
 import { MexcMiniTickerItem } from "@/lib/mexc/types";
@@ -254,6 +256,19 @@ export function RightSidebar({
 
   // Live Price, Drawing & Strategy Crossing Alerts State (DEC-069 & DEC-079)
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [alertsSubTab, setAlertsSubTab] = useState<"chart" | "radar">("chart");
+
+  const isRadarAlert = useCallback((a: PriceAlert) => {
+    return Boolean(a.poiMetadata || a.id.startsWith("alert-poi-") || a.id.startsWith("bulk-poi-"));
+  }, []);
+
+  const chartAlerts = useMemo(() => {
+    return alerts.filter((a) => !isRadarAlert(a));
+  }, [alerts, isRadarAlert]);
+
+  const radarAlerts = useMemo(() => {
+    return alerts.filter(isRadarAlert);
+  }, [alerts, isRadarAlert]);
   const [alertLogs, setAlertLogs] = useState<AlertLogEntry[]>([]);
   const [alertFormMode, setAlertFormMode] = useState<"price" | "strategy">("price");
   const [newAlertPrice, setNewAlertPrice] = useState<string>("");
@@ -304,6 +319,28 @@ export function RightSidebar({
       } catch {}
       window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
     }
+  }, []);
+
+
+  useEffect(() => {
+    const handleAlertsUpdated = () => {
+      fetch("/api/alerts")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.alerts)) {
+            setAlerts(data.alerts);
+            alertsRef.current = data.alerts;
+            try {
+              localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
+    return () => {
+      window.removeEventListener("mochex:alerts-updated", handleAlertsUpdated);
+    };
   }, []);
 
   const saveAlertLogs = useCallback((nextLogs: AlertLogEntry[]) => {
@@ -2083,8 +2120,178 @@ export function RightSidebar({
         </div>
       ) : activeTab === "alerts" ? (
         <div className="flex-1 flex flex-col overflow-hidden font-mono">
-          {/* Create Alert Form (Dual Mode: Price Level vs Strategy / Indicator - DEC-079) */}
-          <form
+          {/* Alerts Sub-Tabs: Chart Alerts vs Radar POI Alarms (DEC-158) */}
+          <div className="flex items-center border-b border-border bg-surface-container-lowest px-2 pt-2 gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setAlertsSubTab("chart")}
+              className={`flex-1 py-1.5 px-2 rounded-t text-xs font-bold transition-all flex items-center justify-center gap-1.5 border-t border-x cursor-pointer ${
+                alertsSubTab === "chart"
+                  ? "bg-surface-container-low text-primary border-border border-b-transparent shadow-xs"
+                  : "bg-transparent text-muted hover:text-on-surface border-transparent"
+              }`}
+            >
+              <TrendingUp size={12} />
+              <span>Chart Alerts</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-mono">
+                {chartAlerts.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAlertsSubTab("radar")}
+              className={`flex-1 py-1.5 px-2 rounded-t text-xs font-bold transition-all flex items-center justify-center gap-1.5 border-t border-x cursor-pointer ${
+                alertsSubTab === "radar"
+                  ? "bg-surface-container-low text-amber-400 border-border border-b-transparent shadow-xs"
+                  : "bg-transparent text-muted hover:text-on-surface border-transparent"
+              }`}
+            >
+              <Radio size={12} className={alertsSubTab === "radar" ? "text-amber-400 animate-pulse" : ""} />
+              <span>Radar Alarms</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono">
+                {radarAlerts.length}
+              </span>
+            </button>
+          </div>
+
+          {alertsSubTab === "radar" ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Radar Alarms Header Banner */}
+              <div className="p-3 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Radio size={15} className="text-amber-400 shrink-0 animate-pulse" />
+                  <div className="text-[11px] leading-tight">
+                    <div className="font-bold text-white">24/7 Radar POI Alarms</div>
+                    <div className="text-[#848e9c] text-[10px]">
+                      {radarAlerts.filter((a: PriceAlert) => a.active).length} Active Cloud Alarms
+                    </div>
+                  </div>
+                </div>
+                <a
+                  href="/radar/alerts"
+                  className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs"
+                >
+                  <span>Open Manager</span>
+                  <ExternalLink size={11} />
+                </a>
+              </div>
+
+              {/* Radar Alarms List */}
+              <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-border/40">
+                {radarAlerts.length === 0 ? (
+                  <div className="p-6 text-center text-[11px] text-muted flex flex-col items-center gap-3">
+                    <Bell size={24} className="text-muted/40" />
+                    <div>No Radar POI alarms set yet.</div>
+                    <a
+                      href="/radar/alerts"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold hover:bg-amber-500 hover:text-black transition-all"
+                    >
+                      Open Radar Alerts Manager →
+                    </a>
+                  </div>
+                ) : (
+                  radarAlerts.map((a: PriceAlert) => {
+                    const formattedTarget = a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                    const category = a.poiMetadata?.category || "POI";
+                    const catBadge =
+                      category === "order_block"
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        : category === "sandwich_zone"
+                        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                        : "bg-cyan-500/15 text-cyan-300 border-cyan-500/30";
+                    const catLabel =
+                      category === "order_block" ? "OB" : category === "sandwich_zone" ? "Sandwich" : "FVG";
+
+                    return (
+                      <div
+                        key={a.id}
+                        className={`px-3 py-2 flex items-center justify-between gap-2 transition-colors ${
+                          a.active ? "bg-surface-container-lowest" : "bg-surface-container-low/40 opacity-60"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              onClick={() => onSelectSymbol(a.symbol)}
+                              className="text-[10px] font-bold text-amber-400 hover:underline cursor-pointer"
+                            >
+                              {a.symbol.replace("USDT", "/USDT")}
+                            </span>
+                            <span className={`text-[9px] px-1 py-0.2 rounded border font-semibold ${catBadge}`}>
+                              {catLabel}
+                            </span>
+                            {a.poiMetadata?.timeframe && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-surface-container-high text-on-surface font-mono">
+                                {a.poiMetadata.timeframe}
+                              </span>
+                            )}
+                            <span
+                              className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
+                                a.active
+                                  ? "bg-gold/15 text-gold border border-gold/30"
+                                  : "bg-surface text-muted border border-border"
+                              }`}
+                            >
+                              {a.active ? "ACTIVE" : "PAUSED"}
+                            </span>
+                            {a.notifyDiscord !== false && webhookConfig.discordEnabled && (
+                              <span
+                                className="text-[8px] px-1 py-0.2 rounded bg-[#5865F2]/20 text-[#5865F2] font-semibold flex items-center gap-0.5"
+                                title="Discord alerts active"
+                              >
+                                <DiscordIcon size={9} />
+                                <span>DC</span>
+                              </span>
+                            )}
+                            {a.notifyTelegram !== false && webhookConfig.telegramEnabled && (
+                              <span
+                                className="text-[8px] px-1 py-0.2 rounded bg-[#229ED9]/20 text-[#229ED9] font-semibold flex items-center gap-0.5"
+                                title="Telegram alerts active"
+                              >
+                                <TelegramIcon size={9} />
+                                <span>TG</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs font-semibold text-on-surface truncate mt-0.5">
+                            {a.label || a.conditionMessage}
+                          </div>
+                          <div className="text-[10px] text-muted flex items-center gap-2 mt-0.5 font-mono">
+                            <span>{a.condition.replace(/_/g, " ").toUpperCase()} @ ${formattedTarget}</span>
+                            {a.invalidationPrice && (
+                              <span className="text-rose-400/80">
+                                Inv: ${a.invalidationPrice >= 1 ? a.invalidationPrice.toFixed(2) : a.invalidationPrice.toFixed(4)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleToggleAlertActive(a.id)}
+                            title={a.active ? "Pause Alert" : "Resume Alert"}
+                            className="p-1 rounded bg-surface-container-low hover:bg-surface-container text-muted hover:text-on-surface border border-border cursor-pointer"
+                          >
+                            {a.active ? <Pause size={11} /> : <Play size={11} />}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAlert(a.id)}
+                            title="Delete Alert"
+                            className="p-1 rounded bg-surface-container-low hover:bg-tertiary/15 text-muted hover:text-tertiary border border-border cursor-pointer"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Create Alert Form (Dual Mode: Price Level vs Strategy / Indicator - DEC-079) */}
+              <form
             onSubmit={handleCreateManualAlert}
             className="p-2.5 border-b border-border bg-surface-container-low flex flex-col gap-2"
           >
@@ -2317,13 +2524,13 @@ export function RightSidebar({
           </div>
 
           <div className="flex-1 overflow-y-auto no-scrollbar divide-y divide-border/40">
-            {alerts.length === 0 ? (
+            {chartAlerts.length === 0 ? (
               <div className="p-4 text-center text-[11px] text-muted">
                 No alerts configured yet. Add a price level or strategy condition above, or click the{" "}
                 <strong className="text-gold">Bell +</strong> icon on drawings/scripts.
               </div>
             ) : (
-              alerts.map((a) => {
+              chartAlerts.map((a: PriceAlert) => {
                 const formattedTarget =
                   a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
                 return (
@@ -2419,6 +2626,9 @@ export function RightSidebar({
               })
             )}
           </div>
+
+            </>
+          )}
 
           {/* Triggered Alert Log Section */}
           <div className="h-36 border-t border-border bg-surface flex flex-col shrink-0">

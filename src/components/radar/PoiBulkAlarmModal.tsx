@@ -52,6 +52,32 @@ interface PoiBulkAlarmModalProps {
   onSuccess?: (createdCount: number) => void;
 }
 
+
+function getPoisForTf(
+  poisByTimeframe: Record<string, RadarPoiItem[]> | undefined,
+  tf: string
+): RadarPoiItem[] {
+  if (!poisByTimeframe) return [];
+  if (Array.isArray(poisByTimeframe[tf]) && poisByTimeframe[tf].length > 0) {
+    return poisByTimeframe[tf];
+  }
+  const tfMap: Record<string, string[]> = {
+    "15m": ["15m", "15"],
+    "60": ["60", "1H", "1h", "60m"],
+    "1H": ["1H", "60", "1h", "60m"],
+    "240": ["240", "4H", "4h", "240m"],
+    "4H": ["4H", "240", "4h", "240m"],
+    "1D": ["1D", "1d", "D", "1440"],
+  };
+  const alternatives = tfMap[tf] || [];
+  for (const alt of alternatives) {
+    if (Array.isArray(poisByTimeframe[alt]) && poisByTimeframe[alt].length > 0) {
+      return poisByTimeframe[alt];
+    }
+  }
+  return [];
+}
+
 export function PoiBulkAlarmModal({
   isOpen,
   onClose,
@@ -68,9 +94,12 @@ export function PoiBulkAlarmModal({
   >("order_block");
 
   // Selected timeframes
-  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(
-    defaultSelectedTimeframes.length > 0 ? defaultSelectedTimeframes : ["1H", "4H"]
-  );
+  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(() => {
+    if (defaultSelectedTimeframes.length > 0) {
+      return defaultSelectedTimeframes.map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf));
+    }
+    return ["1H", "4H"];
+  });
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
   const [touchLevel, setTouchLevel] = useState<OrderBlockTouchLevel>("fifty_pct");
@@ -101,7 +130,9 @@ export function PoiBulkAlarmModal({
       setStatusMessage(null);
       setIsSubmitting(false);
       if (defaultSelectedTimeframes.length > 0) {
-        setSelectedTimeframes(defaultSelectedTimeframes);
+        setSelectedTimeframes(
+          defaultSelectedTimeframes.map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf))
+        );
       }
     }
   }, [isOpen, defaultSelectedTimeframes]);
@@ -137,7 +168,7 @@ export function PoiBulkAlarmModal({
       const coinPois: { tf: string; poi: RadarPoiItem; targetPrice: number }[] = [];
 
       for (const tf of selectedTimeframes) {
-        const tfPois = coin.poisByTimeframe[tf] || [];
+        const tfPois = getPoisForTf(coin.poisByTimeframe, tf);
 
         // Filter by target category
         let candidates = tfPois;

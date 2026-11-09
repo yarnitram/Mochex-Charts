@@ -75,7 +75,7 @@ export interface PriceAlert {
     timeframe: string;
     zoneTop: number;
     zoneBottom: number;
-    invalidationPrice: number;
+    invalidationPrice?: number;
   };
   breakTelemetry?: any;
 }

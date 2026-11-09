@@ -258,6 +258,23 @@ export default function RadarPage() {
     return map;
   }, [activeAlerts]);
 
+  // Helper to identify radar POI alerts vs standard chart alerts (DEC-158)
+  const isRadarAlert = useCallback((a: PriceAlert) => {
+    return Boolean(a.poiMetadata || a.id.startsWith("alert-poi-") || a.id.startsWith("bulk-poi-"));
+  }, []);
+
+  const radarAlerts = useMemo(() => {
+    return activeAlerts.filter(isRadarAlert);
+  }, [activeAlerts, isRadarAlert]);
+
+  const activeRadarAlertsCount = useMemo(() => {
+    return radarAlerts.filter((a) => a.active).length;
+  }, [radarAlerts]);
+
+  const radarCoinsCount = useMemo(() => {
+    return Object.keys(alertsBySymbol).length;
+  }, [alertsBySymbol]);
+
   // Multi-Broker Direct Execution States (DEC-156)
   const [isBrokerModalOpen, setIsBrokerModalOpen] = useState(false);
   const [hasActiveBroker, setHasActiveBroker] = useState(false);
@@ -765,26 +782,28 @@ export default function RadarPage() {
       ? "Top 50 AI Coins"
       : "Custom Watchlist";
 
-  // Candidate coins for bulk alarm setup (DEC-157)
+  // Candidate coins for bulk alarm setup across current universe (DEC-158)
   const candidateCoinsForBulk: CandidateCoinForBulkAlarm[] = useMemo(() => {
     const list: CandidateCoinForBulkAlarm[] = [];
-    for (const { coin, data, selectedPoi } of filteredCoins) {
+    for (const coin of currentCoins) {
+      const data = radarData[coin.symbol];
+      if (!data) continue;
       const allPois: RadarPoiItem[] = [];
       Object.values(data?.poisByTimeframe || {}).forEach((tPois) => {
         if (Array.isArray(tPois)) allPois.push(...tPois);
       });
-      if (allPois.length > 0 || selectedPoi) {
+      if (allPois.length > 0 || data.nearestPoi || data.nearestOb || data.nearestSandwich || data.nearestFvg) {
         list.push({
           symbol: coin.symbol,
           name: coin.name,
-          price: data?.price || 0,
-          pois: allPois.length > 0 ? allPois : (selectedPoi ? [selectedPoi] : []),
-          poisByTimeframe: data?.poisByTimeframe || {},
+          price: data.price || 0,
+          pois: allPois.length > 0 ? allPois : (data.nearestPoi ? [data.nearestPoi] : []),
+          poisByTimeframe: data.poisByTimeframe || {},
         });
       }
     }
     return list;
-  }, [filteredCoins]);
+  }, [currentCoins, radarData]);
 
   // Exportable items derived from filtered coins
   const exportItems: ExportableRadarItem[] = useMemo(() => {
@@ -1062,14 +1081,17 @@ export default function RadarPage() {
             </span>
           </button>
 
-          {/* Direct link to Active Alerts Manager in Chart */}
+          {/* Direct link to Dedicated Radar Alerts Dashboard (DEC-158) */}
           <Link
-            href="/chart?tab=alerts"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs text-[#848e9c] hover:text-white transition-colors"
-            title="View Active Alerts & Trigger History"
+            href="/radar/alerts"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-xs text-amber-300 font-bold transition-all shadow-xs"
+            title="Open Dedicated Radar 24/7 Cloud Alarms Dashboard"
           >
-            <Bell size={13} className="text-amber-400" />
-            <span className="hidden sm:inline">Alerts Log</span>
+            <Bell size={13} className="text-amber-400 fill-amber-400/20" />
+            <span className="hidden sm:inline">Radar Alarms</span>
+            <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[10px] font-mono font-bold">
+              {radarAlerts.length}
+            </span>
           </Link>
 
           {/* Multi-Broker Direct Execution Modal Button (DEC-156) */}
@@ -1473,7 +1495,7 @@ export default function RadarPage() {
               className="bg-[#121824] text-[#d1d4dc] text-xs px-2.5 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
             >
               <option value="ALL">All POIs (FVG + OB + Sandwich)</option>
-              <option value="has_alarms">🔔 Armed Alarms Only ({Object.keys(alertsBySymbol).length})</option>
+              <option value="has_alarms">🔔 Armed Alarms ({activeRadarAlertsCount} Alarms across {radarCoinsCount} Coins)</option>
               <option value="absorption">🛡️ Order Flow Absorption & CVD Div (≥ 65%)</option>
               <option value="risk_cluster">⚠️ High Directional Cluster (≥ 50% Exposure)</option>
               <option value="confluence">🔥 Multi-Timeframe Confluence (≥ 2x)</option>

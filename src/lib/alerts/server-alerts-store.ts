@@ -147,6 +147,52 @@ export async function deleteServerAlert(alertId: string, userId: string): Promis
 }
 
 /**
+ * Deletes multiple alerts in batch for a user (DEC-158)
+ */
+export async function deleteServerAlertsBatch(
+  alertIds: string[],
+  userId: string
+): Promise<number> {
+  if (!alertIds || alertIds.length === 0) return 0;
+  const map = readJsonFile<UserAlertsMap>(ALERTS_FILE, {});
+  const userAlerts = map[userId] || [];
+  const idSet = new Set(alertIds);
+  const remaining = userAlerts.filter((a) => !idSet.has(a.id));
+  const count = userAlerts.length - remaining.length;
+  if (count > 0) {
+    map[userId] = remaining;
+    writeJsonFile(ALERTS_FILE, map);
+  }
+  return count;
+}
+
+/**
+ * Updates multiple alerts in batch for a user (DEC-158)
+ */
+export async function updateServerAlertsBatch(
+  alertIds: string[],
+  updates: Partial<PriceAlert>,
+  userId: string
+): Promise<number> {
+  if (!alertIds || alertIds.length === 0) return 0;
+  const map = readJsonFile<UserAlertsMap>(ALERTS_FILE, {});
+  const userAlerts = map[userId] || [];
+  const idSet = new Set(alertIds);
+  let updatedCount = 0;
+  for (let i = 0; i < userAlerts.length; i++) {
+    if (idSet.has(userAlerts[i].id)) {
+      userAlerts[i] = { ...userAlerts[i], ...updates };
+      updatedCount++;
+    }
+  }
+  if (updatedCount > 0) {
+    map[userId] = userAlerts;
+    writeJsonFile(ALERTS_FILE, map);
+  }
+  return updatedCount;
+}
+
+/**
  * Returns saved webhook configuration for a user
  */
 export async function getServerWebhooks(userId: string): Promise<AlertWebhookConfig | null> {
