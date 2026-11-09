@@ -45,6 +45,8 @@ import {
   RadarUniverseTab,
   CuratedCoin,
   MAJORS_UNIVERSE,
+  TOP_150_MEMES,
+  TOP_150_AI,
 } from "@/lib/screener/universe-catalog";
 import {
   RadarPoiItem,
@@ -798,9 +800,9 @@ export default function RadarPage() {
     activeTab === "majors"
       ? "Majors & Volume"
       : activeTab === "memes"
-      ? "Top 50 Meme Coins"
+      ? "Top 150 Meme Coins"
       : activeTab === "ai"
-      ? "Top 50 AI Coins"
+      ? "Top 150 AI Coins"
       : "Custom Watchlist";
 
   // Candidate coins for bulk alarm setup across current universe (DEC-158)
@@ -845,9 +847,9 @@ export default function RadarPage() {
       activeTab === "majors"
         ? "Majors & Volume"
         : activeTab === "memes"
-        ? "Top 50 Meme Coins"
+        ? "Top 150 Meme Coins"
         : activeTab === "ai"
-        ? "Top 50 AI Coins"
+        ? "Top 150 AI Coins"
         : "Custom Watchlist";
     const tfMap: Record<string, string> = {
       "15m": "15m",
@@ -1422,7 +1424,7 @@ export default function RadarPage() {
                 : "bg-[#121824] text-[#848e9c] hover:text-white border border-[#233144]"
             }`}
           >
-            🔥 Top 50 Meme Coins
+            🔥 Top 150 Meme Coins ({TOP_150_MEMES.length})
           </button>
 
           <button
@@ -1433,7 +1435,7 @@ export default function RadarPage() {
                 : "bg-[#121824] text-[#848e9c] hover:text-white border border-[#233144]"
             }`}
           >
-            ⚡ Top 50 AI Coins
+            ⚡ Top 150 AI Coins ({TOP_150_AI.length})
           </button>
 
           <button

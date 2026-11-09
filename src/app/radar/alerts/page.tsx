@@ -43,7 +43,7 @@ import {
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
-import { MAJORS_UNIVERSE, TOP_50_MEMES, TOP_50_AI } from "@/lib/screener/universe-catalog";
+import { MAJORS_UNIVERSE, TOP_150_MEMES, TOP_150_AI } from "@/lib/screener/universe-catalog";
 
 export default function RadarAlertsPage() {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
@@ -158,7 +158,7 @@ export default function RadarAlertsPage() {
 
     if (!hasLoadedCachedPois) {
       // Prepopulate candidate coins and scan live POIs for bulk modal
-      const allCoins = [...MAJORS_UNIVERSE, ...TOP_50_AI, ...TOP_50_MEMES];
+      const allCoins = [...MAJORS_UNIVERSE, ...TOP_150_AI, ...TOP_150_MEMES];
       const uniqueMap = new Map<string, CandidateCoinForBulkAlarm>();
       for (const c of allCoins) {
         if (!uniqueMap.has(c.symbol)) {

@@ -164,17 +164,17 @@ describe("Validated Order Block (OB + FVG) Calculation Engine (DEC-136)", () => 
   describe("Curated Universe Catalog", () => {
     it("returns correct coin universes with metadata", () => {
       const majors = getUniverseCoins("majors");
-      expect(majors.length).toBeGreaterThanOrEqual(25);
+      expect(majors.length).toBe(150);
       expect(majors.find((c) => c.symbol === "BTCUSDT")).toBeDefined();
 
       const memes = getUniverseCoins("memes");
-      expect(memes.length).toBe(50);
+      expect(memes.length).toBe(150);
       expect(memes.find((c) => c.symbol === "DOGEUSDT")).toBeDefined();
       expect(memes.find((c) => c.symbol === "PEPEUSDT")).toBeDefined();
       expect(memes.find((c) => c.symbol === "WIFUSDT")).toBeDefined();
 
       const ai = getUniverseCoins("ai");
-      expect(ai.length).toBe(50);
+      expect(ai.length).toBe(150);
       expect(ai.find((c) => c.symbol === "TAOUSDT")).toBeDefined();
       expect(ai.find((c) => c.symbol === "RENDERUSDT")).toBeDefined();
       expect(ai.find((c) => c.symbol === "FETUSDT")).toBeDefined();

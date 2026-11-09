@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
         ? "all"
         : "mexc";
 
-    // Limit batch to max 60 symbols per request to prevent timeouts
-    const symbols = rawSymbols.slice(0, 60);
+    // Limit batch to max 160 symbols per request (supports full 150-coin universes)
+    const symbols = rawSymbols.slice(0, 160);
     const now = Date.now();
 
     // 1. Fetch 24h tickers based on exchange filter
@@ -96,8 +96,14 @@ export async function POST(request: NextRequest) {
       exchangeFilter === "all" ? ["mexc", "binance", "bybit"] : [exchangeFilter];
 
     // 2. Compute Validated POIs per symbol across requested timeframes and exchanges
-    const results = await Promise.all(
-      symbols.map(async (sym) => {
+    // Chunk in batches of 20 concurrent symbols to prevent MEXC API socket exhaustion and rate limiting
+    const CHUNK_SIZE = 20;
+    const results: any[] = [];
+
+    for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
+      const chunk = symbols.slice(i, i + CHUNK_SIZE);
+      const chunkResults = await Promise.all(
+        chunk.map(async (sym) => {
         const upperSym = sym.toUpperCase();
         const cacheKey = `${exchangeFilter}_${upperSym}_${timeframes.sort().join("_")}`;
         const cached = radarPoiCache.get(cacheKey);
@@ -197,6 +203,8 @@ export async function POST(request: NextRequest) {
         return data;
       })
     );
+    results.push(...chunkResults);
+  }
 
     // 3. Multi-Asset Portfolio Risk Heat & Correlated POI Exposure (DEC-155)
     const btcResult = results.find((r) => r.symbol === "BTCUSDT");
