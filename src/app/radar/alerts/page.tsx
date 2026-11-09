@@ -83,16 +83,10 @@ export default function RadarAlertsPage() {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.alerts)) {
-          setAlerts((prev) => {
-            const map = new Map<string, PriceAlert>();
-            prev.forEach((a) => map.set(a.id, a));
-            data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
-            const merged = Array.from(map.values());
-            try {
-              localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
+          setAlerts(data.alerts);
+          try {
+            localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
+          } catch {}
         }
       }
     } catch (err) {
@@ -134,56 +128,89 @@ export default function RadarAlertsPage() {
       })
       .catch(() => {});
 
-    // Prepopulate candidate coins and scan live POIs for bulk modal
-    const allCoins = [...MAJORS_UNIVERSE, ...TOP_50_AI, ...TOP_50_MEMES];
-    const uniqueMap = new Map<string, CandidateCoinForBulkAlarm>();
-    for (const c of allCoins) {
-      if (!uniqueMap.has(c.symbol)) {
-        uniqueMap.set(c.symbol, {
-          symbol: c.symbol,
-          name: c.name,
-          price: 0,
-          pois: [],
-          poisByTimeframe: {},
-        });
-      }
-    }
-    setCandidateCoins(Array.from(uniqueMap.values()));
-
-    // Scan top coins POIs so bulk modal has real data if launched from here
-    fetch("/api/radar/pois", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbols: [
-          "BTCUSDT", "ETHUSDT", "SOLUSDT", "NEARUSDT", "RENDERUSDT",
-          "FETUSDT", "TAOUSDT", "PEPEUSDT", "DOGEUSDT", "SUIUSDT",
-          "AVAXUSDT", "LINKUSDT", "INJUSDT", "APTUSDT"
-        ],
-        timeframes: ["1D", "240", "60", "15m"],
-        exchange: "mexc",
-      }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && Array.isArray(data.results)) {
-          const list: CandidateCoinForBulkAlarm[] = data.results.map((item: any) => {
-            const allPois: any[] = [];
-            Object.values(item.poisByTimeframe || {}).forEach((tPois: any) => {
-              if (Array.isArray(tPois)) allPois.push(...tPois);
+    // Try reading cached radar POIs from active session first
+    let hasLoadedCachedPois = false;
+    if (typeof window !== "undefined") {
+      try {
+        const cachedRaw = sessionStorage.getItem("mochex:radar_cached_pois");
+        if (cachedRaw) {
+          const cachedData = JSON.parse(cachedRaw);
+          const rawList = Array.isArray(cachedData) ? cachedData : Object.values(cachedData);
+          if (rawList.length > 0) {
+            const list: CandidateCoinForBulkAlarm[] = rawList.map((item: any) => {
+              const allPois: any[] = [];
+              Object.values(item.poisByTimeframe || {}).forEach((tPois: any) => {
+                if (Array.isArray(tPois)) allPois.push(...tPois);
+              });
+              return {
+                symbol: item.symbol,
+                name: item.name || item.symbol.replace("USDT", ""),
+                price: item.price || 0,
+                pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
+                poisByTimeframe: item.poisByTimeframe || {},
+              };
             });
-            return {
-              symbol: item.symbol,
-              name: item.symbol.replace("USDT", ""),
-              price: item.price || 0,
-              pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
-              poisByTimeframe: item.poisByTimeframe || {},
-            };
-          });
-          setCandidateCoins(list);
+            if (list.length > 0) {
+              setCandidateCoins(list);
+              hasLoadedCachedPois = true;
+            }
+          }
         }
+      } catch {}
+    }
+
+    if (!hasLoadedCachedPois) {
+      // Prepopulate candidate coins and scan live POIs for bulk modal
+      const allCoins = [...MAJORS_UNIVERSE, ...TOP_50_AI, ...TOP_50_MEMES];
+      const uniqueMap = new Map<string, CandidateCoinForBulkAlarm>();
+      for (const c of allCoins) {
+        if (!uniqueMap.has(c.symbol)) {
+          uniqueMap.set(c.symbol, {
+            symbol: c.symbol,
+            name: c.name,
+            price: 0,
+            pois: [],
+            poisByTimeframe: {},
+          });
+        }
+      }
+      setCandidateCoins(Array.from(uniqueMap.values()));
+
+      // Scan top coins POIs so bulk modal has real data if launched from here
+      fetch("/api/radar/pois", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: [
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "NEARUSDT", "RENDERUSDT",
+            "FETUSDT", "TAOUSDT", "PEPEUSDT", "DOGEUSDT", "SUIUSDT",
+            "AVAXUSDT", "LINKUSDT", "INJUSDT", "APTUSDT"
+          ],
+          timeframes: ["1D", "240", "60", "15m"],
+          exchange: "mexc",
+        }),
       })
-      .catch(() => {});
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.results)) {
+            const list: CandidateCoinForBulkAlarm[] = data.results.map((item: any) => {
+              const allPois: any[] = [];
+              Object.values(item.poisByTimeframe || {}).forEach((tPois: any) => {
+                if (Array.isArray(tPois)) allPois.push(...tPois);
+              });
+              return {
+                symbol: item.symbol,
+                name: item.symbol.replace("USDT", ""),
+                price: item.price || 0,
+                pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
+                poisByTimeframe: item.poisByTimeframe || {},
+              };
+            });
+            setCandidateCoins(list);
+          }
+        })
+        .catch(() => {});
+    }
   }, [fetchAlerts]);
 
   // Listen to alerts updated event

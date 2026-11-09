@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import {
   X,
   Bell,
@@ -301,32 +302,52 @@ export function PoiBulkAlarmModal({
   };
 
   const handleExecuteBulkAlarms = async () => {
-    if (computedBatch.plannedAlerts.length === 0) return;
+    if (computedBatch.plannedAlerts.length === 0) {
+      setStatusMessage("Error: No matching candidate POIs found for the selected Category and Timeframes.");
+      return;
+    }
 
     setIsSubmitting(true);
     setStatusMessage(null);
 
-    // 1. Immediately cache in localStorage
     try {
-      const raw = localStorage.getItem("mochex:price_alerts");
-      const existing = raw ? JSON.parse(raw) : [];
-      const map = new Map<string, PriceAlert>();
-      computedBatch.plannedAlerts.forEach((a) => map.set(a.id, a));
-      existing.forEach((a: PriceAlert) => map.set(a.id, a));
-      localStorage.setItem("mochex:price_alerts", JSON.stringify(Array.from(map.values())));
-      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
-    } catch {}
-
-    // 2. Persist to 24/7 background server daemon
-    try {
+      // 1. Persist to 24/7 background server daemon first
       const res = await fetch("/api/alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ alerts: computedBatch.plannedAlerts }),
       });
 
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error || `Server returned error (${res.status})`);
+      }
+
       const data = await res.json().catch(() => ({}));
-      const count = data?.count || computedBatch.plannedAlerts.length;
+      const savedAlerts: PriceAlert[] =
+        Array.isArray(data?.alerts) && data.alerts.length > 0
+          ? data.alerts
+          : computedBatch.plannedAlerts;
+      const count = data?.count || savedAlerts.length;
+
+      // 2. Commit saved alerts to localStorage
+      try {
+        const raw = localStorage.getItem("mochex:price_alerts");
+        const existing: PriceAlert[] = raw ? JSON.parse(raw) : [];
+        const map = new Map<string, PriceAlert>();
+        existing.forEach((a: PriceAlert) => map.set(a.id, a));
+        savedAlerts.forEach((a: PriceAlert) => map.set(a.id, a));
+        localStorage.setItem("mochex:price_alerts", JSON.stringify(Array.from(map.values())));
+      } catch (storageErr) {
+        console.warn("Could not write to localStorage:", storageErr);
+      }
+
+      // 3. Dispatch update event ONLY AFTER server & localStorage have persisted
+      window.dispatchEvent(
+        new CustomEvent("mochex:alerts-updated", {
+          detail: { count, alerts: savedAlerts },
+        })
+      );
 
       setStatusMessage(`⚡ Successfully armed ${count} 24/7 Cloud POI Alarms!`);
 
@@ -335,10 +356,22 @@ export function PoiBulkAlarmModal({
       }
     } catch (err: any) {
       console.warn("Background daemon alert sync notice:", err);
-      const count = computedBatch.plannedAlerts.length;
-      setStatusMessage(`⚡ Armed ${count} Cloud POI Alarms in local cache!`);
-      if (onSuccess) {
-        onSuccess(count);
+      // Fallback: If network failed, save to localStorage and alert user
+      try {
+        const raw = localStorage.getItem("mochex:price_alerts");
+        const existing: PriceAlert[] = raw ? JSON.parse(raw) : [];
+        const map = new Map<string, PriceAlert>();
+        existing.forEach((a: PriceAlert) => map.set(a.id, a));
+        computedBatch.plannedAlerts.forEach((a) => map.set(a.id, a));
+        localStorage.setItem("mochex:price_alerts", JSON.stringify(Array.from(map.values())));
+        window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+        const count = computedBatch.plannedAlerts.length;
+        setStatusMessage(`⚡ Armed ${count} Cloud POI Alarms in local cache (Offline Mode)`);
+        if (onSuccess) {
+          onSuccess(count);
+        }
+      } catch {
+        setStatusMessage(`Error: ${err?.message || "Failed to arm alarms"}`);
       }
     } finally {
       setIsSubmitting(false);
@@ -620,48 +653,70 @@ export function PoiBulkAlarmModal({
                   </div>
                 </div>
 
-                {computedBatch.matchedCoins.map((coin) => {
-                  const isChecked = !deselectedSymbols[coin.symbol];
-                  return (
-                    <div
-                      key={coin.symbol}
-                      className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
-                        isChecked
-                          ? "bg-slate-900/80 border-slate-800 text-slate-200"
-                          : "bg-slate-950/40 border-slate-900 text-slate-500 opacity-60"
-                      }`}
-                    >
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleCoin(coin.symbol)}
-                          className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-0"
-                        />
-                        <span className="font-bold font-mono">{coin.symbol}</span>
-                        {coin.existingCount > 0 && (
-                          <span className="px-1.5 py-0.2 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[10px] font-bold">
-                            {coin.existingCount} already active
-                          </span>
-                        )}
-                      </label>
+                {computedBatch.matchedCoins.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-400/80" />
+                    <span>No active POIs detected for the selected category & timeframes across these coins.</span>
+                    <span className="text-[11px] text-slate-500">
+                      Try selecting "All Institutional POIs" or activating additional timeframes (15m, 1H, 4H, 1D).
+                    </span>
+                  </div>
+                ) : (
+                  computedBatch.matchedCoins.map((coin) => {
+                    const isChecked = !deselectedSymbols[coin.symbol];
+                    return (
+                      <div
+                        key={coin.symbol}
+                        className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-colors ${
+                          isChecked
+                            ? "bg-slate-900/80 border-slate-800 text-slate-200"
+                            : "bg-slate-950/40 border-slate-900 text-slate-500 opacity-60"
+                        }`}
+                      >
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleCoin(coin.symbol)}
+                            className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-0"
+                          />
+                          <span className="font-bold font-mono">{coin.symbol}</span>
+                          {coin.existingCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-400 text-[10px] font-bold">
+                              {coin.existingCount} already active
+                            </span>
+                          )}
+                        </label>
 
-                      <div className="flex items-center gap-1.5">
-                        {coin.pois.map((p, idx) => (
-                          <span
-                            key={idx}
-                            className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300"
-                          >
-                            {p.tf} ${p.targetPrice >= 1 ? p.targetPrice.toFixed(2) : p.targetPrice.toFixed(4)}
-                          </span>
-                        ))}
+                        <div className="flex items-center gap-1.5">
+                          {coin.pois.map((p, idx) => (
+                            <span
+                              key={idx}
+                              className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300"
+                            >
+                              {p.tf} ${p.targetPrice >= 1 ? p.targetPrice.toFixed(2) : p.targetPrice.toFixed(4)}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             )}
           </div>
+
+          {computedBatch.plannedAlerts.length === 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <div>
+                <span className="font-semibold">0 Matching POIs detected.</span>{" "}
+                <span className="text-amber-300/80">
+                  Switch Category to "All Institutional POIs" or select more timeframes to include setups across {coins.length} coins.
+                </span>
+              </div>
+            </div>
+          )}
 
           {statusMessage && (
             <div
@@ -681,12 +736,13 @@ export function PoiBulkAlarmModal({
               </div>
               {!statusMessage.startsWith("Error") && (
                 <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-emerald-800/40">
-                  <a
+                  <Link
                     href="/radar/alerts"
+                    onClick={onClose}
                     className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                   >
                     <span>View Alarms on Radar Dashboard →</span>
-                  </a>
+                  </Link>
                   <button
                     type="button"
                     onClick={onClose}

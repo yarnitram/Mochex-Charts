@@ -230,17 +230,11 @@ export default function RadarPage() {
     fetch("/api/alerts")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.alerts) {
-          setActiveAlerts((prev) => {
-            const map = new Map<string, PriceAlert>();
-            prev.forEach((a) => map.set(a.id, a));
-            data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
-            const merged = Array.from(map.values());
-            try {
-              localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
+        if (data && Array.isArray(data.alerts)) {
+          setActiveAlerts(data.alerts);
+          try {
+            localStorage.setItem("mochex:price_alerts", JSON.stringify(data.alerts));
+          } catch {}
         }
       })
       .catch(() => {});
@@ -420,6 +414,9 @@ export default function RadarPage() {
             map[item.symbol] = item;
           });
           setRadarData((prev) => ({ ...prev, ...map }));
+          try {
+            sessionStorage.setItem("mochex:radar_cached_pois", JSON.stringify(data.results));
+          } catch {}
           if (data.portfolioRisk) {
             setPortfolioRiskSummary(data.portfolioRisk);
           }

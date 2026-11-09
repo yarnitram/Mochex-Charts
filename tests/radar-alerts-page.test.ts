@@ -394,5 +394,106 @@ describe("DEC-158: Radar Alerts Page & Separation Suite", () => {
     // Clean up
     await deleteServerAlertsBatch([sampleAlert.id], defaultUserId);
   });
+
+  // 6. Full Lifecycle: Bulk Arm -> Remove All -> Re-arm New Bulk Alarms (DEC-160)
+  it("handles full lifecycle: bulk arm -> remove all -> re-arm new bulk alarms without empty store anomalies", async () => {
+    const cycleUser = "test-user-dec-160-lifecycle";
+
+    // Step 1: Initial bulk arm (3 alarms)
+    const initialBatch: PriceAlert[] = [
+      {
+        id: "bulk-poi-BTC-1H-ob-1",
+        symbol: "BTCUSDT",
+        label: "BTC 1H OB",
+        targetPrice: 66000,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "indicator_condition",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        poiMetadata: { poiId: "ob-1", category: "order_block", direction: "BULLISH", timeframe: "1H", zoneTop: 66500, zoneBottom: 65500 },
+      },
+      {
+        id: "bulk-poi-ETH-4H-sandwich-2",
+        symbol: "ETHUSDT",
+        label: "ETH 4H Sandwich",
+        targetPrice: 3400,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "indicator_condition",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        poiMetadata: { poiId: "sw-2", category: "sandwich_zone", direction: "BULLISH", timeframe: "4H", zoneTop: 3450, zoneBottom: 3350 },
+      },
+      {
+        id: "bulk-poi-SOL-15m-fvg-3",
+        symbol: "SOLUSDT",
+        label: "SOL 15m FVG",
+        targetPrice: 152,
+        condition: "crossing_up",
+        frequency: "only_once",
+        sourceType: "indicator_condition",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        poiMetadata: { poiId: "fvg-3", category: "fvg", direction: "BEARISH", timeframe: "15m", zoneTop: 153, zoneBottom: 151 },
+      },
+    ];
+
+    const saved1 = await saveServerAlertsBatch(initialBatch, cycleUser);
+    expect(saved1).toHaveLength(3);
+    const store1 = await getServerAlerts(cycleUser);
+    expect(store1).toHaveLength(3);
+
+    // Step 2: Remove All (simulate user clicking 'Delete All Filtered')
+    const allIds = store1.map((a) => a.id);
+    const deletedCount = await deleteServerAlertsBatch(allIds, cycleUser);
+    expect(deletedCount).toBe(3);
+
+    const storeAfterDelete = await getServerAlerts(cycleUser);
+    expect(storeAfterDelete).toHaveLength(0);
+
+    // Step 3: Re-arm NEW bulk alarms
+    const newBatch: PriceAlert[] = [
+      {
+        id: "bulk-poi-NEAR-1H-ob-4",
+        symbol: "NEARUSDT",
+        label: "NEAR 1H Validated OB",
+        targetPrice: 5.15,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "indicator_condition",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        poiMetadata: { poiId: "ob-4", category: "order_block", direction: "BULLISH", timeframe: "1H", zoneTop: 5.25, zoneBottom: 5.05 },
+      },
+      {
+        id: "bulk-poi-RENDER-4H-ob-5",
+        symbol: "RENDERUSDT",
+        label: "RENDER 4H Validated OB",
+        targetPrice: 6.8,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "indicator_condition",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        poiMetadata: { poiId: "ob-5", category: "order_block", direction: "BULLISH", timeframe: "4H", zoneTop: 7.0, zoneBottom: 6.6 },
+      },
+    ];
+
+    const saved2 = await saveServerAlertsBatch(newBatch, cycleUser);
+    expect(saved2).toHaveLength(2);
+
+    const storeAfterReArm = await getServerAlerts(cycleUser);
+    expect(storeAfterReArm).toHaveLength(2);
+    expect(storeAfterReArm.map((a) => a.symbol)).toEqual(["NEARUSDT", "RENDERUSDT"]);
+
+    // Clean up
+    await deleteServerAlertsBatch(newBatch.map((a) => a.id), cycleUser);
+  });
 });
 
