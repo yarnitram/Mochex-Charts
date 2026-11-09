@@ -612,9 +612,14 @@ export function PoiQuickPreviewDrawer({
                   <Bell size={13} className="text-amber-400 fill-amber-400/30" />
                   <span>Active 24/7 Cloud Alarms ({activeAlerts.length})</span>
                 </div>
-                <span className="text-[10px] font-mono text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/50">
-                  Armed & Tracking
-                </span>
+                <a
+                  href={`/radar/alerts?search=${symbol.replace(/[\/\-_]/g, "")}`}
+                  className="text-[10px] font-mono text-amber-400 hover:text-white bg-amber-950/80 hover:bg-amber-900/80 px-2 py-0.5 rounded border border-amber-800/50 flex items-center gap-1 transition-colors"
+                  title="Open Radar Alarms Manager for this coin"
+                >
+                  <span>Manage</span>
+                  <ExternalLink size={9} />
+                </a>
               </div>
               <div className="space-y-1 pt-1 max-h-24 overflow-y-auto">
                 {activeAlerts.map((a) => (

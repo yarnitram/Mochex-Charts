@@ -358,4 +358,41 @@ describe("DEC-158: Radar Alerts Page & Separation Suite", () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe("test-bulk-2");
   });
+
+  // 5. Unauthenticated fallback user ("default-trader") persistence
+  it("persists and retrieves alerts for default-trader session without 401 exceptions", async () => {
+    const defaultUserId = "default-trader";
+    const sampleAlert: PriceAlert = {
+      id: "bulk-poi-SOLUSDT-1H-order_block-entry-default",
+      symbol: "SOLUSDT",
+      label: "SOL 1H OB (Zone Entry)",
+      targetPrice: 155.5,
+      condition: "crossing_down",
+      frequency: "only_once",
+      sourceType: "indicator_condition",
+      active: true,
+      triggeredCount: 0,
+      createdAt: Date.now(),
+      poiMetadata: {
+        poiId: "ob-sol-default",
+        category: "order_block",
+        direction: "BULLISH",
+        timeframe: "1H",
+        zoneTop: 156,
+        zoneBottom: 154,
+      },
+    };
+
+    await saveServerAlertsBatch([sampleAlert], defaultUserId);
+    const loaded = await getServerAlerts(defaultUserId);
+    const found = loaded.find((a) => a.id === sampleAlert.id);
+
+    expect(found).toBeDefined();
+    expect(found?.symbol).toBe("SOLUSDT");
+    expect(found?.targetPrice).toBe(155.5);
+
+    // Clean up
+    await deleteServerAlertsBatch([sampleAlert.id], defaultUserId);
+  });
 });
+
