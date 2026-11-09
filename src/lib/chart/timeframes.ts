@@ -30,6 +30,7 @@ export const ALL_TIMEFRAMES: TimeframeItem[] = [
   { label: "30m", description: "30 minutes", value: "30", category: "minutes", numericAmount: 30, unit: "minutes" },
   // Hours
   { label: "1h", description: "1 hour", value: "60", category: "hours", numericAmount: 1, unit: "hours" },
+  { label: "2h", description: "2 hours", value: "120", category: "hours", numericAmount: 2, unit: "hours" },
   { label: "4h", description: "4 hours", value: "240", category: "hours", numericAmount: 4, unit: "hours" },
   // Days
   { label: "1D", description: "1 day", value: "1D", category: "days", numericAmount: 1, unit: "days" },
@@ -39,7 +40,7 @@ export const ALL_TIMEFRAMES: TimeframeItem[] = [
   { label: "1M", description: "1 month", value: "1M", category: "months", numericAmount: 1, unit: "months" },
 ];
 
-export const DEFAULT_FAVORITE_TIMEFRAMES: string[] = ["1", "5", "15", "60", "240", "1D", "1W"];
+export const DEFAULT_FAVORITE_TIMEFRAMES: string[] = ["1", "5", "15", "30", "60", "120", "240", "1D", "1W"];
 
 export const TIMEFRAME_STORAGE_KEY = "mochex_favorite_timeframes";
 

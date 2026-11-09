@@ -19,14 +19,17 @@ export interface ConfluenceDetectionOptions {
 }
 
 /**
- * Normalizes timeframe strings into standard canonical labels (15m, 1H, 4H, 1D)
+ * Normalizes timeframe strings into standard canonical labels (15m, 30m, 1H, 2H, 4H, 1D, 1W)
  */
 export function normalizeTfLabel(tf: string): string {
   const t = tf.trim().toLowerCase();
   if (t === "15" || t === "15m") return "15m";
+  if (t === "30" || t === "30m") return "30m";
   if (t === "60" || t === "1h") return "1H";
+  if (t === "120" || t === "2h") return "2H";
   if (t === "240" || t === "4h") return "4H";
   if (t === "1d" || t === "d") return "1D";
+  if (t === "1w" || t === "w") return "1W";
   return tf.toUpperCase();
 }
 
@@ -78,7 +81,7 @@ export function computePoiConfluence(
   const distinctTfs = Array.from(
     new Set(overlapping.map((p) => normalizeTfLabel(p.timeframe)))
   ).sort((a, b) => {
-    const order = ["15m", "1H", "4H", "1D"];
+    const order = ["15m", "30m", "1H", "2H", "4H", "1D", "1W"];
     return order.indexOf(a) - order.indexOf(b);
   });
 
@@ -96,7 +99,15 @@ export function computePoiConfluence(
 
   // Determine if target POI is physically nested inside a higher-timeframe zone
   const targetTfNorm = normalizeTfLabel(targetPoi.timeframe);
-  const tfRank: Record<string, number> = { "15m": 1, "1H": 2, "4H": 3, "1D": 4 };
+  const tfRank: Record<string, number> = {
+    "15m": 1,
+    "30m": 2,
+    "1H": 3,
+    "2H": 4,
+    "4H": 5,
+    "1D": 6,
+    "1W": 7,
+  };
   const targetRank = tfRank[targetTfNorm] || 1;
 
   const isNested = overlapping.some((p) => {

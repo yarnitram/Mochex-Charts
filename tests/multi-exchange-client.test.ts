@@ -4,6 +4,7 @@ import {
   convertBinanceKlines,
   convertBybitKlines,
   convertMexcKlines,
+  aggregateBars,
   SUPPORTED_EXCHANGES,
 } from "../src/lib/screener/multi-exchange-client";
 import {
@@ -27,31 +28,40 @@ describe("Multi-Exchange POI Aggregation Engine (DEC-143)", () => {
     it("maps standard timeframe strings correctly for MEXC", () => {
       expect(normalizeIntervalForExchange("mexc", "15m")).toBe("15m");
       expect(normalizeIntervalForExchange("mexc", "15")).toBe("15m");
+      expect(normalizeIntervalForExchange("mexc", "30m")).toBe("30m");
+      expect(normalizeIntervalForExchange("mexc", "30")).toBe("30m");
       expect(normalizeIntervalForExchange("mexc", "1H")).toBe("60m");
       expect(normalizeIntervalForExchange("mexc", "60")).toBe("60m");
+      expect(normalizeIntervalForExchange("mexc", "2h")).toBe("60m");
+      expect(normalizeIntervalForExchange("mexc", "120")).toBe("60m");
       expect(normalizeIntervalForExchange("mexc", "4H")).toBe("4h");
       expect(normalizeIntervalForExchange("mexc", "240")).toBe("4h");
       expect(normalizeIntervalForExchange("mexc", "1D")).toBe("1d");
       expect(normalizeIntervalForExchange("mexc", "d")).toBe("1d");
       expect(normalizeIntervalForExchange("mexc", "1m")).toBe("1m");
       expect(normalizeIntervalForExchange("mexc", "5m")).toBe("5m");
-      expect(normalizeIntervalForExchange("mexc", "30m")).toBe("30m");
       expect(normalizeIntervalForExchange("mexc", "1W")).toBe("1W");
       expect(normalizeIntervalForExchange("mexc", "1M")).toBe("1M");
     });
 
     it("maps standard timeframe strings correctly for Binance", () => {
       expect(normalizeIntervalForExchange("binance", "15m")).toBe("15m");
+      expect(normalizeIntervalForExchange("binance", "30m")).toBe("30m");
       expect(normalizeIntervalForExchange("binance", "1H")).toBe("1h");
+      expect(normalizeIntervalForExchange("binance", "2h")).toBe("2h");
       expect(normalizeIntervalForExchange("binance", "4H")).toBe("4h");
       expect(normalizeIntervalForExchange("binance", "1D")).toBe("1d");
+      expect(normalizeIntervalForExchange("binance", "1W")).toBe("1w");
     });
 
     it("maps standard timeframe strings correctly for Bybit", () => {
       expect(normalizeIntervalForExchange("bybit", "15m")).toBe("15");
+      expect(normalizeIntervalForExchange("bybit", "30m")).toBe("30");
       expect(normalizeIntervalForExchange("bybit", "1H")).toBe("60");
+      expect(normalizeIntervalForExchange("bybit", "2h")).toBe("120");
       expect(normalizeIntervalForExchange("bybit", "4H")).toBe("240");
       expect(normalizeIntervalForExchange("bybit", "1D")).toBe("D");
+      expect(normalizeIntervalForExchange("bybit", "1W")).toBe("W");
     });
   });
 
@@ -98,6 +108,22 @@ describe("Multi-Exchange POI Aggregation Engine (DEC-143)", () => {
       const bars = convertMexcKlines(rawMexc);
       expect(bars.length).toBe(1);
       expect(bars[0].close).toBe(104.0);
+    });
+
+    it("aggregates smaller duration bars into 2-hour buckets correctly", () => {
+      const h1Time = 1700000000000 - (1700000000000 % (2 * 3600 * 1000));
+      const hourlyBars: CandlestickBar[] = [
+        { time: h1Time, open: 100, high: 105, low: 98, close: 102, volume: 50 },
+        { time: h1Time + 3600 * 1000, open: 102, high: 108, low: 101, close: 107, volume: 70 },
+      ];
+      const agg = aggregateBars(hourlyBars, 2);
+      expect(agg.length).toBe(1);
+      expect(agg[0].time).toBe(h1Time);
+      expect(agg[0].open).toBe(100);
+      expect(agg[0].high).toBe(108);
+      expect(agg[0].low).toBe(98);
+      expect(agg[0].close).toBe(107);
+      expect(agg[0].volume).toBe(120);
     });
   });
 

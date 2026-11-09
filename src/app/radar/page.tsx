@@ -130,13 +130,21 @@ export default function RadarPage() {
   ]);
   const [newCustomSymbol, setNewCustomSymbol] = useState("");
 
-  // Multi-Timeframe filter for detection: any combination of "15m" | "60" | "240" | "1D" (DEC-151)
-  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
-    "15m",
-    "60",
-    "240",
-    "1D",
-  ]);
+  // Multi-Timeframe filter for detection: 15m, 30m, 1H (60), 2H (120), 4H (240), 1D, 1W (DEC-151, DEC-164)
+  const ALL_RADAR_TIMEFRAMES = ["15m", "30", "60", "120", "240", "1D", "1W"];
+
+  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("mochex:radar_selected_timeframes");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return ["15m", "30", "60", "120", "240", "1D", "1W"];
+  });
 
   const toggleTimeframe = (tfVal: string) => {
     setSelectedTimeframes((prev) => {
@@ -154,7 +162,7 @@ export default function RadarPage() {
   };
 
   const selectAllTimeframes = () => {
-    const all = ["15m", "60", "240", "1D"];
+    const all = ["15m", "30", "60", "120", "240", "1D", "1W"];
     setSelectedTimeframes(all);
     try {
       localStorage.setItem("mochex:radar_selected_timeframes", JSON.stringify(all));
@@ -409,7 +417,7 @@ export default function RadarPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           symbols: symbolsToScan,
-          timeframes: ["1D", "240", "60", "15m"],
+          timeframes: ["1W", "1D", "240", "120", "60", "30", "15m"],
           exchange: activeExchange,
         }),
       });
@@ -619,15 +627,21 @@ export default function RadarPage() {
     return currentCoins
       .map((coin) => {
         const data = radarData[coin.symbol];
+        const isAllSelected = selectedTimeframes.length >= 7;
         // Gather POIs from the user's selected timeframes (sorted by closest proximity)
         const activeTfPois = selectedTimeframes
-          .flatMap((tf) => data?.poisByTimeframe?.[tf] || [])
+          .flatMap((tf) => {
+            const direct = data?.poisByTimeframe?.[tf];
+            if (Array.isArray(direct) && direct.length > 0) return direct;
+            const altKey = tf === "60" ? "1H" : tf === "240" ? "4H" : tf === "120" ? "2H" : tf === "30" ? "30m" : tf === "1W" ? "1w" : tf;
+            return data?.poisByTimeframe?.[altKey] || [];
+          })
           .sort((a, b) => a.distanceToEntryPct - b.distanceToEntryPct);
         const fallbackAllPois = Object.values(data?.poisByTimeframe || {}).flat();
         const candidatePois =
           activeTfPois.length > 0
             ? activeTfPois
-            : selectedTimeframes.length === 4
+            : isAllSelected
             ? fallbackAllPois
             : [];
 
@@ -636,29 +650,29 @@ export default function RadarPage() {
         if (poiCategoryFilter === "order_block") {
           selectedPoi =
             candidatePois.find((p) => p.category === "order_block") ||
-            (selectedTimeframes.length === 4 ? data?.nearestOb || null : null);
+            (isAllSelected ? data?.nearestOb || null : null);
         } else if (poiCategoryFilter === "sandwich_zone") {
           selectedPoi =
             candidatePois.find((p) => p.category === "sandwich_zone") ||
-            (selectedTimeframes.length === 4 ? data?.nearestSandwich || null : null);
+            (isAllSelected ? data?.nearestSandwich || null : null);
         } else if (poiCategoryFilter === "fvg") {
           selectedPoi =
             candidatePois.find((p) => p.category === "fvg") ||
-            (selectedTimeframes.length === 4 ? data?.nearestFvg || null : null);
+            (isAllSelected ? data?.nearestFvg || null : null);
         } else if (poiCategoryFilter === "sweep") {
           selectedPoi =
             candidatePois.find((p) => p.sweep || p.status === "sweep") ||
-            (selectedTimeframes.length === 4 && data?.nearestPoi?.sweep ? data.nearestPoi : null);
+            (isAllSelected && data?.nearestPoi?.sweep ? data.nearestPoi : null);
         } else if (poiCategoryFilter === "liquidity") {
           const sortedByLiq = [...candidatePois].sort(
             (a, b) => (b.liquidity?.densityPercentile ?? 0) - (a.liquidity?.densityPercentile ?? 0)
           );
           selectedPoi =
-            sortedByLiq[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+            sortedByLiq[0] || (isAllSelected ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "broken") {
           selectedPoi =
             candidatePois.find((p) => p.status === "broken" || Boolean(p.breakTelemetry)) ||
-            (selectedTimeframes.length === 4 && data?.nearestPoi?.status === "broken"
+            (isAllSelected && data?.nearestPoi?.status === "broken"
               ? data.nearestPoi
               : null);
         } else if (poiCategoryFilter === "absorption") {
@@ -666,22 +680,22 @@ export default function RadarPage() {
             (a, b) => (b.orderFlow?.absorptionScore ?? 0) - (a.orderFlow?.absorptionScore ?? 0)
           );
           selectedPoi =
-            sortedByAbs[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+            sortedByAbs[0] || (isAllSelected ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "risk_cluster") {
           const sortedByRisk = [...candidatePois].sort(
             (a, b) => (b.correlation?.clusterExposureScore ?? 0) - (a.correlation?.clusterExposureScore ?? 0)
           );
           selectedPoi =
-            sortedByRisk[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+            sortedByRisk[0] || (isAllSelected ? data?.nearestPoi || null : null);
         } else if (poiCategoryFilter === "confluence") {
           const sortedByConf = [...candidatePois].sort(
             (a, b) => (b.confluence?.score ?? 0) - (a.confluence?.score ?? 0)
           );
           selectedPoi =
-            sortedByConf[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+            sortedByConf[0] || (isAllSelected ? data?.nearestPoi || null : null);
         } else {
           selectedPoi =
-            candidatePois[0] || (selectedTimeframes.length === 4 ? data?.nearestPoi || null : null);
+            candidatePois[0] || (isAllSelected ? data?.nearestPoi || null : null);
         }
 
         return {
@@ -853,9 +867,16 @@ export default function RadarPage() {
         : "Custom Watchlist";
     const tfMap: Record<string, string> = {
       "15m": "15m",
+      "30": "30m",
+      "30m": "30m",
       "60": "1H",
+      "1H": "1H",
+      "120": "2H",
+      "2H": "2H",
       "240": "4H",
+      "4H": "4H",
       "1D": "1D",
+      "1W": "1W",
     };
     const formattedTfs = selectedTimeframes.map((tf) => tfMap[tf] || tf).join("+");
     return {
@@ -1561,16 +1582,16 @@ export default function RadarPage() {
               <option value="order_block">📦 Validated Order Blocks Only</option>
             </select>
 
-            {/* Multi-Timeframe Selector (DEC-151) */}
+            {/* Multi-Timeframe Selector (DEC-151, DEC-164) */}
             <div
               className="flex items-center gap-1 bg-[#121824] p-0.5 rounded-lg border border-[#233144]"
-              title="Toggle one or multiple timeframes at once (click ALL to select all 4 timeframes)"
+              title="Toggle one or multiple timeframes at once (click ALL to select all 7 timeframes)"
             >
               <button
                 type="button"
                 onClick={selectAllTimeframes}
                 className={`px-2 py-1 rounded text-[10px] font-extrabold transition-colors cursor-pointer ${
-                  selectedTimeframes.length === 4
+                  selectedTimeframes.length >= 7
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
                     : "text-[#848e9c] hover:text-white"
                 }`}
@@ -1579,9 +1600,12 @@ export default function RadarPage() {
               </button>
               {[
                 { label: "15m", val: "15m" },
+                { label: "30m", val: "30" },
                 { label: "1H", val: "60" },
+                { label: "2H", val: "120" },
                 { label: "4H", val: "240" },
                 { label: "1D", val: "1D" },
+                { label: "1W", val: "1W" },
               ].map((tf) => {
                 const isSelected = selectedTimeframes.includes(tf.val);
                 return (
@@ -1980,7 +2004,7 @@ export default function RadarPage() {
                             <span className="text-[#848e9c]/60 italic text-[11px]">
                               No active POI on{" "}
                               {selectedTimeframes
-                                .map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf))
+                                .map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf === "120" ? "2H" : tf === "30" ? "30m" : tf))
                                 .join("/")}
                             </span>
                           )}

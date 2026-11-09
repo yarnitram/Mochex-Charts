@@ -183,7 +183,7 @@ export default function RadarAlertsPage() {
             "FETUSDT", "TAOUSDT", "PEPEUSDT", "DOGEUSDT", "SUIUSDT",
             "AVAXUSDT", "LINKUSDT", "INJUSDT", "APTUSDT"
           ],
-          timeframes: ["1D", "240", "60", "15m"],
+          timeframes: ["1W", "1D", "240", "120", "60", "30", "15m"],
           exchange: "mexc",
         }),
       })
@@ -279,10 +279,13 @@ export default function RadarAlertsPage() {
       // Timeframe
       if (timeframeFilter !== "ALL") {
         const tf = a.poiMetadata?.timeframe;
+        if (timeframeFilter === "15m" && tf !== "15m" && tf !== "15") return false;
+        if (timeframeFilter === "30m" && tf !== "30m" && tf !== "30") return false;
         if (timeframeFilter === "1H" && tf !== "1H" && tf !== "60") return false;
+        if (timeframeFilter === "2H" && tf !== "2H" && tf !== "120") return false;
         if (timeframeFilter === "4H" && tf !== "4H" && tf !== "240") return false;
-        if (timeframeFilter === "15m" && tf !== "15m") return false;
-        if (timeframeFilter === "1D" && tf !== "1D") return false;
+        if (timeframeFilter === "1D" && tf !== "1D" && tf !== "1d") return false;
+        if (timeframeFilter === "1W" && tf !== "1W" && tf !== "1w" && tf !== "W") return false;
       }
 
       // Status
@@ -739,9 +742,12 @@ export default function RadarAlertsPage() {
           >
             <option value="ALL">All Timeframes</option>
             <option value="15m">15m Timeframe</option>
+            <option value="30m">30m Timeframe</option>
             <option value="1H">1H Timeframe</option>
+            <option value="2H">2H Timeframe</option>
             <option value="4H">4H Timeframe</option>
             <option value="1D">1D Timeframe</option>
+            <option value="1W">1W Timeframe</option>
           </select>
 
           {/* Status Filter */}
@@ -1109,7 +1115,7 @@ export default function RadarAlertsPage() {
         coins={candidateCoins}
         currentUniverseLabel="Radar Monitored Coins"
         currentExchange="mexc"
-        defaultSelectedTimeframes={["15m", "1H", "4H", "1D"]}
+        defaultSelectedTimeframes={["15m", "30m", "1H", "2H", "4H", "1D", "1W"]}
         existingAlerts={alerts}
         onSuccess={(count) => {
           setToastMessage(`⚡ Successfully armed ${count} 24/7 Cloud POI Alarms!`);

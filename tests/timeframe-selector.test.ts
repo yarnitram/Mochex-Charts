@@ -37,16 +37,16 @@ describe("TradingView Timeframe System & MEXC Intervals", () => {
   });
 
   it("defines complete TradingView categorized intervals", () => {
-    expect(ALL_TIMEFRAMES.length).toBe(9);
+    expect(ALL_TIMEFRAMES.length).toBe(10);
 
     const values = ALL_TIMEFRAMES.map((tf) => tf.value);
-    expect(values).toEqual(["1", "5", "15", "30", "60", "240", "1D", "1W", "1M"]);
+    expect(values).toEqual(["1", "5", "15", "30", "60", "120", "240", "1D", "1W", "1M"]);
 
     const minutes = ALL_TIMEFRAMES.filter((tf) => tf.category === "minutes");
     expect(minutes.map((tf) => tf.label)).toEqual(["1m", "5m", "15m", "30m"]);
 
     const hours = ALL_TIMEFRAMES.filter((tf) => tf.category === "hours");
-    expect(hours.map((tf) => tf.label)).toEqual(["1h", "4h"]);
+    expect(hours.map((tf) => tf.label)).toEqual(["1h", "2h", "4h"]);
 
     const days = ALL_TIMEFRAMES.filter((tf) => tf.category === "days");
     expect(days.map((tf) => tf.label)).toEqual(["1D"]);
@@ -104,6 +104,11 @@ describe("TradingView Timeframe System & MEXC Intervals", () => {
       expect(res1h.valid).toBe(true);
       expect(res1h.timeframe?.value).toBe("60");
 
+      // 2 hours
+      const res2h = validateCustomTimeframe(2, "hours");
+      expect(res2h.valid).toBe(true);
+      expect(res2h.timeframe?.value).toBe("120");
+
       // 4 hours
       const res4h = validateCustomTimeframe(4, "hours");
       expect(res4h.valid).toBe(true);
@@ -132,9 +137,9 @@ describe("TradingView Timeframe System & MEXC Intervals", () => {
       expect(res3m.valid).toBe(false);
       expect(res3m.message).toContain("MEXC Spot only natively supports");
 
-      const res2h = validateCustomTimeframe(2, "hours");
-      expect(res2h.valid).toBe(false);
-      expect(res2h.message).toContain("MEXC Spot only natively supports");
+      const res3h = validateCustomTimeframe(3, "hours");
+      expect(res3h.valid).toBe(false);
+      expect(res3h.message).toContain("MEXC Spot only natively supports");
 
       const res3d = validateCustomTimeframe(3, "days");
       expect(res3d.valid).toBe(false);

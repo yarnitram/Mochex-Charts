@@ -71,11 +71,15 @@ function getPoisForTf(
   }
   const tfMap: Record<string, string[]> = {
     "15m": ["15m", "15"],
+    "30m": ["30m", "30"],
     "60": ["60", "1H", "1h", "60m"],
     "1H": ["1H", "60", "1h", "60m"],
+    "120": ["120", "2H", "2h", "120m"],
+    "2H": ["2H", "120", "2h", "120m"],
     "240": ["240", "4H", "4h", "240m"],
     "4H": ["4H", "240", "4h", "240m"],
     "1D": ["1D", "1d", "D", "1440"],
+    "1W": ["1W", "1w", "W", "10080"],
   };
   const alternatives = tfMap[tf] || [];
   for (const alt of alternatives) {
@@ -211,10 +215,13 @@ export function PoiBulkAlarmModal({
           tfPois = coin.pois.filter(
             (p) =>
               p.timeframe === tf ||
-              (tf === "1H" && (p.timeframe === "60" || p.timeframe === "1h")) ||
-              (tf === "4H" && (p.timeframe === "240" || p.timeframe === "4h")) ||
-              (tf === "15m" && p.timeframe === "15m") ||
-              (tf === "1D" && (p.timeframe === "1D" || p.timeframe === "1d"))
+              (tf === "15m" && (p.timeframe === "15m" || p.timeframe === "15")) ||
+              (tf === "30m" && (p.timeframe === "30m" || p.timeframe === "30")) ||
+              (tf === "1H" && (p.timeframe === "60" || p.timeframe === "1h" || p.timeframe === "1H")) ||
+              (tf === "2H" && (p.timeframe === "120" || p.timeframe === "2h" || p.timeframe === "2H")) ||
+              (tf === "4H" && (p.timeframe === "240" || p.timeframe === "4h" || p.timeframe === "4H")) ||
+              (tf === "1D" && (p.timeframe === "1D" || p.timeframe === "1d" || p.timeframe === "D")) ||
+              (tf === "1W" && (p.timeframe === "1W" || p.timeframe === "1w" || p.timeframe === "W"))
           );
         }
 
@@ -504,30 +511,38 @@ export function PoiBulkAlarmModal({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedTimeframes(["15m", "1H", "4H", "1D"])}
+                  onClick={() => setSelectedTimeframes(["15m", "30m", "1H", "2H", "4H", "1D", "1W"])}
                   className="text-[11px] text-cyan-400 hover:text-cyan-300"
                 >
-                  All 4
+                  All 7
                 </button>
                 <span className="text-slate-600">·</span>
                 <button
                   type="button"
-                  onClick={() => setSelectedTimeframes(["1H", "4H"])}
+                  onClick={() => setSelectedTimeframes(["4H", "1D", "1W"])}
                   className="text-[11px] text-cyan-400 hover:text-cyan-300"
                 >
-                  1H & 4H (HTF)
+                  HTF (4H·1D·1W)
+                </button>
+                <span className="text-slate-600">·</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTimeframes(["15m", "30m", "1H", "2H"])}
+                  className="text-[11px] text-cyan-400 hover:text-cyan-300"
+                >
+                  Intraday
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              {["15m", "1H", "4H", "1D"].map((tf) => {
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+              {["15m", "30m", "1H", "2H", "4H", "1D", "1W"].map((tf) => {
                 const isSelected = selectedTimeframes.includes(tf);
                 return (
                   <button
                     key={tf}
                     type="button"
                     onClick={() => toggleTimeframe(tf)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-mono font-bold transition-all ${
+                    className={`py-2 px-2 rounded-xl border text-xs font-mono font-bold transition-all ${
                       isSelected
                         ? "bg-cyan-950/80 border-cyan-500 text-cyan-300 shadow-sm"
                         : "bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700"
@@ -696,7 +711,7 @@ export function PoiBulkAlarmModal({
                     <AlertCircle className="w-5 h-5 text-amber-400/80" />
                     <span>No active POIs detected for the selected category & timeframes across these coins.</span>
                     <span className="text-[11px] text-slate-500">
-                      Try selecting "All Institutional POIs" or activating additional timeframes (15m, 1H, 4H, 1D).
+                      Try selecting "All Institutional POIs" or activating additional timeframes (15m, 30m, 1H, 2H, 4H, 1D, 1W).
                     </span>
                   </div>
                 ) : (

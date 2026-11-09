@@ -78,9 +78,12 @@ export function calculatePoiLiquidityWeight(poi: RadarPoiItem): {
   // 1. Timeframe multiplier
   const tf = normalizeTfLabel(poi.timeframe);
   let tfMultiplier = 1.0;
-  if (tf === "1D") tfMultiplier = 4.0;
+  if (tf === "1W") tfMultiplier = 5.0;
+  else if (tf === "1D") tfMultiplier = 4.0;
   else if (tf === "4H") tfMultiplier = 2.8;
+  else if (tf === "2H") tfMultiplier = 2.2;
   else if (tf === "1H") tfMultiplier = 1.8;
+  else if (tf === "30m") tfMultiplier = 1.4;
   else if (tf === "15m") tfMultiplier = 1.0;
 
   // 2. Category multiplier

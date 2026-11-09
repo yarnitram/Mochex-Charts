@@ -10,6 +10,7 @@ export const RESOLUTION_MAP: Record<string, MexcResolution> = {
   "15": "15m",
   "30": "30m",
   "60": "60m",
+  "120": "60m",
   "240": "4h",
   "1D": "1d",
   "D": "1d",

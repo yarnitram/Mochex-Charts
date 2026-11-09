@@ -450,15 +450,15 @@ export function PoiAlarmModal({
               <span>Timeframe(s) to Monitor</span>
               <span className="text-[9px] text-[#848e9c]">Multi-select enabled</span>
             </label>
-            <div className="grid grid-cols-4 gap-2">
-              {["15m", "1H", "4H", "1D"].map((tf) => {
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+              {["15m", "30m", "1H", "2H", "4H", "1D", "1W"].map((tf) => {
                 const isSelected = selectedTimeframes.includes(tf);
                 return (
                   <button
                     key={tf}
                     type="button"
                     onClick={() => toggleTimeframe(tf)}
-                    className={`py-2 rounded-lg border font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    className={`py-2 rounded-lg border font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-[#2962ff]/20 text-[#2962ff] border-[#2962ff]"
                         : "bg-[#0e141f] text-[#848e9c] border-[#1f2c3f] hover:text-white"

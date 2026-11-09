@@ -15,8 +15,10 @@ export type SandwichTimeframeId =
   | "15m"
   | "30m"
   | "1h"
+  | "2h"
   | "4h"
-  | "1d";
+  | "1d"
+  | "1w";
 
 export type SrTimeframeId = "1h" | "4h" | "1d";
 
@@ -114,8 +116,10 @@ export const ALL_SANDWICH_TIMEFRAMES: {
   { id: "15m", label: "15 minutes", resolution: "15", durationMs: 15 * 60 * 1000 },
   { id: "30m", label: "30 minutes", resolution: "30", durationMs: 30 * 60 * 1000 },
   { id: "1h", label: "1 hour", resolution: "60", durationMs: 60 * 60 * 1000 },
+  { id: "2h", label: "2 hours", resolution: "120", durationMs: 2 * 60 * 60 * 1000 },
   { id: "4h", label: "4 hours", resolution: "240", durationMs: 4 * 60 * 60 * 1000 },
   { id: "1d", label: "1 day", resolution: "1D", durationMs: 24 * 60 * 60 * 1000 },
+  { id: "1w", label: "1 week", resolution: "1W", durationMs: 7 * 24 * 60 * 60 * 1000 },
 ];
 
 export const ALL_SR_TIMEFRAMES: {

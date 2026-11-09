@@ -82,9 +82,12 @@ export interface RadarPoiItem {
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
   const norm = tf.trim().toLowerCase();
   if (norm === "15" || norm === "15m") return { tfId: "15m", label: "15m" };
+  if (norm === "30" || norm === "30m") return { tfId: "30m", label: "30m" };
   if (norm === "60" || norm === "1h") return { tfId: "1h", label: "1H" };
+  if (norm === "120" || norm === "2h") return { tfId: "2h", label: "2H" };
   if (norm === "240" || norm === "4h") return { tfId: "4h", label: "4H" };
   if (norm === "1d" || norm === "d") return { tfId: "1d", label: "1D" };
+  if (norm === "1w" || norm === "w") return { tfId: "1w", label: "1W" };
   return { tfId: "4h", label: "4H" };
 }
 

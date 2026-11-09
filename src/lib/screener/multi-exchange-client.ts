@@ -74,27 +74,38 @@ export function normalizeIntervalForExchange(
     case "mexc":
       if (raw === "1M" || raw === "M") return "1M";
       if (norm === "15m" || norm === "15") return "15m";
+      if (norm === "30m" || norm === "30") return "30m";
       if (norm === "1h" || norm === "60" || norm === "60m") return "60m";
+      if (norm === "2h" || norm === "120" || norm === "120m") return "60m";
       if (norm === "4h" || norm === "240") return "4h";
       if (norm === "1d" || norm === "d") return "1d";
+      if (norm === "1w" || norm === "w") return "1W";
       if (norm === "1m" || norm === "1") return "1m";
       if (norm === "5m" || norm === "5") return "5m";
-      if (norm === "30m" || norm === "30") return "30m";
-      if (norm === "1w" || norm === "w") return "1W";
       return "4h";
 
     case "binance":
       if (norm === "15m" || norm === "15") return "15m";
+      if (norm === "30m" || norm === "30") return "30m";
       if (norm === "1h" || norm === "60") return "1h";
+      if (norm === "2h" || norm === "120") return "2h";
       if (norm === "4h" || norm === "240") return "4h";
       if (norm === "1d" || norm === "d") return "1d";
+      if (norm === "1w" || norm === "w") return "1w";
+      if (norm === "1m" || norm === "1") return "1m";
+      if (norm === "5m" || norm === "5") return "5m";
       return "4h";
 
     case "bybit":
       if (norm === "15m" || norm === "15") return "15";
+      if (norm === "30m" || norm === "30") return "30";
       if (norm === "1h" || norm === "60") return "60";
+      if (norm === "2h" || norm === "120") return "120";
       if (norm === "4h" || norm === "240") return "240";
       if (norm === "1d" || norm === "d") return "D";
+      if (norm === "1w" || norm === "w") return "W";
+      if (norm === "1m" || norm === "1") return "1";
+      if (norm === "5m" || norm === "5") return "5";
       return "240";
 
     default:
@@ -155,6 +166,35 @@ export function convertMexcKlines(raw: any[]): CandlestickBar[] {
       volume: parseFloat(k[5]),
     }))
     .filter((b) => !isNaN(b.time) && !isNaN(b.close) && b.close > 0);
+}
+
+/**
+ * Aggregates smaller duration bars into higher timeframe bars (e.g. 1h -> 2h).
+ */
+export function aggregateBars(bars: CandlestickBar[], factor = 2): CandlestickBar[] {
+  if (!bars || bars.length < factor) return bars;
+  const bucketMs = factor * 3600 * 1000;
+  const map = new Map<number, CandlestickBar>();
+  for (const b of bars) {
+    const bucketTime = Math.floor(b.time / bucketMs) * bucketMs;
+    const existing = map.get(bucketTime);
+    if (!existing) {
+      map.set(bucketTime, {
+        time: bucketTime,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      });
+    } else {
+      existing.high = Math.max(existing.high, b.high);
+      existing.low = Math.min(existing.low, b.low);
+      existing.close = b.close;
+      existing.volume += b.volume;
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
 /**
@@ -239,15 +279,18 @@ export async function fetchExchangeKlines(
 
   // Default: MEXC Spot
   try {
+    const is2h = resolution.toLowerCase() === "2h" || resolution === "120" || resolution === "120m";
+    const effectiveLimit = is2h ? limit * 2 : limit;
     const isBrowser = typeof window !== "undefined";
     const mexcBase = process.env.NEXT_PUBLIC_MEXC_API_BASE || "https://api.mexc.co";
     const mexcUrl = isBrowser
-      ? `/api/mexc/klines?symbol=${cleanSym}&interval=${interval}&limit=${limit}`
-      : `${mexcBase}/api/v3/klines?symbol=${cleanSym}&interval=${interval}&limit=${limit}`;
+      ? `/api/mexc/klines?symbol=${cleanSym}&interval=${interval}&limit=${effectiveLimit}`
+      : `${mexcBase}/api/v3/klines?symbol=${cleanSym}&interval=${interval}&limit=${effectiveLimit}`;
     const res = await fetchWithTimeout(mexcUrl);
     if (res.ok) {
       const raw = await res.json();
-      return convertMexcKlines(raw);
+      const bars = convertMexcKlines(raw);
+      return is2h ? aggregateBars(bars, 2) : bars;
     }
   } catch {}
 

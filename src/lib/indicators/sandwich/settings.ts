@@ -24,8 +24,10 @@ export const DEFAULT_SANDWICH_SETTINGS: SandwichSettings = {
     "15m": false,
     "30m": false,
     "1h": false,
+    "2h": false,
     "4h": false,
     "1d": false,
+    "1w": false,
   },
 
   // Support & Resistance
