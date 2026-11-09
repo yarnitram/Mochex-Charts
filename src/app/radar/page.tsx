@@ -231,13 +231,31 @@ export default function RadarPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.alerts) {
-          setActiveAlerts(data.alerts);
+          setActiveAlerts((prev) => {
+            const map = new Map<string, PriceAlert>();
+            prev.forEach((a) => map.set(a.id, a));
+            data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
         }
       })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem("mochex:price_alerts");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setActiveAlerts(parsed);
+        }
+      }
+    } catch {}
     fetchActiveAlerts();
     const handleAlertsUpdated = () => fetchActiveAlerts();
     window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
@@ -1084,14 +1102,15 @@ export default function RadarPage() {
           {/* Direct link to Dedicated Radar Alerts Dashboard (DEC-158) */}
           <Link
             href="/radar/alerts"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-xs text-amber-300 font-bold transition-all shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/50 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs transition-all shadow-md shadow-amber-500/10 cursor-pointer"
             title="Open Dedicated Radar 24/7 Cloud Alarms Dashboard"
           >
-            <Bell size={13} className="text-amber-400 fill-amber-400/20" />
+            <Bell size={13} className="text-amber-400 fill-amber-400" />
             <span className="hidden sm:inline">Radar Alarms</span>
-            <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 text-[10px] font-mono font-bold">
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-mono font-extrabold">
               {radarAlerts.length}
             </span>
+            <ExternalLink size={11} className="opacity-70" />
           </Link>
 
           {/* Multi-Broker Direct Execution Modal Button (DEC-156) */}
@@ -1349,6 +1368,36 @@ export default function RadarPage() {
 
       {/* 3. CONTROLS, TABS & FILTERS */}
       <section className="px-4 sm:px-6 py-4 max-w-7xl mx-auto w-full flex flex-col gap-3">
+        {/* Active Radar Alarms Banner (DEC-158) */}
+        {activeRadarAlertsCount > 0 && (
+          <div className="p-3 px-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-mono">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>
+                <strong className="text-amber-300 font-bold">{activeRadarAlertsCount} 24/7 Radar Alarms Active</strong> across {radarCoinsCount} coins.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              {poiCategoryFilter !== "has_alarms" && (
+                <button
+                  type="button"
+                  onClick={() => setPoiCategoryFilter("has_alarms")}
+                  className="px-2.5 py-1 rounded bg-[#121824] hover:bg-[#1a2332] text-amber-300 border border-amber-500/30 text-[11px] font-bold transition-all cursor-pointer"
+                >
+                  Filter Armed Coins
+                </button>
+              )}
+              <Link
+                href="/radar/alerts"
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[11px] flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20"
+              >
+                <span>Manage in Radar Alarms Page</span>
+                <ExternalLink size={12} />
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Universe Selector Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 border-b border-[#1b2535]">
           <button
@@ -2559,11 +2608,20 @@ export default function RadarPage() {
         }}
       />
 
-      {/* Toast Notification */}
+      {/* Toast Notification with Direct Radar Alarms link */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#00c087] text-black font-bold text-xs shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <CheckCircle2 size={16} />
-          <span>{toastMessage}</span>
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-[#0c1017] border border-amber-500/60 text-amber-300 font-bold text-xs shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-amber-400" />
+            <span>{toastMessage}</span>
+          </div>
+          <Link
+            href="/radar/alerts"
+            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md"
+          >
+            <span>View Alarms</span>
+            <ExternalLink size={11} />
+          </Link>
         </div>
       )}
     </div>

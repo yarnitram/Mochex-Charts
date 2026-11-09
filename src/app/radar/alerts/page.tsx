@@ -73,7 +73,7 @@ export default function RadarAlertsPage() {
   // Candidate coins for bulk alarm modal
   const [candidateCoins, setCandidateCoins] = useState<CandidateCoinForBulkAlarm[]>([]);
 
-  // Fetch all server alerts
+  // Fetch all server alerts with local storage merge
   const fetchAlerts = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     else setRefreshing(true);
@@ -83,7 +83,16 @@ export default function RadarAlertsPage() {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.alerts)) {
-          setAlerts(data.alerts);
+          setAlerts((prev) => {
+            const map = new Map<string, PriceAlert>();
+            prev.forEach((a) => map.set(a.id, a));
+            data.alerts.forEach((a: PriceAlert) => map.set(a.id, a));
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem("mochex:price_alerts", JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
         }
       }
     } catch (err) {
@@ -94,8 +103,28 @@ export default function RadarAlertsPage() {
     }
   }, []);
 
-  // Fetch webhooks & universe candidate coins on mount
+  // Load localStorage cache, search params, webhooks & candidate coins on mount
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("mochex:price_alerts");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setAlerts(parsed);
+            setLoading(false);
+          }
+        }
+        const params = new URLSearchParams(window.location.search);
+        const s = params.get("search");
+        if (s) setSearchQuery(s);
+        const cat = params.get("category");
+        if (cat && (cat === "order_block" || cat === "sandwich_zone" || cat === "fvg")) {
+          setCategoryFilter(cat as any);
+        }
+      } catch {}
+    }
+
     fetchAlerts();
 
     fetch("/api/alerts/webhooks")
@@ -105,7 +134,7 @@ export default function RadarAlertsPage() {
       })
       .catch(() => {});
 
-    // Prepopulate candidate coins from major universes for bulk modal
+    // Prepopulate candidate coins and scan live POIs for bulk modal
     const allCoins = [...MAJORS_UNIVERSE, ...TOP_50_AI, ...TOP_50_MEMES];
     const uniqueMap = new Map<string, CandidateCoinForBulkAlarm>();
     for (const c of allCoins) {
@@ -120,6 +149,41 @@ export default function RadarAlertsPage() {
       }
     }
     setCandidateCoins(Array.from(uniqueMap.values()));
+
+    // Scan top coins POIs so bulk modal has real data if launched from here
+    fetch("/api/radar/pois", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbols: [
+          "BTCUSDT", "ETHUSDT", "SOLUSDT", "NEARUSDT", "RENDERUSDT",
+          "FETUSDT", "TAOUSDT", "PEPEUSDT", "DOGEUSDT", "SUIUSDT",
+          "AVAXUSDT", "LINKUSDT", "INJUSDT", "APTUSDT"
+        ],
+        timeframes: ["1D", "240", "60", "15m"],
+        exchange: "mexc",
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.results)) {
+          const list: CandidateCoinForBulkAlarm[] = data.results.map((item: any) => {
+            const allPois: any[] = [];
+            Object.values(item.poisByTimeframe || {}).forEach((tPois: any) => {
+              if (Array.isArray(tPois)) allPois.push(...tPois);
+            });
+            return {
+              symbol: item.symbol,
+              name: item.symbol.replace("USDT", ""),
+              price: item.price || 0,
+              pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
+              poisByTimeframe: item.poisByTimeframe || {},
+            };
+          });
+          setCandidateCoins(list);
+        }
+      })
+      .catch(() => {});
   }, [fetchAlerts]);
 
   // Listen to alerts updated event
@@ -225,9 +289,11 @@ export default function RadarAlertsPage() {
         body: JSON.stringify({ active: nextActive }),
       });
       if (res.ok) {
-        setAlerts((prev) =>
-          prev.map((a) => (a.id === id ? { ...a, active: nextActive } : a))
-        );
+        setAlerts((prev) => {
+          const next = prev.map((a) => (a.id === id ? { ...a, active: nextActive } : a));
+          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
+          return next;
+        });
         window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
         setToastMessage(`✓ Alarm ${nextActive ? "resumed" : "paused"}`);
         setTimeout(() => setToastMessage(null), 3000);
@@ -243,7 +309,11 @@ export default function RadarAlertsPage() {
     try {
       const res = await fetch(`/api/alerts/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setAlerts((prev) => prev.filter((a) => a.id !== id));
+        setAlerts((prev) => {
+          const next = prev.filter((a) => a.id !== id);
+          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
+          return next;
+        });
         setSelectedIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -279,9 +349,11 @@ export default function RadarAlertsPage() {
 
       if (res.ok) {
         const idSet = new Set(idsToUpdate);
-        setAlerts((prev) =>
-          prev.map((a) => (idSet.has(a.id) ? { ...a, active: targetActive } : a))
-        );
+        setAlerts((prev) => {
+          const next = prev.map((a) => (idSet.has(a.id) ? { ...a, active: targetActive } : a));
+          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
+          return next;
+        });
         window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
         setToastMessage(`✓ ${targetActive ? "Resumed" : "Paused"} ${idsToUpdate.length} alarm(s)!`);
         setTimeout(() => setToastMessage(null), 3500);
@@ -313,7 +385,11 @@ export default function RadarAlertsPage() {
 
       if (res.ok) {
         const idSet = new Set(idsToDelete);
-        setAlerts((prev) => prev.filter((a) => !idSet.has(a.id)));
+        setAlerts((prev) => {
+          const next = prev.filter((a) => !idSet.has(a.id));
+          try { localStorage.setItem("mochex:price_alerts", JSON.stringify(next)); } catch {}
+          return next;
+        });
         setSelectedIds(new Set());
         window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
         setToastMessage(`✓ Deleted ${idsToDelete.length} radar alarm(s)!`);
