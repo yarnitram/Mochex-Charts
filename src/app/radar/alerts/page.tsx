@@ -34,6 +34,7 @@ import {
   recordDeletedAlertIds,
 } from "@/lib/alerts/alerts-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import {
   RadarAudioSettings,
   getRadarAudioSettings,
@@ -63,13 +64,7 @@ export default function RadarAlertsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Webhooks & Audio
-  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({
-    discordWebhookUrl: "",
-    discordEnabled: false,
-    telegramBotToken: "",
-    telegramChatId: "",
-    telegramEnabled: false,
-  });
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>(loadClientWebhooks);
   const [audioSettings, setAudioSettings] = useState<RadarAudioSettings>(() => getRadarAudioSettings());
 
   // Modals
@@ -118,12 +113,13 @@ export default function RadarAlertsPage() {
 
     fetchAlerts();
 
-    fetch("/api/alerts/webhooks")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.config) setWebhookConfig(data.config);
-      })
-      .catch(() => {});
+    // 1. Immediately hydrate webhooks from client storage
+    setWebhookConfig(loadClientWebhooks());
+
+    // 2. Non-destructively sync with server database in background
+    syncWebhooks().then((synced) => {
+      setWebhookConfig(synced);
+    }).catch(() => {});
 
     // Try reading cached radar POIs from active session first
     let hasLoadedCachedPois = false;
@@ -224,12 +220,7 @@ export default function RadarAlertsPage() {
       if (customEvent.detail) {
         setWebhookConfig(customEvent.detail);
       } else {
-        fetch("/api/alerts/webhooks")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => {
-            if (d?.config) setWebhookConfig(d.config);
-          })
-          .catch(() => {});
+        setWebhookConfig(loadClientWebhooks());
       }
     };
     window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
@@ -1028,7 +1019,7 @@ export default function RadarAlertsPage() {
                         {/* Channels */}
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-1">
-                            {a.notifyDiscord !== false && webhookConfig.discordEnabled && (
+                            {a.notifyDiscord !== false && (webhookConfig.discordEnabled || Boolean(webhookConfig.discordWebhookUrl)) && (
                               <span
                                 className="text-[8px] px-1 py-0.2 rounded bg-[#5865F2]/20 text-[#5865F2] font-semibold flex items-center gap-0.5"
                                 title="Discord active"
@@ -1037,7 +1028,7 @@ export default function RadarAlertsPage() {
                                 <span>DC</span>
                               </span>
                             )}
-                            {a.notifyTelegram !== false && webhookConfig.telegramEnabled && (
+                            {a.notifyTelegram !== false && (webhookConfig.telegramEnabled || Boolean(webhookConfig.telegramBotToken)) && (
                               <span
                                 className="text-[8px] px-1 py-0.2 rounded bg-[#229ED9]/20 text-[#229ED9] font-semibold flex items-center gap-0.5"
                                 title="Telegram active"
@@ -1046,7 +1037,7 @@ export default function RadarAlertsPage() {
                                 <span>TG</span>
                               </span>
                             )}
-                            {(!webhookConfig.discordEnabled && !webhookConfig.telegramEnabled) && (
+                            {(!webhookConfig.discordEnabled && !webhookConfig.telegramEnabled && !webhookConfig.discordWebhookUrl && !webhookConfig.telegramBotToken) && (
                               <span className="text-[9px] text-[#848e9c]/60">Chime Only</span>
                             )}
                           </div>

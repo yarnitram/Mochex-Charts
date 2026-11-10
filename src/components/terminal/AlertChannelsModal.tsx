@@ -23,6 +23,12 @@ import {
   isValidTradingWebhookUrl,
   getDefaultTradingWebhookTemplate,
 } from "@/lib/alerts/webhook-dispatcher";
+import {
+  loadClientWebhooks,
+  saveClientWebhooks,
+  syncWebhooks,
+  mergeClientAndServerWebhooks,
+} from "@/lib/alerts/webhooks-sync";
 
 export function DiscordIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
   return (
@@ -53,28 +59,39 @@ export function AlertChannelsModal({
   config: initialConfig,
   onSave,
 }: AlertChannelsModalProps) {
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState(initialConfig.discordWebhookUrl || "");
-  const [discordEnabled, setDiscordEnabled] = useState(initialConfig.discordEnabled ?? false);
+  // Use passed config if populated, otherwise synchronously fall back to localStorage
+  const fallbackConfig = typeof window !== "undefined" ? loadClientWebhooks() : {};
+  const effectiveInitial =
+    initialConfig && (initialConfig.discordWebhookUrl || initialConfig.telegramBotToken)
+      ? initialConfig
+      : fallbackConfig;
+
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState(effectiveInitial.discordWebhookUrl || "");
+  const [discordEnabled, setDiscordEnabled] = useState(
+    effectiveInitial.discordEnabled ?? Boolean(effectiveInitial.discordWebhookUrl)
+  );
   const [discordTesting, setDiscordTesting] = useState(false);
   const [discordStatus, setDiscordStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const [telegramBotToken, setTelegramBotToken] = useState(initialConfig.telegramBotToken || "");
-  const [telegramChatId, setTelegramChatId] = useState(initialConfig.telegramChatId || "");
-  const [telegramEnabled, setTelegramEnabled] = useState(initialConfig.telegramEnabled ?? false);
+  const [telegramBotToken, setTelegramBotToken] = useState(effectiveInitial.telegramBotToken || "");
+  const [telegramChatId, setTelegramChatId] = useState(effectiveInitial.telegramChatId || "");
+  const [telegramEnabled, setTelegramEnabled] = useState(
+    effectiveInitial.telegramEnabled ?? Boolean(effectiveInitial.telegramBotToken && effectiveInitial.telegramChatId)
+  );
   const [telegramTesting, setTelegramTesting] = useState(false);
   const [telegramStatus, setTelegramStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // DEC-148: Automated Trading Webhook Configuration (3Commas, Cornix, TradingView)
-  const [tradingEnabled, setTradingEnabled] = useState(initialConfig.tradingWebhook?.enabled ?? false);
+  const [tradingEnabled, setTradingEnabled] = useState(effectiveInitial.tradingWebhook?.enabled ?? false);
   const [tradingPlatform, setTradingPlatform] = useState<TradingWebhookPlatform>(
-    initialConfig.tradingWebhook?.platform || "3commas"
+    effectiveInitial.tradingWebhook?.platform || "3commas"
   );
-  const [tradingWebhookUrl, setTradingWebhookUrl] = useState(initialConfig.tradingWebhook?.webhookUrl || "");
-  const [tradingSecretToken, setTradingSecretToken] = useState(initialConfig.tradingWebhook?.secretToken || "");
-  const [tradingBotId, setTradingBotId] = useState(initialConfig.tradingWebhook?.botId || "");
+  const [tradingWebhookUrl, setTradingWebhookUrl] = useState(effectiveInitial.tradingWebhook?.webhookUrl || "");
+  const [tradingSecretToken, setTradingSecretToken] = useState(effectiveInitial.tradingWebhook?.secretToken || "");
+  const [tradingBotId, setTradingBotId] = useState(effectiveInitial.tradingWebhook?.botId || "");
   const [tradingCustomTemplate, setTradingCustomTemplate] = useState(
-    initialConfig.tradingWebhook?.customTemplate ||
-      getDefaultTradingWebhookTemplate(initialConfig.tradingWebhook?.platform || "3commas")
+    effectiveInitial.tradingWebhook?.customTemplate ||
+      getDefaultTradingWebhookTemplate(effectiveInitial.tradingWebhook?.platform || "3commas")
   );
   const [tradingTesting, setTradingTesting] = useState(false);
   const [tradingStatus, setTradingStatus] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -83,53 +100,59 @@ export function AlertChannelsModal({
 
   // Synchronize internal state whenever initialConfig updates or modal opens
   useEffect(() => {
-    if (initialConfig) {
-      setDiscordWebhookUrl(initialConfig.discordWebhookUrl || "");
-      setDiscordEnabled(initialConfig.discordEnabled ?? false);
-      setTelegramBotToken(initialConfig.telegramBotToken || "");
-      setTelegramChatId(initialConfig.telegramChatId || "");
-      setTelegramEnabled(initialConfig.telegramEnabled ?? false);
-      if (initialConfig.tradingWebhook) {
-        setTradingEnabled(initialConfig.tradingWebhook.enabled ?? false);
-        setTradingPlatform(initialConfig.tradingWebhook.platform || "3commas");
-        setTradingWebhookUrl(initialConfig.tradingWebhook.webhookUrl || "");
-        setTradingSecretToken(initialConfig.tradingWebhook.secretToken || "");
-        setTradingBotId(initialConfig.tradingWebhook.botId || "");
-        setTradingCustomTemplate(
-          initialConfig.tradingWebhook.customTemplate ||
-            getDefaultTradingWebhookTemplate(initialConfig.tradingWebhook.platform || "3commas")
-        );
+    if (!isOpen) return;
+
+    // 1. Load from localStorage first to prevent blank flashes
+    const local = loadClientWebhooks();
+    const source =
+      initialConfig && (initialConfig.discordWebhookUrl || initialConfig.telegramBotToken)
+        ? mergeClientAndServerWebhooks(local, initialConfig)
+        : local;
+
+    if (source.discordWebhookUrl) setDiscordWebhookUrl(source.discordWebhookUrl);
+    if (typeof source.discordEnabled === "boolean") {
+      setDiscordEnabled(source.discordEnabled);
+    } else if (source.discordWebhookUrl) {
+      setDiscordEnabled(true);
+    }
+
+    if (source.telegramBotToken) setTelegramBotToken(source.telegramBotToken);
+    if (source.telegramChatId) setTelegramChatId(source.telegramChatId);
+    if (typeof source.telegramEnabled === "boolean") {
+      setTelegramEnabled(source.telegramEnabled);
+    } else if (source.telegramBotToken && source.telegramChatId) {
+      setTelegramEnabled(true);
+    }
+
+    if (source.tradingWebhook) {
+      setTradingEnabled(source.tradingWebhook.enabled ?? false);
+      setTradingPlatform(source.tradingWebhook.platform || "3commas");
+      setTradingWebhookUrl(source.tradingWebhook.webhookUrl || "");
+      setTradingSecretToken(source.tradingWebhook.secretToken || "");
+      setTradingBotId(source.tradingWebhook.botId || "");
+      if (source.tradingWebhook.customTemplate) {
+        setTradingCustomTemplate(source.tradingWebhook.customTemplate);
       }
     }
-  }, [initialConfig, isOpen]);
 
-  // Query fresh server database webhooks directly upon opening
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch("/api/alerts/webhooks")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.config) {
-          const cfg = data.config;
-          if (cfg.discordWebhookUrl) setDiscordWebhookUrl(cfg.discordWebhookUrl);
-          if (typeof cfg.discordEnabled === "boolean") setDiscordEnabled(cfg.discordEnabled);
-          if (cfg.telegramBotToken) setTelegramBotToken(cfg.telegramBotToken);
-          if (cfg.telegramChatId) setTelegramChatId(cfg.telegramChatId);
-          if (typeof cfg.telegramEnabled === "boolean") setTelegramEnabled(cfg.telegramEnabled);
-          if (cfg.tradingWebhook) {
-            setTradingEnabled(cfg.tradingWebhook.enabled ?? false);
-            setTradingPlatform(cfg.tradingWebhook.platform || "3commas");
-            setTradingWebhookUrl(cfg.tradingWebhook.webhookUrl || "");
-            setTradingSecretToken(cfg.tradingWebhook.secretToken || "");
-            setTradingBotId(cfg.tradingWebhook.botId || "");
-            if (cfg.tradingWebhook.customTemplate) {
-              setTradingCustomTemplate(cfg.tradingWebhook.customTemplate);
-            }
-          }
+    // 2. Then perform non-destructive sync with server in background
+    syncWebhooks()
+      .then((synced) => {
+        if (synced.discordWebhookUrl) setDiscordWebhookUrl(synced.discordWebhookUrl);
+        if (typeof synced.discordEnabled === "boolean") setDiscordEnabled(synced.discordEnabled);
+        if (synced.telegramBotToken) setTelegramBotToken(synced.telegramBotToken);
+        if (synced.telegramChatId) setTelegramChatId(synced.telegramChatId);
+        if (typeof synced.telegramEnabled === "boolean") setTelegramEnabled(synced.telegramEnabled);
+        if (synced.tradingWebhook?.webhookUrl) {
+          setTradingEnabled(synced.tradingWebhook.enabled ?? false);
+          setTradingPlatform(synced.tradingWebhook.platform || "3commas");
+          setTradingWebhookUrl(synced.tradingWebhook.webhookUrl || "");
+          setTradingSecretToken(synced.tradingWebhook.secretToken || "");
+          setTradingBotId(synced.tradingWebhook.botId || "");
         }
       })
       .catch(() => {});
-  }, [isOpen]);
+  }, [initialConfig, isOpen]);
 
   if (!isOpen) return null;
 
@@ -298,15 +321,19 @@ export function AlertChannelsModal({
   const handleSave = async () => {
     setIsSaving(true);
     setSaveFeedback(null);
+
+    const hasDiscord = Boolean(discordWebhookUrl.trim());
+    const hasTelegram = Boolean(telegramBotToken.trim() && telegramChatId.trim());
+    const isTrading = Boolean(tradingWebhookUrl.trim());
+
     const updated: AlertWebhookConfig = {
       discordWebhookUrl: discordWebhookUrl.trim(),
-      discordEnabled: discordEnabled && discordWebhookUrl.trim().length > 0,
+      discordEnabled: hasDiscord ? (discordEnabled ?? true) : false,
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
-      telegramEnabled:
-        telegramEnabled && telegramBotToken.trim().length > 0 && telegramChatId.trim().length > 0,
+      telegramEnabled: hasTelegram ? (telegramEnabled ?? true) : false,
       tradingWebhook: {
-        enabled: tradingEnabled && tradingWebhookUrl.trim().length > 0,
+        enabled: isTrading ? (tradingEnabled ?? true) : false,
         platform: tradingPlatform,
         webhookUrl: tradingWebhookUrl.trim(),
         secretToken: tradingSecretToken.trim(),
@@ -315,12 +342,11 @@ export function AlertChannelsModal({
       },
     };
 
-    try {
-      localStorage.setItem("mochex:alert_webhooks", JSON.stringify(updated));
-    } catch {}
+    // 1. Immediately persist locally & emit update event
+    saveClientWebhooks(updated);
 
     try {
-      // Synchronize with 24/7 Server Alert Daemon (DEC-135)
+      // 2. Synchronize with 24/7 Server Alert Daemon (DEC-135)
       const res = await fetch("/api/alerts/webhooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -332,13 +358,6 @@ export function AlertChannelsModal({
         throw new Error(errData?.error || `Server responded with ${res.status}`);
       }
 
-      // Notify all open components and pages across the app
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("mochex:webhooks-updated", { detail: updated })
-        );
-      }
-
       setSaveFeedback({ ok: true, msg: "✓ Saved to account database successfully!" });
       onSave(updated);
       setTimeout(() => {
@@ -347,11 +366,6 @@ export function AlertChannelsModal({
       }, 700);
     } catch (err: any) {
       console.warn("[AlertChannelsModal] Server webhook save notice:", err);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("mochex:webhooks-updated", { detail: updated })
-        );
-      }
       onSave(updated);
       setSaveFeedback({ ok: false, msg: `Saved locally (${err?.message || "server sync notice"})` });
       setTimeout(() => {
@@ -414,8 +428,14 @@ export function AlertChannelsModal({
                 type="text"
                 value={discordWebhookUrl}
                 onChange={(e) => {
-                  setDiscordWebhookUrl(e.target.value);
+                  const val = e.target.value;
+                  setDiscordWebhookUrl(val);
                   setDiscordStatus(null);
+                  if (val.trim().length > 0) {
+                    setDiscordEnabled(true);
+                  } else {
+                    setDiscordEnabled(false);
+                  }
                 }}
                 placeholder="https://discord.com/api/webhooks/..."
                 className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#5865F2] outline-none"
@@ -487,8 +507,12 @@ export function AlertChannelsModal({
                   type="text"
                   value={telegramBotToken}
                   onChange={(e) => {
-                    setTelegramBotToken(e.target.value);
+                    const val = e.target.value;
+                    setTelegramBotToken(val);
                     setTelegramStatus(null);
+                    if (val.trim().length > 0 && telegramChatId.trim().length > 0) {
+                      setTelegramEnabled(true);
+                    }
                   }}
                   placeholder="123456789:ABCdef..."
                   className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#229ED9] outline-none"
@@ -500,8 +524,12 @@ export function AlertChannelsModal({
                   type="text"
                   value={telegramChatId}
                   onChange={(e) => {
-                    setTelegramChatId(e.target.value);
+                    const val = e.target.value;
+                    setTelegramChatId(val);
                     setTelegramStatus(null);
+                    if (val.trim().length > 0 && telegramBotToken.trim().length > 0) {
+                      setTelegramEnabled(true);
+                    }
                   }}
                   placeholder="987654321 or @channel"
                   className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#229ED9] outline-none"

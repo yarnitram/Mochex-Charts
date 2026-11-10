@@ -25,6 +25,7 @@ import {
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
@@ -90,28 +91,18 @@ export function PoiAlarmModal({
 
   // Alert Channels Modal & Config State (DEC-154)
   const [isChannelsOpen, setIsChannelsOpen] = useState(false);
-  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>(loadClientWebhooks);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("mochex:alert_webhooks");
-      if (raw) {
-        setWebhookConfig(JSON.parse(raw));
-      }
-    } catch {}
-    fetch("/api/alerts/webhooks")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.config) {
-          setWebhookConfig((prev) => ({ ...prev, ...data.config }));
-        }
-      })
-      .catch(() => {});
+    setWebhookConfig(loadClientWebhooks());
+    syncWebhooks().then(setWebhookConfig).catch(() => {});
 
     const handleWebhooksUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<AlertWebhookConfig>;
       if (customEvent.detail) {
         setWebhookConfig(customEvent.detail);
+      } else {
+        setWebhookConfig(loadClientWebhooks());
       }
     };
     window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);

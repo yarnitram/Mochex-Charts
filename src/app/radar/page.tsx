@@ -65,6 +65,7 @@ import { BrokerCredentialsModal } from "@/components/terminal/BrokerCredentialsM
 import { PoiLiveTradeModal } from "@/components/radar/PoiLiveTradeModal";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
@@ -200,33 +201,23 @@ export default function RadarPage() {
   const [portfolioRiskSummary, setPortfolioRiskSummary] = useState<PortfolioRiskHeatSummary | null>(null);
   const [isRiskDrawerOpen, setIsRiskDrawerOpen] = useState(false);
   const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
-  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({});
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>(loadClientWebhooks);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("mochex:alert_webhooks");
-      if (raw) setWebhookConfig(JSON.parse(raw));
-    } catch {}
-    fetch("/api/alerts/webhooks")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && data.config) {
-          setWebhookConfig((prev) => ({ ...prev, ...data.config }));
-        }
-      })
-      .catch(() => {});
+    // 1. Initial hydration from client storage immediately
+    setWebhookConfig(loadClientWebhooks());
+
+    // 2. Non-destructive sync with server
+    syncWebhooks().then((synced) => {
+      setWebhookConfig(synced);
+    }).catch(() => {});
 
     const handleWebhooksUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<AlertWebhookConfig>;
       if (customEvent.detail) {
         setWebhookConfig(customEvent.detail);
       } else {
-        fetch("/api/alerts/webhooks")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => {
-            if (d?.config) setWebhookConfig(d.config);
-          })
-          .catch(() => {});
+        setWebhookConfig(loadClientWebhooks());
       }
     };
     window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);

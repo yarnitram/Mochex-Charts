@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "fs";
+import path from "path";
 import {
   isValidDiscordWebhookUrl,
   isValidTelegramBotToken,
@@ -128,6 +130,26 @@ describe("Discord & Telegram Alert Webhook Dispatcher (DEC-130)", () => {
   describe("Per-Account Webhook Database Persistence (DEC-162)", () => {
     const testUserA = "test-trader-account-a";
     const testUserB = "test-trader-account-b";
+    const webhooksFile = path.join(process.cwd(), ".data", "webhooks.json");
+    let originalWebhooks: string | null = null;
+
+    beforeEach(() => {
+      try {
+        if (fs.existsSync(webhooksFile)) {
+          originalWebhooks = fs.readFileSync(webhooksFile, "utf-8");
+        }
+      } catch {}
+    });
+
+    afterEach(() => {
+      try {
+        if (originalWebhooks !== null) {
+          fs.writeFileSync(webhooksFile, originalWebhooks, "utf-8");
+        } else if (fs.existsSync(webhooksFile)) {
+          fs.unlinkSync(webhooksFile);
+        }
+      } catch {}
+    });
 
     it("saves and isolates webhooks per user account", async () => {
       const { saveServerWebhooks, getServerWebhooks } = await import(

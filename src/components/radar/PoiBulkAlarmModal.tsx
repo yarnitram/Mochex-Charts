@@ -40,6 +40,7 @@ import {
 } from "@/lib/audio/sound-effects";
 import { DiscordIcon, TelegramIcon, AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 
 export interface CandidateCoinForBulkAlarm {
   symbol: string;
@@ -118,30 +119,16 @@ export function PoiBulkAlarmModal({
 
   // Channels
   const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
-  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>({
-    discordWebhookUrl: "",
-    discordEnabled: false,
-    telegramBotToken: "",
-    telegramChatId: "",
-    telegramEnabled: false,
-  });
+  const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>(loadClientWebhooks);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("mochex:alert_webhooks");
-      if (raw) setWebhookConfig(JSON.parse(raw));
-    } catch {}
-
-    fetch("/api/alerts/webhooks")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.config) setWebhookConfig((prev: AlertWebhookConfig) => ({ ...prev, ...d.config }));
-      })
-      .catch(() => {});
+    setWebhookConfig(loadClientWebhooks());
+    syncWebhooks().then(setWebhookConfig).catch(() => {});
 
     const handleWebhooksUpdated = (e: Event) => {
       const customEvent = e as CustomEvent<AlertWebhookConfig>;
       if (customEvent.detail) setWebhookConfig(customEvent.detail);
+      else setWebhookConfig(loadClientWebhooks());
     };
     window.addEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
     return () => window.removeEventListener("mochex:webhooks-updated", handleWebhooksUpdated);
@@ -849,6 +836,16 @@ export function PoiBulkAlarmModal({
           </div>
         </div>
       </div>
+
+      {/* Embedded Alert Channels Modal */}
+      {isChannelsModalOpen && (
+        <AlertChannelsModal
+          isOpen={isChannelsModalOpen}
+          onClose={() => setIsChannelsModalOpen(false)}
+          config={webhookConfig}
+          onSave={(cfg) => setWebhookConfig(cfg)}
+        />
+      )}
     </div>
   );
 }

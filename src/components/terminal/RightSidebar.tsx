@@ -41,6 +41,7 @@ import { DepthOfMarketTape } from "./DepthOfMarketTape";
 import { AddPairModal } from "../watchlist/AddPairModal";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "./AlertChannelsModal";
 import { AlertWebhookConfig, sendAlertNotifications } from "@/lib/alerts/webhook-dispatcher";
+import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { AuthUser } from "@/lib/auth/use-auth";
 import {
   WatchlistProfile,
@@ -383,14 +384,9 @@ export function RightSidebar({
       setProfiles(loadedProfiles);
       setActiveProfileId(loadActiveProfileId(loadedProfiles));
 
-      const savedWebhooks = localStorage.getItem("mochex:alert_webhooks");
-      if (savedWebhooks) {
-        try {
-          const parsedWebhooks = JSON.parse(savedWebhooks);
-          setWebhookConfig(parsedWebhooks);
-          webhookConfigRef.current = parsedWebhooks;
-        } catch {}
-      }
+      const savedWebhooks = loadClientWebhooks();
+      setWebhookConfig(savedWebhooks);
+      webhookConfigRef.current = savedWebhooks;
 
       const savedAlerts = loadClientAlerts();
       if (savedAlerts.length > 0) {
@@ -419,19 +415,10 @@ export function RightSidebar({
         setAlerts(merged);
       });
 
-      fetch("/api/alerts/webhooks")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data && data.config) {
-            setWebhookConfig((prev) => {
-              const merged = { ...prev, ...data.config };
-              webhookConfigRef.current = merged;
-              try {
-                localStorage.setItem("mochex:alert_webhooks", JSON.stringify(merged));
-              } catch {}
-              return merged;
-            });
-          }
+      syncWebhooks()
+        .then((merged) => {
+          setWebhookConfig(merged);
+          webhookConfigRef.current = merged;
         })
         .catch(() => {});
     } catch {}
