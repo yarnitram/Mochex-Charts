@@ -27,7 +27,11 @@ import {
   type ISeriesApi,
   type Time,
 } from "lightweight-charts";
-import { RadarPoiItem } from "@/lib/indicators/radar-poi-engine";
+import {
+  RadarPoiItem,
+  formatPoiPrice,
+  getPoiZoneRange,
+} from "@/lib/indicators/radar-poi-engine";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import { CandlestickBar } from "@/lib/mexc/types";
 import {
@@ -392,7 +396,7 @@ export function PoiQuickPreviewDrawer({
             <div className="p-2 rounded bg-[#0e141f] border border-[#1b2535]">
               <span className="text-[9px] text-[#848e9c] block">Entry Level</span>
               <span className={`font-bold text-xs ${isBullish ? "text-[#00c087]" : "text-[#ff3b30]"}`}>
-                ${poi.entryPrice.toFixed(2)}
+                ${formatPoiPrice(poi.entryPrice)}
               </span>
             </div>
             <div className="p-2 rounded bg-[#0e141f] border border-[#233144]">
@@ -400,16 +404,36 @@ export function PoiQuickPreviewDrawer({
                 {isFvg ? "50% CE" : "50% MT"}
               </span>
               <span className="font-bold text-[#b6c4ff] text-xs">
-                ${poi.meanThreshold.toFixed(2)}
+                ${formatPoiPrice(poi.meanThreshold)}
               </span>
             </div>
             <div className="p-2 rounded bg-[#0e141f] border border-[#1b2535]">
               <span className="text-[9px] text-[#848e9c] block">Boundary</span>
               <span className="font-bold text-[#848e9c] text-xs">
-                ${poi.fullRetestPrice.toFixed(2)}
+                ${formatPoiPrice(poi.fullRetestPrice)}
               </span>
             </div>
           </div>
+
+          {/* Validated OB / POI Price Range (Bottom to Top) */}
+          {(() => {
+            const zr = getPoiZoneRange(poi);
+            return (
+              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#0e141f] border border-[#1b2535] font-mono text-[11px]">
+                <span className="text-[#848e9c] uppercase text-[10px] font-sans font-bold">
+                  {poi.category === "order_block"
+                    ? "Validated OB Range (Bottom → Top)"
+                    : "POI Zone Range (Bottom → Top)"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-white font-bold">{zr.rangeText}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-[#172233] text-[#b6c4ff] text-[10px]">
+                    {zr.spreadPct.toFixed(2)}% height
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Historical POI Reaction Metrics (DEC-144) */}
           {poi.metrics && poi.metrics.totalTested > 0 && (

@@ -72,7 +72,8 @@ export async function POST(request: NextRequest) {
     const config = (await request.json()) as AlertWebhookConfig;
     const saved = await saveServerWebhooks(user.userId, config);
 
-    // Refresh active daemon alerts with new webhook credentials
+    // Ensure daemon is started and refresh active alerts with new webhook credentials
+    serverAlertDaemon.startIfNotRunning();
     serverAlertDaemon.notifyAlertsChanged().catch(() => {});
 
     return NextResponse.json({ success: true, config: saved });

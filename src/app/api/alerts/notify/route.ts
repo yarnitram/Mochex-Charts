@@ -9,6 +9,11 @@ import {
   formatTradingWebhookPayload,
 } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "@/lib/alerts/alerts-engine";
+import { getRequestUser } from "@/lib/auth/request-user";
+import {
+  buildAlertDeliveryResults,
+  upsertServerAlertLog,
+} from "@/lib/alerts/server-alert-diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +66,7 @@ export async function POST(req: NextRequest) {
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const user = await getRequestUser(req);
 
         try {
           const res = await fetch(config.discordWebhookUrl!, {
@@ -73,11 +79,45 @@ export async function POST(req: NextRequest) {
 
           if (!res.ok) {
             const errText = await res.text();
+            const errMessage = `Discord responded with HTTP ${res.status}: ${errText}`;
+            upsertServerAlertLog(user.userId, {
+              id: `log-test-discord-${Date.now()}`,
+              alertId: "test-discord",
+              symbol: "DISCORD_PING",
+              triggerPrice: 0,
+              targetPrice: 0,
+              condition: "crossing",
+              label: "Manual Discord Test Notification",
+              message: errMessage,
+              triggeredAt: Date.now(),
+              logType: "test",
+              deliveryResults: {
+                discord: { ok: false, status: res.status, error: errMessage },
+                attemptedAt: Date.now(),
+              },
+            });
             return NextResponse.json(
-              { success: false, error: `Discord responded with HTTP ${res.status}: ${errText}` },
+              { success: false, error: errMessage },
               { status: res.status }
             );
           }
+
+          upsertServerAlertLog(user.userId, {
+            id: `log-test-discord-${Date.now()}`,
+            alertId: "test-discord",
+            symbol: "DISCORD_PING",
+            triggerPrice: 0,
+            targetPrice: 0,
+            condition: "crossing",
+            label: "Manual Discord Test Notification",
+            message: "Discord test notification sent successfully",
+            triggeredAt: Date.now(),
+            logType: "test",
+            deliveryResults: {
+              discord: { ok: true, status: res.status },
+              attemptedAt: Date.now(),
+            },
+          });
 
           return NextResponse.json({
             success: true,
@@ -86,8 +126,25 @@ export async function POST(req: NextRequest) {
         } catch (fetchErr: unknown) {
           clearTimeout(timeoutId);
           const err = fetchErr as Error;
+          const errMessage = `Failed to reach Discord: ${err.message}`;
+          upsertServerAlertLog(user.userId, {
+            id: `log-test-discord-${Date.now()}`,
+            alertId: "test-discord",
+            symbol: "DISCORD_PING",
+            triggerPrice: 0,
+            targetPrice: 0,
+            condition: "crossing",
+            label: "Manual Discord Test Notification",
+            message: errMessage,
+            triggeredAt: Date.now(),
+            logType: "test",
+            deliveryResults: {
+              discord: { ok: false, error: errMessage },
+              attemptedAt: Date.now(),
+            },
+          });
           return NextResponse.json(
-            { success: false, error: `Failed to reach Discord: ${err.message}` },
+            { success: false, error: errMessage },
             { status: 502 }
           );
         }
@@ -246,7 +303,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const user = await getRequestUser(req);
     const results = await dispatchDirectWebhooks(config, alert, log);
+    upsertServerAlertLog(user.userId, {
+      ...log,
+      logType: log.logType || "trigger",
+      deliveryResults: buildAlertDeliveryResults(
+        config,
+        alert,
+        results as unknown as Record<string, unknown>
+      ),
+    });
 
     return NextResponse.json({
       success: true,
