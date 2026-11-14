@@ -1,7 +1,6 @@
-import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import type { Role } from "@/lib/auth/jwt";
+import { readJsonData, writeJsonData } from "../storage/data-dir";
 
 export interface StoredUser {
   id: string;
@@ -12,18 +11,7 @@ export interface StoredUser {
   createdAt: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
-
-function ensureDirectory() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  } catch (err) {
-    console.warn("Could not create .data directory:", err);
-  }
-}
+const USERS_FILE = "users.json";
 
 export function hashPassword(password: string): string {
   const salt = "mochex_salt_2026";
@@ -36,25 +24,11 @@ export function verifyPassword(password: string, hash: string): boolean {
 }
 
 export function getLocalUsers(): StoredUser[] {
-  ensureDirectory();
-  try {
-    if (fs.existsSync(USERS_FILE)) {
-      const raw = fs.readFileSync(USERS_FILE, "utf-8");
-      return JSON.parse(raw);
-    }
-  } catch (err) {
-    console.warn("Failed to read local users file:", err);
-  }
-  return [];
+  return readJsonData<StoredUser[]>(USERS_FILE, [], "auth-local-store");
 }
 
 export function saveLocalUsers(users: StoredUser[]): void {
-  ensureDirectory();
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
-  } catch (err) {
-    console.warn("Failed to save local users file:", err);
-  }
+  writeJsonData(USERS_FILE, users, "auth-local-store");
 }
 
 export function findLocalUser(usernameOrEmail: string): StoredUser | null {

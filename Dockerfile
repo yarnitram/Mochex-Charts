@@ -41,6 +41,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Ensure persistent runtime data directory is writable by non-root nextjs user
+RUN mkdir -p /app/.data && chown -R nextjs:nodejs /app/.data
+
 USER nextjs
 
 EXPOSE 3018

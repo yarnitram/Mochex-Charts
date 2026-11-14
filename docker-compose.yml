@@ -29,6 +29,9 @@ services:
       - PORT=3018
       - POCKETBASE_URL=http://pocketbase:8090
       - NEXT_PUBLIC_POCKETBASE_URL=http://localhost:8090
+      - MOCHEX_DATA_DIR=/app/.data
+    volumes:
+      - mochex_data:/app/.data
     env_file:
       - .env
     deploy:
@@ -36,3 +39,6 @@ services:
         limits:
           cpus: "2.0"
           memory: 1500M
+
+volumes:
+  mochex_data:

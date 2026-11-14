@@ -79,6 +79,7 @@ export function AlertChannelsModal({
     effectiveInitial.telegramEnabled ?? Boolean(effectiveInitial.telegramBotToken && effectiveInitial.telegramChatId)
   );
   const [telegramTesting, setTelegramTesting] = useState(false);
+  const [telegramDetecting, setTelegramDetecting] = useState(false);
   const [telegramStatus, setTelegramStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // DEC-148: Automated Trading Webhook Configuration (3Commas, Cornix, TradingView)
@@ -235,6 +236,7 @@ export function AlertChannelsModal({
       return;
     }
 
+    setDiscordEnabled(true);
     setDiscordTesting(true);
     setDiscordStatus(null);
 
@@ -268,6 +270,53 @@ export function AlertChannelsModal({
     }
   };
 
+  const botIdPrefix = telegramBotToken.includes(":") ? telegramBotToken.split(":")[0].trim() : "";
+  const isBotSelfChatId = Boolean(botIdPrefix && telegramChatId.trim() === botIdPrefix);
+
+  const handleDetectTelegramChatId = async () => {
+    if (!isValidTelegramBotToken(telegramBotToken)) {
+      setTelegramStatus({
+        ok: false,
+        msg: "Enter your Telegram Bot Token first, then click Detect Chat ID.",
+      });
+      return;
+    }
+
+    setTelegramDetecting(true);
+    setTelegramStatus(null);
+    try {
+      const res = await fetch("/api/alerts/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "detect_telegram_chat",
+          config: { telegramBotToken: telegramBotToken.trim() },
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.chatId) {
+        setTelegramChatId(data.chatId);
+        setTelegramEnabled(true);
+        setTelegramStatus({
+          ok: true,
+          msg: `Detected Chat ID ${data.chatId}${data.displayName ? ` (${data.displayName})` : ""}! Click Send Test Alert or Save.`,
+        });
+      } else {
+        setTelegramStatus({
+          ok: false,
+          msg: data.error || "Could not detect Chat ID. Send /start to your bot first.",
+        });
+      }
+    } catch (err: unknown) {
+      setTelegramStatus({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Failed to query Telegram",
+      });
+    } finally {
+      setTelegramDetecting(false);
+    }
+  };
+
   const handleTestTelegram = async () => {
     if (!isValidTelegramBotToken(telegramBotToken)) {
       setTelegramStatus({
@@ -283,7 +332,15 @@ export function AlertChannelsModal({
       });
       return;
     }
+    if (isBotSelfChatId) {
+      setTelegramStatus({
+        ok: false,
+        msg: `That Chat ID (${botIdPrefix}) is your Bot's own ID, not your personal Chat ID. Send /start to your bot on Telegram and click 'Detect Chat ID' above.`,
+      });
+      return;
+    }
 
+    setTelegramEnabled(true);
     setTelegramTesting(true);
     setTelegramStatus(null);
 
@@ -519,7 +576,18 @@ export function AlertChannelsModal({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-muted">Chat ID:</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-muted">Chat ID:</label>
+                  <button
+                    type="button"
+                    onClick={handleDetectTelegramChatId}
+                    disabled={telegramDetecting || !isValidTelegramBotToken(telegramBotToken)}
+                    className="text-[9px] text-[#229ED9] hover:underline disabled:opacity-40 cursor-pointer"
+                    title="Send /start to your bot in Telegram first, then click to auto-fill your Chat ID"
+                  >
+                    {telegramDetecting ? "Detecting..." : "Detect Chat ID"}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={telegramChatId}
@@ -532,10 +600,21 @@ export function AlertChannelsModal({
                     }
                   }}
                   placeholder="987654321 or @channel"
-                  className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#229ED9] outline-none"
+                  className={`w-full bg-surface px-2.5 py-1.5 rounded border text-on-surface font-mono text-[11px] placeholder:text-muted/40 outline-none ${
+                    isBotSelfChatId ? "border-amber-500/70 focus:border-amber-400" : "border-border focus:border-[#229ED9]"
+                  }`}
                 />
               </div>
             </div>
+
+            {isBotSelfChatId && (
+              <div className="p-2 rounded text-[10px] flex items-center gap-1.5 border bg-amber-500/10 border-amber-500/30 text-amber-300">
+                <AlertCircle size={12} className="shrink-0" />
+                <span>
+                  This looks like your Bot&apos;s own ID (<code>{botIdPrefix}</code>). Send <code>/start</code> to your bot in Telegram and click <strong>Detect Chat ID</strong> above, or use <code>@userinfobot</code>.
+                </span>
+              </div>
+            )}
 
             <div className="text-[9px] text-muted/70 bg-surface/60 p-2 rounded border border-border/40 flex flex-col gap-1 leading-normal">
               <span>
