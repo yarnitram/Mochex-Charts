@@ -3,6 +3,7 @@ import {
   PriceAlert,
   evaluateAlertCrossing,
   evaluateAlertsBatch,
+  findDuplicateAlerts,
   evaluateStrategyConditionAlert,
   getEffectiveAlertTargetPrice,
   createAlertsFromDrawing,
@@ -441,5 +442,57 @@ describe("Custom Strategy Condition Alerts Engine (DEC-079)", () => {
     expect(res2.updatedAlerts).toHaveLength(0);
     expect(res2.triggeredLogs).toHaveLength(1);
     expect(res2.triggeredLogs[0].message).toContain("POI invalidated");
+  });
+
+  it("identifies duplicate alerts with the same coin, timeframe, and trigger price while preserving distinct timeframes/prices", () => {
+    const mk = (
+      id: string,
+      symbol: string,
+      targetPrice: number,
+      timeframe: string,
+      active: boolean,
+      createdAt: number
+    ): PriceAlert => ({
+      id,
+      symbol,
+      targetPrice,
+      condition: "crossing_down",
+      frequency: "only_once",
+      sourceType: "indicator_condition",
+      label: `${symbol} ${timeframe}`,
+      active,
+      triggeredCount: 0,
+      createdAt,
+      poiMetadata: {
+        poiId: `poi-${id}`,
+        category: "order_block",
+        direction: "BULLISH",
+        timeframe,
+        zoneTop: targetPrice * 1.01,
+        zoneBottom: targetPrice * 0.99,
+      },
+    });
+
+    const olderActive = mk("dup-old-active", "SOLUSDT", 150.25, "1H", true, 1000);
+    const newerPaused = mk("dup-new-paused", "SOL/USDT", 150.25, "60", false, 3000);
+    const newerActive = mk("dup-new-active", "solusdt", 150.25, "1h", true, 2000);
+    const samePriceDiffTf = mk("diff-tf", "SOLUSDT", 150.25, "4H", true, 1500);
+    const sameTfDiffPrice = mk("diff-price", "SOLUSDT", 148.5, "1H", true, 1500);
+
+    const { keepAlerts, duplicateIds } = findDuplicateAlerts([
+      olderActive,
+      newerPaused,
+      newerActive,
+      samePriceDiffTf,
+      sameTfDiffPrice,
+    ]);
+
+    // Active newer alert wins over paused newer alert and older active alert
+    expect(duplicateIds).toEqual(["dup-old-active", "dup-new-paused"]);
+    expect(keepAlerts.map((a) => a.id)).toEqual([
+      "dup-new-active",
+      "diff-tf",
+      "diff-price",
+    ]);
   });
 });
