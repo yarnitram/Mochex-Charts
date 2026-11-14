@@ -9,6 +9,9 @@
 
 import {
   evaluateAlertCrossing,
+  isPoiPriceAlert,
+  isPoiAlertInvalidated,
+  getPoiAlertInvalidationPrice,
   PriceAlert,
   AlertLogEntry,
   ALERT_COOLDOWN_MS,
@@ -25,6 +28,7 @@ import {
 import {
   getAllActiveServerAlerts,
   updateServerAlert,
+  deleteServerAlert,
   appendServerAlertLog,
   ActiveAlertContext,
 } from "./server-alerts-store";
@@ -168,9 +172,9 @@ export class ServerAlertDaemon {
     const nowMs = Date.now();
     const nowSec = Math.floor(nowMs / 1000);
 
-    // Filter alerts for this symbol
-    for (let i = 0; i < this.activeAlertsWithContext.length; i++) {
-      const item = this.activeAlertsWithContext[i];
+    // Snapshot alerts so removing hit or invalidated alerts mid-loop never skips siblings
+    const candidateAlerts = [...this.activeAlertsWithContext];
+    for (const item of candidateAlerts) {
       if (!item.alert.active || item.alert.symbol.toUpperCase() !== upperSymbol) {
         continue;
       }
@@ -185,22 +189,16 @@ export class ServerAlertDaemon {
 
       if (triggered) {
         await this.triggerAlert(item, currentPrice, effectiveTarget, nowMs);
-      } else if (
-        item.alert.notifyOnInvalidation &&
-        typeof item.alert.invalidationPrice === "number" &&
-        item.alert.invalidationPrice > 0 &&
-        item.alert.poiMetadata
-      ) {
-        // DEC-150: Real-time POI Break & Invalidation check
-        const isBullish = item.alert.poiMetadata.direction === "BULLISH";
-        const wasBreached = isBullish
-          ? prevPrice < item.alert.invalidationPrice
-          : prevPrice > item.alert.invalidationPrice;
-        const isNowBreached = isBullish
-          ? currentPrice <= item.alert.invalidationPrice
-          : currentPrice >= item.alert.invalidationPrice;
+        continue;
+      }
 
-        if (!wasBreached && isNowBreached) {
+      if (isPoiAlertInvalidated(item.alert, currentPrice)) {
+        const invPrice = getPoiAlertInvalidationPrice(item.alert) ?? item.alert.targetPrice;
+        const wasAlreadyBreached = isPoiAlertInvalidated(item.alert, prevPrice);
+
+        if (item.alert.notifyOnInvalidation && !wasAlreadyBreached && item.alert.poiMetadata) {
+          // DEC-150: Real-time POI Break & Invalidation check
+          const isBullish = item.alert.poiMetadata.direction === "BULLISH";
           const telemetry = detectPoiInvalidationBreak(
             {
               id: item.alert.poiMetadata.poiId,
@@ -214,7 +212,7 @@ export class ServerAlertDaemon {
               meanThreshold: (item.alert.poiMetadata.zoneTop + item.alert.poiMetadata.zoneBottom) / 2,
               entryPrice: isBullish ? item.alert.poiMetadata.zoneTop : item.alert.poiMetadata.zoneBottom,
               fullRetestPrice: isBullish ? item.alert.poiMetadata.zoneBottom : item.alert.poiMetadata.zoneTop,
-              invalidationPrice: item.alert.invalidationPrice,
+              invalidationPrice: invPrice,
               status: "broken",
               isInsideZone: false,
               distanceToEntryPct: 0,
@@ -229,15 +227,61 @@ export class ServerAlertDaemon {
 
           if (telemetry) {
             item.alert.breakTelemetry = telemetry;
-            await this.triggerAlert(item, currentPrice, item.alert.invalidationPrice, nowMs);
+            await this.triggerAlert(item, currentPrice, invPrice, nowMs);
+            continue;
           }
         }
+
+        // Remove invalidated POI alarm even when notifyOnInvalidation is disabled or already breached
+        await this.removeInvalidatedPoiAlert(item, currentPrice, invPrice, nowMs);
       }
     }
   }
 
+  private removeActiveAlertInMemory(alertId: string): void {
+    this.activeAlertsWithContext = this.activeAlertsWithContext.filter(
+      (ctx) => ctx.alert.id !== alertId
+    );
+    const nextSymbols = new Set<string>();
+    for (const ctx of this.activeAlertsWithContext) {
+      if (ctx.alert?.symbol) {
+        nextSymbols.add(ctx.alert.symbol.toUpperCase());
+      }
+    }
+    this.trackedSymbols = nextSymbols;
+  }
+
+  private async removeInvalidatedPoiAlert(
+    item: ActiveAlertContext,
+    currentPrice: number,
+    invalidationPrice: number,
+    nowMs: number
+  ): Promise<void> {
+    const { alert, userId } = item;
+    alert.active = false;
+    this.removeActiveAlertInMemory(alert.id);
+    try {
+      await deleteServerAlert(alert.id, userId);
+      await appendServerAlertLog(userId, {
+        id: `log-${nowMs}-${Math.random().toString(36).slice(2, 7)}`,
+        alertId: alert.id,
+        symbol: alert.symbol,
+        triggerPrice: currentPrice,
+        targetPrice: invalidationPrice,
+        condition: alert.poiMetadata?.direction === "BULLISH" ? "crossing_down" : "crossing_up",
+        sourceType: alert.sourceType,
+        label: alert.label || `${alert.symbol} POI Alert`,
+        message: `POI invalidated beyond $${invalidationPrice} — alarm automatically removed`,
+        triggeredAt: nowMs,
+        logType: "system",
+      });
+    } catch (storeErr) {
+      console.warn("[ServerAlertDaemon] Error removing invalidated POI alert:", storeErr);
+    }
+  }
+
   /**
-   * Handles alert execution: updates store, logs event, and dispatches webhooks
+   * Handles alert execution: updates/deletes store, logs event, and dispatches webhooks
    */
   private async triggerAlert(
     item: ActiveAlertContext,
@@ -246,9 +290,11 @@ export class ServerAlertDaemon {
     nowMs: number
   ): Promise<void> {
     const { alert, userId, webhooks } = item;
+    const isPoi = isPoiPriceAlert(alert);
 
-    // Enforce cooldown for safety
+    // Enforce cooldown for safety on recurring non-POI alerts
     if (
+      !isPoi &&
       alert.frequency === "every_time" &&
       typeof alert.lastTriggeredAt === "number" &&
       nowMs - alert.lastTriggeredAt < ALERT_COOLDOWN_MS
@@ -258,7 +304,7 @@ export class ServerAlertDaemon {
 
     alert.triggeredCount = (alert.triggeredCount || 0) + 1;
     alert.lastTriggeredAt = nowMs;
-    if (alert.frequency === "only_once") {
+    if (isPoi || alert.frequency === "only_once") {
       alert.active = false;
     }
 
@@ -279,17 +325,21 @@ export class ServerAlertDaemon {
       `[ServerAlertDaemon] 🚨 ALERT TRIGGERED: ${alert.symbol} ${alert.condition} @ $${currentPrice} (Target: $${targetPrice}) for user ${userId}`
     );
 
-    // 1. Update alert in server store
+    // 1. Persist log and remove hit POI alert or update standard alert in server store
     try {
-      await updateServerAlert(
-        alert.id,
-        {
-          active: alert.active,
-          triggeredCount: alert.triggeredCount,
-          lastTriggeredAt: alert.lastTriggeredAt,
-        },
-        userId
-      );
+      if (isPoi) {
+        await deleteServerAlert(alert.id, userId);
+      } else {
+        await updateServerAlert(
+          alert.id,
+          {
+            active: alert.active,
+            triggeredCount: alert.triggeredCount,
+            lastTriggeredAt: alert.lastTriggeredAt,
+          },
+          userId
+        );
+      }
       await appendServerAlertLog(userId, log);
     } catch (storeErr) {
       console.warn("[ServerAlertDaemon] Error updating alert in store:", storeErr);
@@ -326,11 +376,9 @@ export class ServerAlertDaemon {
       console.warn("[ServerAlertDaemon] Failed saving delivery diagnostics log:", logErr);
     }
 
-    // If one-time alert, remove from active in-memory list
-    if (alert.frequency === "only_once") {
-      this.activeAlertsWithContext = this.activeAlertsWithContext.filter(
-        (ctx) => ctx.alert.id !== alert.id
-      );
+    // Remove hit POI alarms and one-time alerts from active in-memory list
+    if (isPoi || alert.frequency === "only_once") {
+      this.removeActiveAlertInMemory(alert.id);
     }
   }
 

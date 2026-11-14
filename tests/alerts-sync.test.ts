@@ -3,6 +3,8 @@ import {
   mergeClientAndServerAlerts,
   recordDeletedAlertIds,
   getDeletedAlertIds,
+  saveClientAlerts,
+  syncAlerts,
 } from "../src/lib/alerts/alerts-sync";
 import { PriceAlert } from "../src/lib/alerts/alerts-engine";
 
@@ -127,5 +129,56 @@ describe("Alerts Resilient Sync & Merge Module", () => {
     const merged = mergeClientAndServerAlerts([localAlert], [serverAlert]);
     expect(merged.length).toBe(1);
     expect(merged[0].active).toBe(true);
+  });
+
+  it("drops server-removed hit/invalidated POI alerts during syncAlerts instead of resurrecting them", async () => {
+    const hitPoiLocal: PriceAlert = {
+      id: "alert-poi-sol-hit",
+      symbol: "SOLUSDT",
+      targetPrice: 180,
+      condition: "crossing_down",
+      frequency: "only_once",
+      sourceType: "price",
+      label: "SOL OB Hit",
+      triggeredCount: 0,
+      active: true,
+      createdAt: 2000,
+    };
+    const survivingLocal: PriceAlert = {
+      id: "alert-poi-btc-live",
+      symbol: "BTCUSDT",
+      targetPrice: 90000,
+      condition: "crossing_down",
+      frequency: "only_once",
+      sourceType: "price",
+      label: "BTC Live OB",
+      triggeredCount: 0,
+      active: true,
+      createdAt: 2000,
+    };
+
+    saveClientAlerts([hitPoiLocal, survivingLocal]);
+
+    const calls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method || "GET"} ${url}`);
+      return {
+        ok: true,
+        json: async () => ({
+          alerts: [survivingLocal],
+          removedAlertIds: ["alert-poi-sol-hit"],
+        }),
+      } as any;
+    };
+
+    try {
+      const synced = await syncAlerts();
+      expect(synced.map((a) => a.id)).toEqual(["alert-poi-btc-live"]);
+      expect(getDeletedAlertIds().has("alert-poi-sol-hit")).toBe(true);
+      expect(calls).toEqual(["GET /api/alerts"]);
+    } finally {
+      (globalThis as any).fetch = originalFetch;
+    }
   });
 });

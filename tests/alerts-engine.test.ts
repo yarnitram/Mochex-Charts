@@ -353,4 +353,93 @@ describe("Custom Strategy Condition Alerts Engine (DEC-079)", () => {
     expect(batch.triggeredLogs[1].alertId).toBe("strat-alert-1");
     expect(batch.triggeredLogs[1].strategyOrderSide).toBe("long");
   });
+
+  it("removes POI alarms from evaluateAlertsBatch when hit or invalidated while keeping non-POI alerts", () => {
+    const poiHitAlert: PriceAlert = {
+      id: "alert-poi-btc-hit",
+      symbol: "BTCUSDT",
+      targetPrice: 68500,
+      condition: "crossing_up",
+      frequency: "only_once",
+      sourceType: "price",
+      label: "BTC 1h Bearish OB Hit",
+      active: true,
+      triggeredCount: 0,
+      createdAt: 1700000000000,
+      invalidationPrice: 68800,
+      poiMetadata: {
+        poiId: "poi-1",
+        category: "order_block",
+        direction: "BEARISH",
+        timeframe: "1h",
+        zoneTop: 68800,
+        zoneBottom: 68500,
+        invalidationPrice: 68800,
+      },
+    };
+    const poiInvAlert: PriceAlert = {
+      id: "alert-poi-btc-inv",
+      symbol: "BTCUSDT",
+      targetPrice: 68600,
+      condition: "crossing_down",
+      frequency: "only_once",
+      sourceType: "price",
+      label: "BTC 15m Bullish OB Inv",
+      active: true,
+      triggeredCount: 0,
+      createdAt: 1700000000000,
+      invalidationPrice: 68520,
+      notifyOnInvalidation: true,
+      poiMetadata: {
+        poiId: "poi-2",
+        category: "order_block",
+        direction: "BULLISH",
+        timeframe: "15m",
+        zoneTop: 68600,
+        zoneBottom: 68520,
+        invalidationPrice: 68520,
+      },
+    };
+    const chartOnceAlert: PriceAlert = {
+      id: "chart-once-1",
+      symbol: "BTCUSDT",
+      targetPrice: 68490,
+      condition: "crossing_up",
+      frequency: "only_once",
+      sourceType: "price",
+      label: "BTC 68490 Chart Alert",
+      active: true,
+      triggeredCount: 0,
+      createdAt: 1700000000000,
+    };
+
+    // Hit poiHitAlert (68450 -> 68550), chartOnceAlert pauses (active: false), poiInvAlert invalidated? Wait: 68550 > 68520 so invert: move to 68400 invalidates BULLISH poiInvAlert!
+    const res1 = evaluateAlertsBatch(
+      [poiHitAlert, chartOnceAlert],
+      "BTCUSDT",
+      68450,
+      68550,
+      1000,
+      1700000000000
+    );
+    expect(res1.triggeredLogs).toHaveLength(2);
+    expect(res1.removedAlertIds).toEqual(["alert-poi-btc-hit"]);
+    expect(res1.updatedAlerts).toHaveLength(1);
+    expect(res1.updatedAlerts[0].id).toBe("chart-once-1");
+    expect(res1.updatedAlerts[0].active).toBe(false);
+
+    // Move price below poiInvAlert invalidation (68530 -> 68490, doesn't cross 68600 from above because prev <= 68600)
+    const res2 = evaluateAlertsBatch(
+      [poiInvAlert],
+      "BTCUSDT",
+      68530,
+      68490,
+      1001,
+      1700000001000
+    );
+    expect(res2.removedAlertIds).toEqual(["alert-poi-btc-inv"]);
+    expect(res2.updatedAlerts).toHaveLength(0);
+    expect(res2.triggeredLogs).toHaveLength(1);
+    expect(res2.triggeredLogs[0].message).toContain("POI invalidated");
+  });
 });

@@ -376,6 +376,51 @@ export function RightSidebar({
     }
   }, []);
 
+  const applyAlertEvaluation = useCallback(
+    (
+      previousAlerts: PriceAlert[],
+      updatedAlerts: PriceAlert[],
+      triggeredLogs: AlertLogEntry[],
+      removedAlertIds: string[]
+    ) => {
+      if (triggeredLogs.length === 0 && removedAlertIds.length === 0) return;
+
+      saveAlerts(updatedAlerts);
+
+      if (removedAlertIds.length > 0) {
+        recordDeletedAlertIds(removedAlertIds);
+        fetch("/api/alerts", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: removedAlertIds }),
+        }).catch(() => {});
+      }
+
+      if (triggeredLogs.length > 0) {
+        setAlertLogs((prev) => {
+          const next = [...triggeredLogs, ...prev].slice(0, 50);
+          try {
+            localStorage.setItem("mochex:alert_logs", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        setActiveToast(triggeredLogs[0]);
+        if (isSoundEnabledRef.current) {
+          playInstitutionalAlertChime();
+        }
+
+        // Dispatch Discord & Telegram Webhooks (DEC-130) using pre-removal alert snapshot
+        triggeredLogs.forEach((log) => {
+          const matched = previousAlerts.find((a) => a.id === log.alertId);
+          if (matched && webhookConfigRef.current) {
+            sendAlertNotifications(webhookConfigRef.current, matched, log).catch(() => {});
+          }
+        });
+      }
+    },
+    [saveAlerts]
+  );
+
   // Load persisted alerts, logs, paper account, and watchlist profiles on client mount (DEC-092)
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -570,8 +615,9 @@ export function RightSidebar({
       const timeSec = detail.currentTimeSec ?? Math.floor(Date.now() / 1000);
       const nowMs = detail.nowMs ?? Date.now();
 
-      const { updatedAlerts, triggeredLogs } = evaluateAlertsBatch(
-        alertsRef.current,
+      const previousAlerts = alertsRef.current;
+      const { updatedAlerts, triggeredLogs, removedAlertIds } = evaluateAlertsBatch(
+        previousAlerts,
         sym,
         prevPrice,
         currPrice,
@@ -580,28 +626,7 @@ export function RightSidebar({
         detail
       );
 
-      if (triggeredLogs.length > 0) {
-        saveAlerts(updatedAlerts);
-        setAlertLogs((prev) => {
-          const next = [...triggeredLogs, ...prev].slice(0, 50);
-          try {
-            localStorage.setItem("mochex:alert_logs", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        setActiveToast(triggeredLogs[0]);
-        if (isSoundEnabledRef.current) {
-          playInstitutionalAlertChime();
-        }
-
-        // Dispatch Discord & Telegram Webhooks (DEC-130)
-        triggeredLogs.forEach((log) => {
-          const matched = alertsRef.current.find((a) => a.id === log.alertId);
-          if (matched && webhookConfigRef.current) {
-            sendAlertNotifications(webhookConfigRef.current, matched, log).catch(() => {});
-          }
-        });
-      }
+      applyAlertEvaluation(previousAlerts, updatedAlerts, triggeredLogs, removedAlertIds);
     };
 
     window.addEventListener("mochex:create-strategy-alert", handleCreateStrategyAlert);
@@ -610,7 +635,7 @@ export function RightSidebar({
       window.removeEventListener("mochex:create-strategy-alert", handleCreateStrategyAlert);
       window.removeEventListener("mochex:evaluate-strategy-alerts", handleEvaluateStrategyAlerts);
     };
-  }, [selectedSymbol, saveAlerts, syncAlertToServer, newAlertDiscord, newAlertTelegram]);
+  }, [selectedSymbol, saveAlerts, applyAlertEvaluation, syncAlertToServer, newAlertDiscord, newAlertTelegram]);
 
   // Listen for drawings synchronization and Object Tree open trigger (DEC-070)
   useEffect(() => {
@@ -710,8 +735,9 @@ export function RightSidebar({
       }
       if (alertsRef.current.length === 0) return;
 
-      const { updatedAlerts, triggeredLogs } = evaluateAlertsBatch(
-        alertsRef.current,
+      const previousAlerts = alertsRef.current;
+      const { updatedAlerts, triggeredLogs, removedAlertIds } = evaluateAlertsBatch(
+        previousAlerts,
         sym,
         prevPrice,
         nextPrice,
@@ -719,30 +745,9 @@ export function RightSidebar({
         nowMs
       );
 
-      if (triggeredLogs.length > 0) {
-        saveAlerts(updatedAlerts);
-        setAlertLogs((prev) => {
-          const next = [...triggeredLogs, ...prev].slice(0, 50);
-          try {
-            localStorage.setItem("mochex:alert_logs", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        setActiveToast(triggeredLogs[0]);
-        if (isSoundEnabledRef.current) {
-          playInstitutionalAlertChime();
-        }
-
-        // Dispatch Discord & Telegram Webhooks (DEC-130)
-        triggeredLogs.forEach((log) => {
-          const matched = alertsRef.current.find((a) => a.id === log.alertId);
-          if (matched && webhookConfigRef.current) {
-            sendAlertNotifications(webhookConfigRef.current, matched, log).catch(() => {});
-          }
-        });
-      }
+      applyAlertEvaluation(previousAlerts, updatedAlerts, triggeredLogs, removedAlertIds);
     },
-    [saveAlerts, savePaperAccount]
+    [applyAlertEvaluation, savePaperAccount]
   );
 
   // Listen for Bar Replay Intrabar OHLC Simulation ticks (DEC-073)

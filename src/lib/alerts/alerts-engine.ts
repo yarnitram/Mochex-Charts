@@ -114,6 +114,49 @@ export interface AlertLogEntry {
 export const ALERT_COOLDOWN_MS = 60_000;
 
 /**
+ * Identifies whether a PriceAlert is a Radar/POI alarm (as opposed to a standard chart alert).
+ */
+export function isPoiPriceAlert(alert: PriceAlert): boolean {
+  return Boolean(
+    alert.poiMetadata ||
+      alert.id.startsWith("alert-poi-") ||
+      alert.id.startsWith("bulk-poi-")
+  );
+}
+
+/**
+ * Resolves the effective invalidation boundary price for a POI alarm.
+ */
+export function getPoiAlertInvalidationPrice(alert: PriceAlert): number | null {
+  if (typeof alert.invalidationPrice === "number" && alert.invalidationPrice > 0) {
+    return alert.invalidationPrice;
+  }
+  const meta = alert.poiMetadata;
+  if (!meta) return null;
+  if (typeof meta.invalidationPrice === "number" && meta.invalidationPrice > 0) {
+    return meta.invalidationPrice;
+  }
+  const fallback = meta.direction === "BULLISH" ? meta.zoneBottom : meta.zoneTop;
+  return typeof fallback === "number" && fallback > 0 ? fallback : null;
+}
+
+/**
+ * Returns true when `currentPrice` has breached a POI alarm's invalidation boundary.
+ */
+export function isPoiAlertInvalidated(alert: PriceAlert, currentPrice: number): boolean {
+  if (!isPoiPriceAlert(alert) || currentPrice <= 0 || !alert.poiMetadata) {
+    return false;
+  }
+  const invPrice = getPoiAlertInvalidationPrice(alert);
+  if (invPrice === null || invPrice <= 0) {
+    return false;
+  }
+  return alert.poiMetadata.direction === "BULLISH"
+    ? currentPrice < invPrice
+    : currentPrice > invPrice;
+}
+
+/**
  * Computes the effective target price of an alert at `currentTimeSec`.
  * For dynamic trendline alerts with distinct start/end times, linearly interpolates the ray price.
  */
@@ -380,9 +423,10 @@ export function evaluateAlertsBatch(
   currentTimeSec?: number,
   nowMs: number = Date.now(),
   strategyContext?: Partial<StrategyAlertEvaluationContext>
-): { updatedAlerts: PriceAlert[]; triggeredLogs: AlertLogEntry[] } {
+): { updatedAlerts: PriceAlert[]; triggeredLogs: AlertLogEntry[]; removedAlertIds: string[] } {
   let changed = false;
   const triggeredLogs: AlertLogEntry[] = [];
+  const removedAlertIds: string[] = [];
 
   const fullCtx: StrategyAlertEvaluationContext = {
     symbol,
@@ -393,8 +437,13 @@ export function evaluateAlertsBatch(
     ...strategyContext,
   };
 
-  const updatedAlerts = alerts.map((alert) => {
-    if (alert.symbol !== symbol || !alert.active) return alert;
+  const updatedAlerts: PriceAlert[] = [];
+
+  for (const alert of alerts) {
+    if (alert.symbol !== symbol || !alert.active) {
+      updatedAlerts.push(alert);
+      continue;
+    }
 
     let triggered = false;
     let effectiveTarget = alert.targetPrice;
@@ -422,35 +471,67 @@ export function evaluateAlertsBatch(
       effectiveTarget = res.effectiveTarget;
     }
 
-    if (!triggered) return alert;
+    if (triggered) {
+      changed = true;
+      triggeredLogs.push({
+        id: `log-${nowMs}-${alert.id}-${alert.triggeredCount + 1}`,
+        alertId: alert.id,
+        symbol: alert.symbol,
+        triggerPrice: currentPrice,
+        targetPrice: effectiveTarget,
+        condition: alert.condition,
+        sourceType: alert.sourceType,
+        strategyOrderSide: orderSide,
+        label: alert.label,
+        message: customMessage,
+        triggeredAt: nowMs,
+      });
 
-    changed = true;
-    triggeredLogs.push({
-      id: `log-${nowMs}-${alert.id}-${alert.triggeredCount + 1}`,
-      alertId: alert.id,
-      symbol: alert.symbol,
-      triggerPrice: currentPrice,
-      targetPrice: effectiveTarget,
-      condition: alert.condition,
-      sourceType: alert.sourceType,
-      strategyOrderSide: orderSide,
-      label: alert.label,
-      message: customMessage,
-      triggeredAt: nowMs,
-    });
+      if (isPoiPriceAlert(alert)) {
+        // POI alarms are automatically removed once hit
+        removedAlertIds.push(alert.id);
+        continue;
+      }
 
-    return {
-      ...alert,
-      active: alert.frequency === "only_once" ? false : true,
-      triggeredCount: alert.triggeredCount + 1,
-      lastTriggeredAt: nowMs,
-      lastTriggeredBarTime: fullCtx.currentBar ? fullCtx.currentBar.time : alert.lastTriggeredBarTime,
-    };
-  });
+      updatedAlerts.push({
+        ...alert,
+        active: alert.frequency === "only_once" ? false : true,
+        triggeredCount: alert.triggeredCount + 1,
+        lastTriggeredAt: nowMs,
+        lastTriggeredBarTime: fullCtx.currentBar ? fullCtx.currentBar.time : alert.lastTriggeredBarTime,
+      });
+      continue;
+    }
+
+    if (isPoiAlertInvalidated(alert, currentPrice)) {
+      // POI alarms are automatically removed once invalidated
+      changed = true;
+      removedAlertIds.push(alert.id);
+      if (alert.notifyOnInvalidation) {
+        const invPrice = getPoiAlertInvalidationPrice(alert) ?? alert.targetPrice;
+        triggeredLogs.push({
+          id: `log-${nowMs}-${alert.id}-inv`,
+          alertId: alert.id,
+          symbol: alert.symbol,
+          triggerPrice: currentPrice,
+          targetPrice: invPrice,
+          condition: alert.poiMetadata?.direction === "BULLISH" ? "crossing_down" : "crossing_up",
+          sourceType: alert.sourceType,
+          label: alert.label,
+          message: `POI invalidated beyond ${invPrice} — alarm automatically removed`,
+          triggeredAt: nowMs,
+        });
+      }
+      continue;
+    }
+
+    updatedAlerts.push(alert);
+  }
 
   return {
     updatedAlerts: changed ? updatedAlerts : alerts,
     triggeredLogs,
+    removedAlertIds,
   };
 }
 
