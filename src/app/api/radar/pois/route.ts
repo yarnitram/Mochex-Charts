@@ -18,6 +18,7 @@ import {
   ExchangeFilter,
   fetchExchangeKlines,
   fetchExchangeTickers,
+  mapSymbolForPerpExchange,
   ExchangeTicker,
 } from "@/lib/screener/multi-exchange-client";
 
@@ -116,8 +117,9 @@ export async function POST(request: NextRequest) {
         let primaryTicker: ExchangeTicker | undefined;
         for (const ex of targetExchanges) {
           const map = tickerMaps[ex];
-          if (map && map.has(upperSym)) {
-            primaryTicker = map.get(upperSym);
+          const mappedSym = mapSymbolForPerpExchange(ex, upperSym);
+          if (map && (map.has(upperSym) || map.has(mappedSym))) {
+            primaryTicker = map.get(upperSym) || map.get(mappedSym);
             break;
           }
         }

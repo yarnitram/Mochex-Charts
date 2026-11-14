@@ -13,6 +13,7 @@ import {
   AlertLogEntry,
   ALERT_COOLDOWN_MS,
 } from "./alerts-engine";
+import { fromMexcContractSymbol } from "../screener/multi-exchange-client";
 import {
   dispatchDirectWebhooks,
   AlertWebhookConfig,
@@ -556,6 +557,36 @@ export class ServerAlertDaemon {
             if (Number.isFinite(p) && p > 0) {
               priceMap.set(row.symbol.toUpperCase(), p);
             }
+          }
+        }
+
+        // Fill Futures-only contract prices if any armed symbol isn't listed on Spot
+        const missingSymbols = symbols.filter((s) => !priceMap.has(s.toUpperCase()));
+        if (missingSymbols.length > 0) {
+          try {
+            const contractCtrl = new AbortController();
+            const contractTid = setTimeout(() => contractCtrl.abort(), 6000);
+            const contractRes = await fetch("https://contract.mexc.com/api/v1/contract/ticker", {
+              signal: contractCtrl.signal,
+              headers: { Accept: "application/json" },
+            });
+            clearTimeout(contractTid);
+            if (contractRes.ok) {
+              const contractJson = await contractRes.json();
+              const contractRows = Array.isArray(contractJson?.data) ? contractJson.data : [];
+              for (const row of contractRows) {
+                const rawSym = String(row?.symbol || "");
+                const p = Number(row?.lastPrice ?? row?.fairPrice ?? row?.indexPrice);
+                if (rawSym && Number.isFinite(p) && p > 0) {
+                  const normalized = fromMexcContractSymbol(rawSym);
+                  if (!priceMap.has(normalized)) {
+                    priceMap.set(normalized, p);
+                  }
+                }
+              }
+            }
+          } catch {
+            // Non-fatal fallback
           }
         }
 

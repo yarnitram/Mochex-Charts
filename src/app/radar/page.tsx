@@ -806,11 +806,11 @@ export default function RadarPage() {
 
   const currentUniverseLabel =
     activeTab === "majors"
-      ? "Majors & Volume"
+      ? "Majors & Volume (Futures)"
       : activeTab === "memes"
-      ? "Top 150 Meme Coins"
+      ? "Top 150 Meme Futures"
       : activeTab === "ai"
-      ? "Top 150 AI Coins"
+      ? "Top 150 AI Futures"
       : "Custom Watchlist";
 
   // Candidate coins for bulk alarm setup across current universe (DEC-158)
@@ -853,11 +853,11 @@ export default function RadarPage() {
   const exportMeta: RadarExportMeta = useMemo(() => {
     const universeName =
       activeTab === "majors"
-        ? "Majors & Volume"
+        ? "Majors & Volume (Futures)"
         : activeTab === "memes"
-        ? "Top 150 Meme Coins"
+        ? "Top 150 Meme Futures"
         : activeTab === "ai"
-        ? "Top 150 AI Coins"
+        ? "Top 150 AI Futures"
         : "Custom Watchlist";
     const tfMap: Record<string, string> = {
       "15m": "15m",
@@ -1438,7 +1438,7 @@ export default function RadarPage() {
                 : "bg-[#121824] text-[#848e9c] hover:text-white border border-[#233144]"
             }`}
           >
-            Majors & Volume ({MAJORS_UNIVERSE.length})
+            Majors & Volume Futures ({MAJORS_UNIVERSE.length})
           </button>
 
           <button
@@ -1449,7 +1449,7 @@ export default function RadarPage() {
                 : "bg-[#121824] text-[#848e9c] hover:text-white border border-[#233144]"
             }`}
           >
-            🔥 Top 150 Meme Coins ({TOP_150_MEMES.length})
+            🔥 Top 150 Meme Futures ({TOP_150_MEMES.length})
           </button>
 
           <button
@@ -1460,7 +1460,7 @@ export default function RadarPage() {
                 : "bg-[#121824] text-[#848e9c] hover:text-white border border-[#233144]"
             }`}
           >
-            ⚡ Top 150 AI Coins ({TOP_150_AI.length})
+            ⚡ Top 150 AI Futures ({TOP_150_AI.length})
           </button>
 
           <button
@@ -1517,8 +1517,8 @@ export default function RadarPage() {
             {/* Exchange Source Selector (DEC-143) */}
             <div className="flex items-center rounded-lg bg-[#121824] border border-[#233144] p-0.5">
               {[
-                { id: "all", short: "All Feeds", title: "All Exchanges Aggregated" },
-                { id: "mexc", short: "MEXC", title: "MEXC Spot" },
+                { id: "all", short: "All Feeds", title: "All Futures Exchanges Aggregated" },
+                { id: "mexc", short: "MEXC", title: "MEXC Futures (USDT-M)" },
                 { id: "binance", short: "Binance", title: "Binance Futures (USDT-M)" },
                 { id: "bybit", short: "Bybit", title: "Bybit Linear Perpetuals" },
               ].map((ex) => (

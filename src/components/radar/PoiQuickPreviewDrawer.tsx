@@ -304,7 +304,7 @@ export function PoiQuickPreviewDrawer({
 
               </div>
               <span className="text-[10px] text-[#848e9c] truncate max-w-[200px]">
-                {coinName || "MEXC Spot"}
+                {coinName || "MEXC Perps"}
               </span>
             </div>
           </div>
