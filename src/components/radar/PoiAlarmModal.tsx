@@ -23,6 +23,7 @@ import {
   getRadarPoiAlarmTargetPrice,
   formatPoiPrice,
   getPoiZoneRange,
+  isUnmitigatedValidatedOb,
 } from "@/lib/indicators/radar-poi-engine";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
@@ -81,6 +82,17 @@ export function PoiAlarmModal({
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
     poi.timeframe || "4H",
   ]);
+
+  // Touch Level choice: "entry" | "fifty_pct" | "full"
+  const isPoiUnmitigated = (p: RadarPoiItem) =>
+    p.category !== "order_block" || isUnmitigatedValidatedOb(p);
+  const hasEligibleSelectedPoi = selectedTimeframes.some((tf) => {
+    const tfPois = availablePoisByTimeframe[tf] || [];
+    return Boolean(
+      tfPois.find((p) => p.category === poi.category && p.type === poi.type && isPoiUnmitigated(p)) ||
+        (tf === poi.timeframe && isPoiUnmitigated(poi) ? poi : null)
+    );
+  });
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
   const [touchLevel, setTouchLevel] = useState<OrderBlockTouchLevel>("fifty_pct");
@@ -222,8 +234,8 @@ export function PoiAlarmModal({
         // Find matching POI for this timeframe, or fallback to the current poi
         const tfPois = availablePoisByTimeframe[tf] || [];
         const targetPoi =
-          tfPois.find((p) => p.category === poi.category && p.type === poi.type) ||
-          (tf === poi.timeframe ? poi : null);
+          tfPois.find((p) => p.category === poi.category && p.type === poi.type && isPoiUnmitigated(p)) ||
+          (tf === poi.timeframe && isPoiUnmitigated(poi) ? poi : null);
 
         if (!targetPoi) continue;
 
@@ -273,7 +285,11 @@ export function PoiAlarmModal({
       }
 
       if (alertsToCreate.length === 0) {
-        setStatusMessage("No matching POI found for selected timeframes");
+        setStatusMessage(
+          poi.category === "order_block"
+            ? "Validated OB must be unmitigated (0% hit) to create an alarm"
+            : "No matching POI found for selected timeframes"
+        );
         return;
       }
 
@@ -360,6 +376,17 @@ export function PoiAlarmModal({
                   : "Order Block Zone"}
               </span>
               <div className="flex items-center gap-1">
+                {poi.category === "order_block" && (
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border ${
+                      isUnmitigatedValidatedOb(poi)
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                        : "bg-rose-500/15 text-rose-300 border-rose-500/40"
+                    }`}
+                  >
+                    {isUnmitigatedValidatedOb(poi) ? "0% HIT · FRESH" : "MITIGATED (>0% HIT)"}
+                  </span>
+                )}
                 {poi.isPlus && (
                   <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 flex items-center gap-0.5">
                     <Star size={9} className="fill-yellow-400" />
@@ -804,6 +831,12 @@ export function PoiAlarmModal({
             )}
           </div>
 
+          {poi.category === "order_block" && !hasEligibleSelectedPoi && (
+            <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/35 text-rose-300 text-[11px] leading-relaxed">
+              This Validated Order Block has already been touched/mitigated (&gt;0% hit). Only completely unmitigated (0% hit) Order Blocks can be armed for new alarms.
+            </div>
+          )}
+
           {statusMessage && (
             <div className="p-2 rounded bg-[#2962ff]/15 border border-[#2962ff]/30 text-white text-xs text-center">
               {statusMessage}
@@ -828,7 +861,7 @@ export function PoiAlarmModal({
             <button
               type="button"
               onClick={handleCreateAlarms}
-              disabled={saving}
+              disabled={saving || !hasEligibleSelectedPoi}
               className="px-4 py-1.5 rounded bg-[#2962ff] hover:bg-[#1e50db] text-white font-bold flex items-center gap-1.5 transition-all shadow-md shadow-[#2962ff]/30 cursor-pointer disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}

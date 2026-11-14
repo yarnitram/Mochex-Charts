@@ -508,5 +508,30 @@ describe("DEC-158: Radar Alerts Page & Separation Suite", () => {
     expect(filterPoisForBulkAlarm(mockPois, "sandwich_zone").map((p) => p.id)).toEqual(["sw-1"]);
     expect(filterPoisForBulkAlarm(mockPois, "all").map((p) => p.id)).toEqual(["ob-1", "sw-1"]);
   });
+
+  it("excludes mitigated or touched (>0% hit) Validated OBs by default when filtering bulk alarms", async () => {
+    const { filterPoisForBulkAlarm, isUnmitigatedValidatedOb } = await import(
+      "../src/lib/indicators/radar-poi-engine"
+    );
+    const mockPois: any[] = [
+      { id: "ob-fresh", category: "order_block", status: "fresh", touched: false, timeframe: "1H" },
+      { id: "ob-mitigated", category: "order_block", status: "mitigated", touched: true, timeframe: "1H" },
+      { id: "ob-testing", category: "order_block", status: "testing", touched: true, timeframe: "1H" },
+      { id: "ob-shallow-hit", category: "order_block", status: "fresh", touched: true, timeframe: "1H" },
+      { id: "sw-1", category: "sandwich_zone", status: "fresh", timeframe: "1H" },
+    ];
+
+    expect(isUnmitigatedValidatedOb(mockPois[0])).toBe(true);
+    expect(isUnmitigatedValidatedOb(mockPois[1])).toBe(false);
+    expect(isUnmitigatedValidatedOb(mockPois[2])).toBe(false);
+    expect(isUnmitigatedValidatedOb(mockPois[3])).toBe(false);
+
+    expect(filterPoisForBulkAlarm(mockPois, "order_block").map((p) => p.id)).toEqual(["ob-fresh"]);
+    expect(filterPoisForBulkAlarm(mockPois, "all").map((p) => p.id)).toEqual(["ob-fresh", "sw-1"]);
+    // Opt-out explicitly allows prior hit OBs if user disables the toggle
+    expect(
+      filterPoisForBulkAlarm(mockPois, "order_block", { requireUnmitigatedOb: false }).map((p) => p.id)
+    ).toEqual(["ob-fresh", "ob-mitigated", "ob-testing", "ob-shallow-hit"]);
+  });
 });
 
