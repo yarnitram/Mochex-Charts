@@ -3,6 +3,8 @@ import {
   loadClientWebhooks,
   saveClientWebhooks,
   mergeClientAndServerWebhooks,
+  areWebhookConfigsEqual,
+  syncWebhooks,
   WEBHOOKS_STORAGE_KEY,
 } from "../src/lib/alerts/webhooks-sync";
 import { AlertWebhookConfig } from "../src/lib/alerts/webhook-dispatcher";
@@ -131,5 +133,35 @@ describe("Resilient Two-Way Webhook Synchronization (DEC-165)", () => {
     expect(merged.tradingWebhook).toBeDefined();
     expect(merged.tradingWebhook?.platform).toBe("3commas");
     expect(merged.tradingWebhook?.botId).toBe("bot-123");
+  });
+
+  it("suppresses redundant mochex:webhooks-updated events during syncWebhooks when config is unchanged", async () => {
+    const config: AlertWebhookConfig = {
+      discordWebhookUrl: "https://discord.com/api/webhooks/123/abc",
+      discordEnabled: true,
+      telegramBotToken: "9176321396:AAF-test-token",
+      telegramChatId: "555666777",
+      telegramEnabled: true,
+    };
+
+    saveClientWebhooks(config);
+    const dispatchMock = window.dispatchEvent as ReturnType<typeof vi.fn>;
+    dispatchMock.mockClear();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ config }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+
+    const synced = await syncWebhooks();
+    expect(areWebhookConfigsEqual(synced, config)).toBe(true);
+    expect(dispatchMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });
