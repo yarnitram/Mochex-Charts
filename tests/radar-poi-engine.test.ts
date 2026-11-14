@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computeRadarPois, RadarPoiItem } from "../src/lib/indicators/radar-poi-engine";
+import {
+  computeRadarPois,
+  isUnmitigatedValidatedOb,
+  RadarPoiItem,
+} from "../src/lib/indicators/radar-poi-engine";
 import { CandlestickBar } from "../src/lib/mexc/types";
 
 describe("Radar POI Engine (Order Blocks & Sandwich Zones) (DEC-137)", () => {
@@ -124,5 +128,38 @@ describe("Radar POI Engine (Order Blocks & Sandwich Zones) (DEC-137)", () => {
     expect(fvgPoi?.currentPrice).toBe(115);
     // Distance to entry (110): (115 - 110) / 115 * 100 = 4.348%
     expect(fvgPoi?.distanceToEntryPct).toBeCloseTo(4.35, 1);
+  });
+
+  it("marks any shallow >0% hit on a Validated OB as touched/mitigated and enforces 0% hit eligibility", () => {
+    // Bullish OB at idx 0: Red candle [97..101]
+    // C1 (idx 1): Green displacement 98..106
+    // C2 (idx 2): Green confirm 106..112 (C2.low=104 > C0.high=101)
+    // C3 (idx 3): Shallow wick down to 100.5 (hits OB top 101 without reaching 50% MT 99), then bounces above 104
+    const bars: CandlestickBar[] = [
+      { time: baseTime, open: 100, high: 101, low: 97, close: 98, volume: 100 },
+      { time: baseTime + barInterval, open: 98, high: 106, low: 98, close: 106, volume: 300 },
+      { time: baseTime + barInterval * 2, open: 106, high: 112, low: 104, close: 111, volume: 300 },
+      { time: baseTime + barInterval * 3, open: 111, high: 111, low: 100.5, close: 108, volume: 250 },
+    ];
+
+    const pois = computeRadarPois(bars, "BTCUSDT", "1H");
+    const obPoi = pois.find((p) => p.category === "order_block");
+    expect(obPoi).toBeDefined();
+    expect(obPoi?.touched).toBe(true);
+    expect(obPoi?.status).toBe("mitigated");
+    expect(isUnmitigatedValidatedOb(obPoi!)).toBe(false);
+
+    // Fresh untouched (0% hit) bar slice before C3
+    // Fresh untouched (0% hit) 4-bar slice where bar 3 stays strictly above OB [97..101]
+    const freshBars: CandlestickBar[] = [
+      ...bars.slice(0, 3),
+      { time: baseTime + barInterval * 3, open: 111, high: 115, low: 105, close: 114, volume: 250 },
+    ];
+    const freshPois = computeRadarPois(freshBars, "BTCUSDT", "1H");
+    const freshOb = freshPois.find((p) => p.category === "order_block");
+    expect(freshOb).toBeDefined();
+    expect(freshOb?.touched).toBe(false);
+    expect(freshOb?.status).toBe("fresh");
+    expect(isUnmitigatedValidatedOb(freshOb!)).toBe(true);
   });
 });

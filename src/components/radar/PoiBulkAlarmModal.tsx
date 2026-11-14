@@ -104,9 +104,8 @@ export function PoiBulkAlarmModal({
   onSuccess,
 }: PoiBulkAlarmModalProps) {
   // Category filter for the bulk alarm
-  const [targetCategory, setTargetCategory] = useState<
-    BulkAlarmPoiCategory
-  >("order_block");
+  const [targetCategory, setTargetCategory] = useState<BulkAlarmPoiCategory>("order_block");
+  const [requireUnmitigatedOb, setRequireUnmitigatedOb] = useState(true);
 
   // Selected timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(() => {
@@ -215,7 +214,7 @@ export function PoiBulkAlarmModal({
         }
 
         // Filter by target category
-        const candidates = filterPoisForBulkAlarm(tfPois, targetCategory);
+        const candidates = filterPoisForBulkAlarm(tfPois, targetCategory, { requireUnmitigatedOb });
 
         // Pick highest priority candidate for this timeframe
         if (candidates.length > 0) {
@@ -288,6 +287,7 @@ export function PoiBulkAlarmModal({
     coins,
     selectedTimeframes,
     targetCategory,
+    requireUnmitigatedOb,
     touchLevel,
     deselectedSymbols,
     notifyDiscord,
@@ -480,6 +480,25 @@ export function PoiBulkAlarmModal({
               })}
             </div>
           </div>
+
+          {(targetCategory === "order_block" || targetCategory === "all") && (
+            <label className="flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-950/25 border border-emerald-500/30 cursor-pointer">
+              <div>
+                <div className="text-[11px] font-bold text-emerald-300">
+                  Unmitigated Validated OBs Only (0% Hit)
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Exclude Order Blocks that were already touched or mitigated when creating alarms
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={requireUnmitigatedOb}
+                onChange={(e) => setRequireUnmitigatedOb(e.target.checked)}
+                className="accent-emerald-500 h-4 w-4 cursor-pointer"
+              />
+            </label>
+          )}
 
           {/* Timeframes Multi-Select */}
           <div>

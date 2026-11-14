@@ -35,15 +35,31 @@ import { PoiCorrelationRiskInfo, evaluatePoiCorrelationRisk, estimateBtcCorrelat
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
 export type BulkAlarmPoiCategory = "order_block" | "sandwich_zone" | "all";
 
+export function isUnmitigatedValidatedOb(
+  poi: Pick<RadarPoiItem, "category" | "status" | "touched">
+): boolean {
+  if (poi.category !== "order_block") return true;
+  if (poi.touched) return false;
+  return poi.status === undefined || poi.status === "fresh";
+}
+
 /**
- * Excludes standalone FVGs from POI bulk alarms so only Validated Order Blocks
- * and Sandwich Zones ++ remain eligible.
+ * Excludes standalone FVGs from POI bulk alarms and requires Validated OBs
+ * to be completely unmitigated (0% hit) by default.
  */
 export function filterPoisForBulkAlarm(
   pois: RadarPoiItem[],
-  targetCategory: BulkAlarmPoiCategory
+  targetCategory: BulkAlarmPoiCategory,
+  options: { requireUnmitigatedOb?: boolean } = {}
 ): RadarPoiItem[] {
-  const eligible = pois.filter((p) => p.category !== "fvg");
+  const { requireUnmitigatedOb = true } = options;
+  const eligible = pois.filter((p) => {
+    if (p.category === "fvg") return false;
+    if (requireUnmitigatedOb && p.category === "order_block" && !isUnmitigatedValidatedOb(p)) {
+      return false;
+    }
+    return true;
+  });
   if (targetCategory === "order_block") {
     return eligible.filter((p) => p.category === "order_block");
   }
@@ -74,6 +90,7 @@ export interface RadarPoiItem {
   fvgGapPct?: number;
   // Status and proximity
   status: PoiStatus;
+  touched?: boolean;
   isInsideZone: boolean;
   distanceToEntryPct: number;
   distanceToMtPct: number;
@@ -208,7 +225,7 @@ export function computeRadarPois(
       ? "sweep"
       : ob.isInsideZone
       ? "testing"
-      : ob.status === "mitigated"
+      : ob.touched || ob.status === "mitigated"
       ? "mitigated"
       : "fresh";
 
@@ -229,6 +246,7 @@ export function computeRadarPois(
       invalidationPrice: ob.fullRetestPrice,
       fvgGapPct: ob.fvgGapPct,
       status,
+      touched: Boolean(ob.touched),
       isInsideZone: ob.isInsideZone,
       distanceToEntryPct: ob.distanceToEntryPct,
       distanceToMtPct: ob.distanceToMtPct,
