@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import {
   AlertDeliveryResults,
   AlertLogEntry,
@@ -7,32 +5,20 @@ import {
   PriceAlert,
 } from "./alerts-engine";
 import { AlertWebhookConfig } from "./webhook-dispatcher";
+import { readJsonData, writeJsonData } from "../storage/data-dir";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const ALERTS_FILE = path.join(DATA_DIR, "alerts.json");
-const WEBHOOKS_FILE = path.join(DATA_DIR, "webhooks.json");
-const LOGS_FILE = path.join(DATA_DIR, "alert-logs.json");
+const ALERTS_FILE = "alerts.json";
+const WEBHOOKS_FILE = "webhooks.json";
+const LOGS_FILE = "alert-logs.json";
 const MAX_LOGS_PER_USER = 150;
 
-function readJsonRecord<T>(filePath: string): Record<string, T> {
-  try {
-    if (!fs.existsSync(filePath)) return {};
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, T>;
-    }
-  } catch {
-    // Corrupted or mid-write JSON file falls back safely
-  }
-  return {};
+function readJsonRecord<T>(filename: string): Record<string, T> {
+  const parsed = readJsonData<Record<string, T>>(filename, {}, "server-alert-diagnostics");
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 }
 
-function writeJsonRecord<T>(filePath: string, data: Record<string, T>): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+function writeJsonRecord<T>(filename: string, data: Record<string, T>): void {
+  writeJsonData(filename, data, "server-alert-diagnostics");
 }
 
 /**

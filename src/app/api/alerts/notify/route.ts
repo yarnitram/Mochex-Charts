@@ -18,11 +18,19 @@ import {
 export const dynamic = "force-dynamic";
 
 interface NotifyRequestBody {
-  action?: "test" | "dispatch";
+  action?: "test" | "dispatch" | "detect_telegram_chat";
   channel?: "discord" | "telegram" | "trading_webhook";
   config?: AlertWebhookConfig;
   alert?: PriceAlert;
   log?: AlertLogEntry;
+}
+
+function safeUpsertServerAlertLog(userId: string, entry: AlertLogEntry): void {
+  try {
+    upsertServerAlertLog(userId, entry);
+  } catch (err) {
+    console.warn("[api/alerts/notify] Non-fatal alert log write failure:", err);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -35,6 +43,65 @@ export async function POST(req: NextRequest) {
         { success: false, error: "Missing webhook configuration" },
         { status: 400 }
       );
+    }
+
+    // 0. DETECT TELEGRAM CHAT ID FROM BOT UPDATES
+    if (action === "detect_telegram_chat") {
+      if (!isValidTelegramBotToken(config.telegramBotToken)) {
+        return NextResponse.json(
+          { success: false, error: "Enter a valid Telegram Bot Token first (123456789:ABC...)." },
+          { status: 400 }
+        );
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
+      try {
+        const res = await fetch(
+          `https://api.telegram.org/bot${config.telegramBotToken!.trim()}/getUpdates?limit=25`,
+          { method: "GET", signal: controller.signal }
+        );
+        clearTimeout(timeoutId);
+        const data = await res.json();
+        if (!res.ok || !data?.ok) {
+          return NextResponse.json(
+            { success: false, error: `Telegram error: ${data?.description || res.statusText}` },
+            { status: res.status || 400 }
+          );
+        }
+
+        const updates = Array.isArray(data.result) ? [...data.result].reverse() : [];
+        for (const upd of updates) {
+          const msg = upd?.message || upd?.edited_message || upd?.channel_post || upd?.my_chat_member;
+          const chat = msg?.chat;
+          if (chat?.id !== undefined && !msg?.from?.is_bot) {
+            const label =
+              chat.username
+                ? `@${chat.username}`
+                : chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(" ") || String(chat.id);
+            return NextResponse.json({
+              success: true,
+              chatId: String(chat.id),
+              displayName: label,
+            });
+          }
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: "No recent message found. Open your bot in Telegram, press Start (or send 'hi'), then click Detect Chat ID again.",
+          },
+          { status: 404 }
+        );
+      } catch (fetchErr: unknown) {
+        clearTimeout(timeoutId);
+        const err = fetchErr as Error;
+        return NextResponse.json(
+          { success: false, error: `Failed to reach Telegram: ${err.message}` },
+          { status: 502 }
+        );
+      }
     }
 
     // 1. TEST ACTION
@@ -80,7 +147,7 @@ export async function POST(req: NextRequest) {
           if (!res.ok) {
             const errText = await res.text();
             const errMessage = `Discord responded with HTTP ${res.status}: ${errText}`;
-            upsertServerAlertLog(user.userId, {
+            safeUpsertServerAlertLog(user.userId, {
               id: `log-test-discord-${Date.now()}`,
               alertId: "test-discord",
               symbol: "DISCORD_PING",
@@ -102,7 +169,7 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          upsertServerAlertLog(user.userId, {
+          safeUpsertServerAlertLog(user.userId, {
             id: `log-test-discord-${Date.now()}`,
             alertId: "test-discord",
             symbol: "DISCORD_PING",
@@ -127,7 +194,7 @@ export async function POST(req: NextRequest) {
           clearTimeout(timeoutId);
           const err = fetchErr as Error;
           const errMessage = `Failed to reach Discord: ${err.message}`;
-          upsertServerAlertLog(user.userId, {
+          safeUpsertServerAlertLog(user.userId, {
             id: `log-test-discord-${Date.now()}`,
             alertId: "test-discord",
             symbol: "DISCORD_PING",
@@ -164,6 +231,17 @@ export async function POST(req: NextRequest) {
           );
         }
 
+        const botIdPrefix = config.telegramBotToken?.split(":")[0]?.trim();
+        if (botIdPrefix && config.telegramChatId?.trim() === botIdPrefix) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `That Chat ID (${botIdPrefix}) is your Bot's own ID, not your personal Chat ID. Bots cannot send messages to themselves. Send /start to your bot in Telegram and click 'Detect Chat ID' (or message @userinfobot to get YOUR numeric Chat ID).`,
+            },
+            { status: 400 }
+          );
+        }
+
         const telegramText =
           `✅ <b>Mochex Telegram Connected</b>\n\n` +
           `Your Telegram alert integration is active and verified! Real-time price crossings, drawings, and strategy alerts will be delivered here.\n\n` +
@@ -174,6 +252,7 @@ export async function POST(req: NextRequest) {
         const tgUrl = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const user = await getRequestUser(req);
 
         try {
           const res = await fetch(tgUrl, {
@@ -190,11 +269,45 @@ export async function POST(req: NextRequest) {
 
           const data = await res.json();
           if (!res.ok || !data.ok) {
+            const errMessage = `Telegram error: ${data.description || res.statusText}`;
+            safeUpsertServerAlertLog(user.userId, {
+              id: `log-test-telegram-${Date.now()}`,
+              alertId: "test-telegram",
+              symbol: "TELEGRAM_PING",
+              triggerPrice: 0,
+              targetPrice: 0,
+              condition: "crossing",
+              label: "Manual Telegram Test Alert",
+              message: errMessage,
+              triggeredAt: Date.now(),
+              logType: "test",
+              deliveryResults: {
+                telegram: { ok: false, status: res.status, error: errMessage },
+                attemptedAt: Date.now(),
+              },
+            });
             return NextResponse.json(
-              { success: false, error: `Telegram error: ${data.description || res.statusText}` },
+              { success: false, error: errMessage },
               { status: res.status }
             );
           }
+
+          safeUpsertServerAlertLog(user.userId, {
+            id: `log-test-telegram-${Date.now()}`,
+            alertId: "test-telegram",
+            symbol: "TELEGRAM_PING",
+            triggerPrice: 0,
+            targetPrice: 0,
+            condition: "crossing",
+            label: "Manual Telegram Test Alert",
+            message: "Telegram test alert sent successfully",
+            triggeredAt: Date.now(),
+            logType: "test",
+            deliveryResults: {
+              telegram: { ok: true, status: res.status },
+              attemptedAt: Date.now(),
+            },
+          });
 
           return NextResponse.json({
             success: true,
@@ -305,7 +418,7 @@ export async function POST(req: NextRequest) {
 
     const user = await getRequestUser(req);
     const results = await dispatchDirectWebhooks(config, alert, log);
-    upsertServerAlertLog(user.userId, {
+    safeUpsertServerAlertLog(user.userId, {
       ...log,
       logType: log.logType || "trigger",
       deliveryResults: buildAlertDeliveryResults(

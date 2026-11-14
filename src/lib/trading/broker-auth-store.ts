@@ -3,54 +3,22 @@
  * Atomic file persistence in .data/broker-credentials.json with user isolation.
  */
 
-import fs from "fs";
-import path from "path";
 import {
   BrokerCredentials,
   MaskedBrokerCredentials,
   SupportedBrokerExchange,
   maskApiKey,
 } from "./multi-broker-client";
+import { readJsonData, writeJsonData } from "../storage/data-dir";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const BROKER_FILE = path.join(DATA_DIR, "broker-credentials.json");
+const BROKER_FILE = "broker-credentials.json";
 
-function ensureDirectory(): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  } catch (err) {
-    console.warn("[broker-auth-store] Could not create .data directory:", err);
-  }
+function readJsonFile<T>(filename: string, fallback: T): T {
+  return readJsonData(filename, fallback, "broker-auth-store");
 }
 
-function readJsonFile<T>(filePath: string, fallback: T): T {
-  ensureDirectory();
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(raw);
-    }
-  } catch (err) {
-    console.warn(`[broker-auth-store] Error reading ${filePath}:`, err);
-  }
-  return fallback;
-}
-
-function writeJsonFile<T>(filePath: string, data: T): void {
-  ensureDirectory();
-  try {
-    const tmpPath = `${filePath}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    try {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-    } catch (writeErr) {
-      console.warn(`[broker-auth-store] Error writing ${filePath}:`, writeErr);
-    }
-  }
+function writeJsonFile<T>(filename: string, data: T): void {
+  writeJsonData(filename, data, "broker-auth-store");
 }
 
 // User ID -> Exchange -> BrokerCredentials

@@ -1,49 +1,17 @@
-import fs from "fs";
-import path from "path";
 import { PriceAlert, AlertLogEntry } from "./alerts-engine";
 import { AlertWebhookConfig } from "./webhook-dispatcher";
+import { readJsonData, writeJsonData } from "../storage/data-dir";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const ALERTS_FILE = path.join(DATA_DIR, "alerts.json");
-const WEBHOOKS_FILE = path.join(DATA_DIR, "webhooks.json");
-const LOGS_FILE = path.join(DATA_DIR, "alert-logs.json");
+const ALERTS_FILE = "alerts.json";
+const WEBHOOKS_FILE = "webhooks.json";
+const LOGS_FILE = "alert-logs.json";
 
-function ensureDirectory(): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  } catch (err) {
-    console.warn("[server-alerts-store] Could not create .data directory:", err);
-  }
+function readJsonFile<T>(filename: string, fallback: T): T {
+  return readJsonData(filename, fallback, "server-alerts-store");
 }
 
-function readJsonFile<T>(filePath: string, fallback: T): T {
-  ensureDirectory();
-  try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(raw);
-    }
-  } catch (err) {
-    console.warn(`[server-alerts-store] Error reading ${filePath}:`, err);
-  }
-  return fallback;
-}
-
-function writeJsonFile<T>(filePath: string, data: T): void {
-  ensureDirectory();
-  try {
-    const tmpPath = `${filePath}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    try {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-    } catch (writeErr) {
-      console.warn(`[server-alerts-store] Error writing ${filePath}:`, writeErr);
-    }
-  }
+function writeJsonFile<T>(filename: string, data: T): void {
+  writeJsonData(filename, data, "server-alerts-store");
 }
 
 export type UserAlertsMap = Record<string, PriceAlert[]>;
