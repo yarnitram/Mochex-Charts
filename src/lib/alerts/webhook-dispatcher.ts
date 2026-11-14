@@ -168,7 +168,14 @@ export function escapeHtml(text: string): string {
 
 function formatPriceNumber(price: number): string {
   if (!Number.isFinite(price)) return "0.00";
-  return price >= 1 ? price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : price.toFixed(4);
+  const abs = Math.abs(price);
+  if (abs >= 1) {
+    return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (abs >= 0.01) return price.toFixed(4);
+  if (abs >= 0.0001) return price.toFixed(6);
+  if (abs > 0) return price.toFixed(8);
+  return "0.00";
 }
 
 /**
@@ -227,6 +234,28 @@ export function formatDiscordPayload(
     });
   }
 
+  if (
+    alert.poiMetadata &&
+    Number.isFinite(alert.poiMetadata.zoneBottom) &&
+    Number.isFinite(alert.poiMetadata.zoneTop) &&
+    alert.poiMetadata.zoneTop > 0
+  ) {
+    const low = Math.min(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const high = Math.max(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const spreadPct = low > 0 ? ((high - low) / low) * 100 : 0;
+    const categoryLabel =
+      alert.poiMetadata.category === "order_block"
+        ? "Validated OB Range"
+        : alert.poiMetadata.category === "fvg"
+        ? "FVG Range"
+        : "POI Zone Range";
+    fields.push({
+      name: `${categoryLabel} (${alert.poiMetadata.timeframe})`,
+      value: `\`$${formatPriceNumber(low)}\` — \`$${formatPriceNumber(high)}\` (${spreadPct.toFixed(2)}% width)`,
+      inline: false,
+    });
+  }
+
   if (log.message) {
     fields.push({
       name: "Signal Note",
@@ -274,6 +303,23 @@ export function formatTelegramMessage(
   text += `<b>Condition:</b> <code>${escapeHtml(conditionStr)}</code>\n`;
   text += `<b>Trigger Price:</b> <code>$${triggerFmt}</code>\n`;
   text += `<b>Target Level:</b> <code>$${targetFmt}</code>\n`;
+  if (
+    alert.poiMetadata &&
+    Number.isFinite(alert.poiMetadata.zoneBottom) &&
+    Number.isFinite(alert.poiMetadata.zoneTop) &&
+    alert.poiMetadata.zoneTop > 0
+  ) {
+    const low = Math.min(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const high = Math.max(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const spreadPct = low > 0 ? ((high - low) / low) * 100 : 0;
+    const catName =
+      alert.poiMetadata.category === "order_block"
+        ? "Validated OB Range"
+        : alert.poiMetadata.category === "fvg"
+        ? "FVG Range"
+        : "POI Zone Range";
+    text += `<b>${catName} (${escapeHtml(alert.poiMetadata.timeframe)}):</b> <code>$${formatPriceNumber(low)} - $${formatPriceNumber(high)}</code> (${spreadPct.toFixed(2)}%)\n`;
+  }
   if (log.sourceType) {
     text += `<b>Source:</b> ${escapeHtml(log.sourceType.replace(/_/g, " ").toUpperCase())}\n`;
   }

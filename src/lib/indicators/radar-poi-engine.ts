@@ -79,6 +79,53 @@ export interface RadarPoiItem {
   correlation?: PoiCorrelationRiskInfo | null;
 }
 
+/**
+ * Formats cryptocurrency POI price levels accurately across all orders of magnitude,
+ * including sub-cent meme/AI tokens ($0.00001234) and high-priced majors ($68,420.50).
+ */
+export function formatPoiPrice(val: number): string {
+  if (!Number.isFinite(val)) return "0.00";
+  const abs = Math.abs(val);
+  if (abs >= 1000) {
+    return val.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  if (abs >= 1) return val.toFixed(2);
+  if (abs >= 0.01) return val.toFixed(4);
+  if (abs >= 0.0001) return val.toFixed(6);
+  if (abs > 0) return val.toFixed(8);
+  return "0.00";
+}
+
+/**
+ * Returns formatted bottom-to-top zone boundaries and percentage thickness
+ * for Validated Order Blocks and other POI zones.
+ */
+export function getPoiZoneRange(poi: Pick<RadarPoiItem, "bottom" | "top">): {
+  bottom: number;
+  top: number;
+  bottomFormatted: string;
+  topFormatted: string;
+  spreadPct: number;
+  rangeText: string;
+} {
+  const low = Math.min(poi.bottom, poi.top);
+  const high = Math.max(poi.bottom, poi.top);
+  const bottomFormatted = formatPoiPrice(low);
+  const topFormatted = formatPoiPrice(high);
+  const spreadPct = low > 0 ? ((high - low) / low) * 100 : 0;
+  return {
+    bottom: low,
+    top: high,
+    bottomFormatted,
+    topFormatted,
+    spreadPct,
+    rangeText: `$${bottomFormatted} - $${topFormatted}`,
+  };
+}
+
 function mapTimeframeToSandwichTf(tf: string): { tfId: SandwichTimeframeId; label: string } {
   const norm = tf.trim().toLowerCase();
   if (norm === "15" || norm === "15m") return { tfId: "15m", label: "15m" };

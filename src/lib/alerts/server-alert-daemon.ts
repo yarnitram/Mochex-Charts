@@ -18,6 +18,10 @@ import {
   AlertWebhookConfig,
 } from "./webhook-dispatcher";
 import {
+  buildAlertDeliveryResults,
+  upsertServerAlertLog,
+} from "./server-alert-diagnostics";
+import {
   getAllActiveServerAlerts,
   updateServerAlert,
   appendServerAlertLog,
@@ -290,14 +294,35 @@ export class ServerAlertDaemon {
       console.warn("[ServerAlertDaemon] Error updating alert in store:", storeErr);
     }
 
-    // 2. Dispatch notifications to Discord/Telegram
+    // 2. Dispatch notifications to Discord/Telegram and persist delivery diagnostics
+    let dispatchResult: Record<string, unknown> | undefined;
+    let dispatchErr: unknown;
+
     if (webhooks) {
       try {
-        const dispatchResult = await dispatchDirectWebhooks(webhooks, alert, log);
+        dispatchResult = (await dispatchDirectWebhooks(webhooks, alert, log)) as Record<
+          string,
+          unknown
+        >;
         console.log("[ServerAlertDaemon] Webhook dispatch results:", dispatchResult);
-      } catch (dispatchErr) {
-        console.warn("[ServerAlertDaemon] Webhook dispatch error:", dispatchErr);
+      } catch (err) {
+        dispatchErr = err;
+        console.warn("[ServerAlertDaemon] Webhook dispatch error:", err);
       }
+    }
+
+    try {
+      const deliveryResults = buildAlertDeliveryResults(
+        webhooks,
+        alert,
+        dispatchResult,
+        dispatchErr
+      );
+      log.logType = "trigger";
+      log.deliveryResults = deliveryResults;
+      upsertServerAlertLog(userId, log);
+    } catch (logErr) {
+      console.warn("[ServerAlertDaemon] Failed saving delivery diagnostics log:", logErr);
     }
 
     // If one-time alert, remove from active in-memory list
@@ -449,39 +474,116 @@ export class ServerAlertDaemon {
 
     this.restFallbackTimer = setInterval(async () => {
       if (!this.isRunning) return;
+
+      // Periodically re-sync .data/alerts.json & .data/webhooks.json across worker/route contexts
+      if (Date.now() - this.lastPeriodicRefreshAt >= 30_000) {
+        this.lastPeriodicRefreshAt = Date.now();
+        await this.refreshActiveAlerts().catch(() => {});
+      }
+
       if (this.trackedSymbols.size === 0) return;
 
       const wsSilent = Date.now() - this.lastWsMessageTime > 10000;
-      if (!this.wsConnected || wsSilent) {
+      const safetyRestDue = Date.now() - this.lastRestPollAt >= 15000;
+      if (!this.wsConnected || wsSilent || safetyRestDue) {
         await this.pollRestPrices();
       }
     }, 5000);
+  }
+
+  private lastPeriodicRefreshAt = 0;
+  private lastRestPollAt = 0;
+  private lastRestPollSuccessAt: number | null = null;
+  private lastRestError: string | null = null;
+  private restPollCount = 0;
+
+  /**
+   * Starts the background alert daemon if not already running in this Node runtime.
+   */
+  public startIfNotRunning(): void {
+    if (!this.isRunning) {
+      this.start();
+    }
+  }
+
+  /**
+   * Returns extended runtime health telemetry including REST batch poll state.
+   */
+  public getDiagnostics() {
+    return {
+      ...this.getStatus(),
+      lastRestPollAt: this.lastRestPollAt || null,
+      lastRestPollSuccessAt: this.lastRestPollSuccessAt,
+      lastRestError: this.lastRestError,
+      restPollCount: this.restPollCount,
+    };
   }
 
   private async pollRestPrices(): Promise<void> {
     const symbols = Array.from(this.trackedSymbols);
     if (symbols.length === 0) return;
 
-    for (const sym of symbols) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`https://api.mexc.com/api/v3/ticker/price?symbol=${sym}`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
+    this.lastRestPollAt = Date.now();
+    this.restPollCount++;
 
-        if (res.ok) {
-          const data = await res.json();
-          const price = parseFloat(data.price);
-          if (Number.isFinite(price)) {
+    const endpoints = [
+      "https://api.mexc.co/api/v3/ticker/price",
+      "https://api.mexc.com/api/v3/ticker/price",
+    ];
+
+    let lastErr: string | null = null;
+    for (const url of endpoints) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      try {
+        const res = await fetch(url, { signal: controller.signal, cache: "no-store" });
+        clearTimeout(timeoutId);
+        if (!res.ok) {
+          lastErr = `HTTP ${res.status} from ${new URL(url).hostname}`;
+          continue;
+        }
+
+        const rows = (await res.json()) as Array<{ symbol?: string; price?: string }>;
+        if (!Array.isArray(rows)) {
+          lastErr = `Unexpected ticker response from ${new URL(url).hostname}`;
+          continue;
+        }
+
+        const priceMap = new Map<string, number>();
+        for (const row of rows) {
+          if (row.symbol && row.price) {
+            const p = parseFloat(row.price);
+            if (Number.isFinite(p) && p > 0) {
+              priceMap.set(row.symbol.toUpperCase(), p);
+            }
+          }
+        }
+
+        for (const sym of symbols) {
+          const price = priceMap.get(sym.toUpperCase());
+          if (price !== undefined) {
             this.processPriceUpdate(sym, price);
           }
         }
-      } catch {}
+
+        this.lastRestPollSuccessAt = Date.now();
+        this.lastRestError = null;
+        return;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        lastErr = err instanceof Error ? err.message : String(err);
+      }
     }
+
+    this.lastRestError = lastErr || "All MEXC REST ticker mirrors failed";
   }
 }
 
-// Global server daemon singleton instance
-export const serverAlertDaemon = new ServerAlertDaemon();
+// Global server daemon singleton instance shared across instrumentation & Next.js route bundles
+const globalForServerDaemon = globalThis as unknown as {
+  __mochexServerAlertDaemon?: ServerAlertDaemon;
+};
+
+export const serverAlertDaemon =
+  globalForServerDaemon.__mochexServerAlertDaemon ??
+  (globalForServerDaemon.__mochexServerAlertDaemon = new ServerAlertDaemon());

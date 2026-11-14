@@ -25,6 +25,7 @@ import {
   CheckSquare,
   Square,
   Sparkles,
+  ScrollText,
 } from "lucide-react";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
@@ -533,6 +534,16 @@ export default function RadarAlertsPage() {
             <Zap size={13} className="fill-current text-amber-400" />
             <span>Bulk Alarm Setup</span>
           </button>
+
+          {/* Logs Link (DEC-166) */}
+          <Link
+            href="/radar/logs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] hover:border-[#5865F2]/50 text-xs text-[#b6c4ff] hover:text-white transition-colors"
+            title="Open Alert & Discord Delivery Logs"
+          >
+            <ScrollText size={13} className="text-[#5865F2]" />
+            <span className="hidden sm:inline">Logs</span>
+          </Link>
 
           {/* Chart Link */}
           <Link

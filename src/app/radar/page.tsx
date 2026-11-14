@@ -33,6 +33,7 @@ import {
   Globe,
   Target,
   Key,
+  ScrollText,
 } from "lucide-react";
 import {
   SupportedExchange,
@@ -53,6 +54,8 @@ import {
   PoiCategory,
   PoiDirection,
   PoiStatus,
+  formatPoiPrice,
+  getPoiZoneRange,
 } from "@/lib/indicators/radar-poi-engine";
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
@@ -1130,6 +1133,16 @@ export default function RadarPage() {
             <ExternalLink size={11} className="opacity-70" />
           </Link>
 
+          {/* Direct link to Notification & Discord Delivery Logs (DEC-166) */}
+          <Link
+            href="/radar/logs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] hover:border-[#5865F2]/50 text-[#b6c4ff] hover:text-white font-bold text-xs transition-colors cursor-pointer"
+            title="Inspect 24/7 Server Alert & Discord Delivery Logs"
+          >
+            <ScrollText size={13} className="text-[#5865F2]" />
+            <span className="hidden sm:inline">Logs</span>
+          </Link>
+
           {/* Multi-Broker Direct Execution Modal Button (DEC-156) */}
           <button
             type="button"
@@ -2003,16 +2016,27 @@ export default function RadarPage() {
 
                         {/* 5. ZONE RANGE */}
                         <td className="py-3.5 px-4 font-mono text-[11px]">
-                          {selectedPoi ? (
-                            <div className="flex flex-col">
-                              <span className="text-white font-semibold">
-                                ${selectedPoi.bottom.toFixed(2)} - ${selectedPoi.top.toFixed(2)}
-                              </span>
-                              <span className="text-[10px] text-[#2962ff]">
-                                {isFvg ? "50% CE" : "MT"}: ${selectedPoi.meanThreshold.toFixed(2)}
-                              </span>
-                            </div>
-                          ) : (
+                          {selectedPoi ? (() => {
+                            const zr = getPoiZoneRange(selectedPoi);
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <span
+                                  className="text-white font-semibold"
+                                  title={`Bottom: $${zr.bottomFormatted} | Top: $${zr.topFormatted} (${zr.spreadPct.toFixed(2)}% height)`}
+                                >
+                                  {zr.rangeText}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px]">
+                                  <span className="text-[#2962ff]">
+                                    {isFvg ? "50% CE" : "MT"}: ${formatPoiPrice(selectedPoi.meanThreshold)}
+                                  </span>
+                                  <span className="text-[#848e9c]">
+                                    ({zr.spreadPct.toFixed(2)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })() : (
                             <span className="text-[#848e9c]">—</span>
                           )}
                         </td>
@@ -2423,22 +2447,40 @@ export default function RadarPage() {
                           </div>
 
                           {/* Zone Boundaries */}
-                          <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-[#0c1017] p-2 rounded border border-[#172233] font-mono">
-                            <div>
-                              <span className="text-[#848e9c] text-[9px] block">Entry Level</span>
-                              <span className="text-white font-semibold">
-                                ${formatZonePrice(selectedPoi.entryPrice)}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[#2962ff] text-[9px] block">
-                                {isFvg ? "50% CE" : "50% MT"}
-                              </span>
-                              <span className="text-[#b6c4ff] font-semibold">
-                                ${formatZonePrice(selectedPoi.meanThreshold)}
-                              </span>
-                            </div>
-                          </div>
+                          {(() => {
+                            const zr = getPoiZoneRange(selectedPoi);
+                            return (
+                              <div className="space-y-1.5 text-[10px] bg-[#0c1017] p-2 rounded border border-[#172233] font-mono">
+                                <div className="flex items-center justify-between gap-2 pb-1 border-b border-[#172233]/80">
+                                  <span className="text-[#848e9c] text-[9px]">
+                                    {selectedPoi.category === "order_block" ? "OB Range" : "Zone Range"}
+                                  </span>
+                                  <span className="text-white font-semibold">
+                                    {zr.rangeText}{" "}
+                                    <span className="text-[#848e9c] font-normal">
+                                      ({zr.spreadPct.toFixed(2)}%)
+                                    </span>
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <span className="text-[#848e9c] text-[9px] block">Entry Level</span>
+                                    <span className="text-white font-semibold">
+                                      ${formatPoiPrice(selectedPoi.entryPrice)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[#2962ff] text-[9px] block">
+                                      {isFvg ? "50% CE" : "50% MT"}
+                                    </span>
+                                    <span className="text-[#b6c4ff] font-semibold">
+                                      ${formatPoiPrice(selectedPoi.meanThreshold)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           {/* Card Actions */}
                           <div className="flex items-center gap-1.5 pt-1">

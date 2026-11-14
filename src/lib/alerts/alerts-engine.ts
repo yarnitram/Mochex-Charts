@@ -80,6 +80,21 @@ export interface PriceAlert {
   breakTelemetry?: any;
 }
 
+export interface ChannelDeliveryResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
+  skipped?: boolean;
+  skippedReason?: string;
+}
+
+export interface AlertDeliveryResults {
+  discord?: ChannelDeliveryResult;
+  telegram?: ChannelDeliveryResult;
+  tradingWebhook?: ChannelDeliveryResult;
+  attemptedAt?: number;
+}
+
 export interface AlertLogEntry {
   id: string;
   alertId: string;
@@ -92,6 +107,8 @@ export interface AlertLogEntry {
   label: string;
   message?: string;
   triggeredAt: number;
+  logType?: "trigger" | "test" | "system" | "error";
+  deliveryResults?: AlertDeliveryResults;
 }
 
 export const ALERT_COOLDOWN_MS = 60_000;

@@ -21,6 +21,8 @@ import {
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
+  formatPoiPrice,
+  getPoiZoneRange,
 } from "@/lib/indicators/radar-poi-engine";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
@@ -389,18 +391,24 @@ export function PoiAlarmModal({
             <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-[#172233]">
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Top</div>
-                <div className="font-bold text-white text-[11px]">${poi.top.toFixed(2)}</div>
+                <div className="font-bold text-white text-[11px]">${formatPoiPrice(poi.top)}</div>
               </div>
               <div className="bg-[#151e2c] rounded py-0.5 border border-[#223044]">
                 <div className="text-[9px] text-[#2962ff] font-semibold">
                   {poi.category === "fvg" ? "50% CE" : "50% MT"}
                 </div>
-                <div className="font-bold text-[#b6c4ff] text-[11px]">${poi.meanThreshold.toFixed(2)}</div>
+                <div className="font-bold text-[#b6c4ff] text-[11px]">${formatPoiPrice(poi.meanThreshold)}</div>
               </div>
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Bottom</div>
-                <div className="font-bold text-white text-[11px]">${poi.bottom.toFixed(2)}</div>
+                <div className="font-bold text-white text-[11px]">${formatPoiPrice(poi.bottom)}</div>
               </div>
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#172233]/70 text-[#848e9c]">
+              <span>Zone Range (Bottom → Top)</span>
+              <span className="text-white font-semibold">
+                {getPoiZoneRange(poi).rangeText} ({getPoiZoneRange(poi).spreadPct.toFixed(2)}%)
+              </span>
             </div>
           </div>
 
