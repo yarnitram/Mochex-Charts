@@ -27,7 +27,7 @@ import {
   Sparkles,
   ScrollText,
 } from "lucide-react";
-import { PriceAlert, isPoiPriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, isPoiPriceAlert, findDuplicateAlerts } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -300,6 +300,10 @@ export default function RadarAlertsPage() {
     });
   }, [sourceAlerts, searchQuery, categoryFilter, timeframeFilter, statusFilter, directionFilter]);
 
+  const duplicateAlertIds = useMemo(() => {
+    return findDuplicateAlerts(filteredAlerts).duplicateIds;
+  }, [filteredAlerts]);
+
   // Summary Metrics
   const metrics = useMemo(() => {
     const total = sourceAlerts.length;
@@ -420,6 +424,39 @@ export default function RadarAlertsPage() {
     }
   };
 
+  // Shared batch deletion helper
+  const deleteAlertsByIds = async (idsToDelete: string[], successMessage: string) => {
+    if (idsToDelete.length === 0) return;
+
+    try {
+      recordDeletedAlertIds(idsToDelete);
+      const idSet = new Set(idsToDelete);
+      setAlerts((prev) => {
+        const next = prev.filter((a) => !idSet.has(a.id));
+        saveClientAlerts(next);
+        return next;
+      });
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        idsToDelete.forEach((id) => next.delete(id));
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+
+      fetch("/api/alerts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: idsToDelete }),
+      }).catch(() => {});
+
+      setToastMessage(successMessage);
+      setTimeout(() => setToastMessage(null), 3500);
+    } catch {
+      setToastMessage("Failed to batch delete alarms");
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
+
   // Batch delete
   const handleBatchDelete = async () => {
     const idsToDelete = selectedIds.size > 0
@@ -432,29 +469,25 @@ export default function RadarAlertsPage() {
       return;
     }
 
-    try {
-      recordDeletedAlertIds(idsToDelete);
-      const idSet = new Set(idsToDelete);
-      setAlerts((prev) => {
-        const next = prev.filter((a) => !idSet.has(a.id));
-        saveClientAlerts(next);
-        return next;
-      });
-      setSelectedIds(new Set());
-      window.dispatchEvent(new CustomEvent("mochex:alerts-updated"));
+    await deleteAlertsByIds(idsToDelete, `✓ Deleted ${idsToDelete.length} alarm(s)!`);
+  };
 
-      fetch("/api/alerts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: idsToDelete }),
-      }).catch(() => {});
+  // Remove duplicate alarms sharing same coin, timeframe, and trigger price
+  const handleRemoveDuplicates = async () => {
+    if (duplicateAlertIds.length === 0) return;
 
-      setToastMessage(`✓ Deleted ${idsToDelete.length} alarm(s)!`);
-      setTimeout(() => setToastMessage(null), 3500);
-    } catch {
-      setToastMessage("Failed to batch delete alarms");
-      setTimeout(() => setToastMessage(null), 3000);
+    if (
+      !confirm(
+        `Remove ${duplicateAlertIds.length} duplicate alarm(s) with the same coin, timeframe, and trigger price?`
+      )
+    ) {
+      return;
     }
+
+    await deleteAlertsByIds(
+      duplicateAlertIds,
+      `✓ Removed ${duplicateAlertIds.length} duplicate alarm(s)!`
+    );
   };
 
   return (
@@ -833,6 +866,21 @@ export default function RadarAlertsPage() {
             >
               <Play size={11} />
               <span>{selectedIds.size > 0 ? `Resume Selected (${selectedIds.size})` : "Resume All Filtered"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRemoveDuplicates}
+              disabled={duplicateAlertIds.length === 0}
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/15 hover:bg-amber-500 hover:text-black text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all disabled:opacity-40 cursor-pointer"
+              title="Remove duplicate alarms that share the same coin, timeframe, and trigger price"
+            >
+              <Layers size={11} />
+              <span>
+                {duplicateAlertIds.length > 0
+                  ? `Remove Duplicates (${duplicateAlertIds.length})`
+                  : "Remove Duplicates (0)"}
+              </span>
             </button>
 
             <button

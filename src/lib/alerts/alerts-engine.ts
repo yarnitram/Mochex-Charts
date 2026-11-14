@@ -157,6 +157,75 @@ export function isPoiAlertInvalidated(alert: PriceAlert, currentPrice: number): 
 }
 
 /**
+ * Normalizes timeframe strings so equivalent labels ("60", "1h", "1H") match uniformly.
+ */
+export function normalizeAlertTimeframe(tf?: string): string {
+  const raw = (tf || "").trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  if (lower === "15" || lower === "15m") return "15m";
+  if (lower === "30" || lower === "30m") return "30m";
+  if (lower === "60" || lower === "1h") return "1H";
+  if (lower === "120" || lower === "2h") return "2H";
+  if (lower === "240" || lower === "4h") return "4H";
+  if (lower === "d" || lower === "1d" || lower === "24h") return "1D";
+  if (lower === "w" || lower === "1w") return "1W";
+  return raw.toUpperCase();
+}
+
+/**
+ * Finds duplicate alerts that share the same normalized coin symbol, same normalized timeframe,
+ * and same trigger price (`targetPrice`). Keeps one alarm per duplicate group (preferring active,
+ * then most recently created) and returns the remaining IDs as `duplicateIds`.
+ */
+export function findDuplicateAlerts(alerts: PriceAlert[]): {
+  keepAlerts: PriceAlert[];
+  duplicateIds: string[];
+} {
+  const groups = new Map<string, PriceAlert[]>();
+
+  for (const alert of alerts) {
+    const sym = (alert.symbol || "").toUpperCase().replace(/[\/\-_]/g, "");
+    const tf = normalizeAlertTimeframe(alert.poiMetadata?.timeframe);
+    const priceKey = Number.isFinite(alert.targetPrice)
+      ? String(Number(alert.targetPrice.toPrecision(12)))
+      : String(alert.targetPrice);
+    const key = `${sym}|${tf}|${priceKey}`;
+    const list = groups.get(key);
+    if (list) {
+      list.push(alert);
+    } else {
+      groups.set(key, [alert]);
+    }
+  }
+
+  const duplicateIdSet = new Set<string>();
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+    // Choose the single best alarm to retain: active first, then newest createdAt
+    let winner = group[0];
+    for (let i = 1; i < group.length; i++) {
+      const cand = group[i];
+      if (cand.active !== winner.active) {
+        if (cand.active) winner = cand;
+      } else if ((cand.createdAt || 0) > (winner.createdAt || 0)) {
+        winner = cand;
+      }
+    }
+    for (const item of group) {
+      if (item.id !== winner.id) {
+        duplicateIdSet.add(item.id);
+      }
+    }
+  }
+
+  return {
+    keepAlerts: alerts.filter((a) => !duplicateIdSet.has(a.id)),
+    duplicateIds: alerts.filter((a) => duplicateIdSet.has(a.id)).map((a) => a.id),
+  };
+}
+
+/**
  * Computes the effective target price of an alert at `currentTimeSec`.
  * For dynamic trendline alerts with distinct start/end times, linearly interpolates the ray price.
  */
