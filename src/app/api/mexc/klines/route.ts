@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  toMexcContractSymbol,
+  normalizeMexcContractInterval,
+} from "@/lib/screener/multi-exchange-client";
 
 function aggregateRawMexcKlines(raw: any[]): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
@@ -39,17 +43,85 @@ function aggregateRawMexcKlines(raw: any[]): any[] {
   ]);
 }
 
+async function fetchMexcContractKlinesRaw(
+  symbol: string,
+  interval: string,
+  numericLimit: number,
+  startTime: string | null,
+  endTime: string | null
+): Promise<any[] | null> {
+  const contractSym = toMexcContractSymbol(symbol);
+  const contractIv = normalizeMexcContractInterval(interval);
+  const contractParams = new URLSearchParams({ interval: contractIv });
+  if (startTime) {
+    contractParams.set("start", Math.floor(Number(startTime) / 1000).toString());
+  }
+  if (endTime) {
+    contractParams.set("end", Math.floor(Number(endTime) / 1000).toString());
+  }
+
+  const res = await fetch(
+    `https://contract.mexc.com/api/v1/contract/kline/${encodeURIComponent(contractSym)}?${contractParams.toString()}`,
+    { method: "GET", headers: { Accept: "application/json" } }
+  );
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const data = json?.data;
+  if (!json?.success || !data || !Array.isArray(data.time) || data.time.length === 0) {
+    return null;
+  }
+
+  const len = data.time.length;
+  const rows: any[] = [];
+  for (let i = 0; i < len; i++) {
+    const timeMs = Number(data.time[i]) * 1000;
+    rows.push([
+      timeMs,
+      String(data.open?.[i] ?? 0),
+      String(data.high?.[i] ?? 0),
+      String(data.low?.[i] ?? 0),
+      String(data.close?.[i] ?? 0),
+      String(data.vol?.[i] ?? 0),
+      timeMs,
+      String(data.amount?.[i] ?? 0),
+    ]);
+  }
+  return !startTime && !endTime && rows.length > numericLimit
+    ? rows.slice(-numericLimit)
+    : rows;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get("symbol") || "BTCUSDT";
   const rawInterval = searchParams.get("interval") || "15m";
   const startTime = searchParams.get("startTime");
   const endTime = searchParams.get("endTime");
+  const market = (searchParams.get("market") || "").toLowerCase();
   const rawLimit = parseInt(searchParams.get("limit") || "500", 10);
 
   const is2h = rawInterval.toLowerCase() === "2h" || rawInterval === "120" || rawInterval === "120m";
   const interval = is2h ? "60m" : rawInterval;
-  const limit = (is2h ? rawLimit * 2 : rawLimit).toString();
+  const numericLimit = is2h ? rawLimit * 2 : rawLimit;
+  const limit = numericLimit.toString();
+
+  if (market === "futures") {
+    try {
+      const futuresRaw = await fetchMexcContractKlinesRaw(
+        symbol,
+        interval,
+        numericLimit,
+        startTime,
+        endTime
+      );
+      if (futuresRaw && futuresRaw.length > 0) {
+        return NextResponse.json(is2h ? aggregateRawMexcKlines(futuresRaw) : futuresRaw);
+      }
+    } catch {
+      // Fall through to Spot endpoint
+    }
+  }
 
   const mexcBase = process.env.NEXT_PUBLIC_MEXC_API_BASE || "https://api.mexc.co";
   const params = new URLSearchParams({
@@ -71,6 +143,18 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
+      if (market !== "futures") {
+        const futuresRaw = await fetchMexcContractKlinesRaw(
+          symbol,
+          interval,
+          numericLimit,
+          startTime,
+          endTime
+        ).catch(() => null);
+        if (futuresRaw && futuresRaw.length > 0) {
+          return NextResponse.json(is2h ? aggregateRawMexcKlines(futuresRaw) : futuresRaw);
+        }
+      }
       return NextResponse.json(
         { error: `Upstream MEXC error: ${response.status} ${response.statusText}` },
         { status: response.status }

@@ -18,14 +18,14 @@ export interface ExchangeConfig {
 export const SUPPORTED_EXCHANGES: Record<SupportedExchange, ExchangeConfig> = {
   mexc: {
     id: "mexc",
-    name: "MEXC Global",
+    name: "MEXC Futures (USDT-M)",
     shortName: "MEXC",
-    badgeLabel: "MEXC Spot",
-    marketType: "spot",
+    badgeLabel: "MEXC Perps",
+    marketType: "perpetual",
     badgeBg: "bg-emerald-500/10",
     badgeText: "text-emerald-400",
     badgeBorder: "border-emerald-500/20",
-    apiBase: "https://api.mexc.co",
+    apiBase: "https://contract.mexc.com",
   },
   binance: {
     id: "binance",
@@ -151,6 +151,125 @@ export function convertBybitKlines(raw: any[]): CandlestickBar[] {
     .filter((b) => !isNaN(b.time) && !isNaN(b.close) && b.close > 0);
 }
 
+const MEXC_SPOT_TO_CONTRACT_ALIASES: Record<string, string> = {
+  FILUSDT: "FILECOIN_USDT",
+  ZKUSDT: "ZKSYNC_USDT",
+  PUMPUSDT: "PUMPFUN_USDT",
+  TRUMPUSDT: "TRUMPOFFICIAL_USDT",
+  OPENUSDT: "OPENLEDGER_USDT",
+};
+
+const MEXC_CONTRACT_TO_CANONICAL: Record<string, string> = {
+  FILECOIN_USDT: "FILECOINUSDT",
+  ZKSYNC_USDT: "ZKSYNCUSDT",
+  PUMPFUN_USDT: "PUMPFUNUSDT",
+  TRUMPOFFICIAL_USDT: "TRUMPOFFICIALUSDT",
+  OPENLEDGER_USDT: "OPENLEDGERUSDT",
+};
+
+/**
+ * Converts canonical symbol (e.g. "BTCUSDT") to MEXC Perpetual contract symbol ("BTC_USDT").
+ */
+export function toMexcContractSymbol(symbol: string): string {
+  const clean = symbol.toUpperCase().trim().replace(/[\/\-_]/g, "");
+  if (MEXC_SPOT_TO_CONTRACT_ALIASES[clean]) {
+    return MEXC_SPOT_TO_CONTRACT_ALIASES[clean];
+  }
+  if (clean.endsWith("USDT") && !clean.includes("_")) {
+    return `${clean.slice(0, -4)}_USDT`;
+  }
+  return clean;
+}
+
+/**
+ * Converts MEXC Perpetual contract symbol (e.g. "BTC_USDT") back to canonical "BTCUSDT".
+ */
+export function fromMexcContractSymbol(contractSym: string): string {
+  const upper = contractSym.toUpperCase().trim();
+  if (MEXC_CONTRACT_TO_CANONICAL[upper]) return MEXC_CONTRACT_TO_CANONICAL[upper];
+  return upper.replace("_", "");
+}
+
+/**
+ * Maps canonical MEXC Futures symbol to Binance/Bybit Perpetual Futures equivalents
+ * when contract naming differs (e.g. PEPEUSDT -> 1000PEPEUSDT, FILECOINUSDT -> FILUSDT).
+ */
+export function mapSymbolForPerpExchange(
+  exchange: SupportedExchange,
+  symbol: string
+): string {
+  const clean = symbol.toUpperCase().trim().replace(/[\/\-_]/g, "");
+  if (exchange === "mexc") return clean;
+
+  const sharedAliases: Record<string, string> = {
+    PEPEUSDT: "1000PEPEUSDT",
+    SHIBUSDT: "1000SHIBUSDT",
+    FLOKIUSDT: "1000FLOKIUSDT",
+    SATSUSDT: "1000SATSUSDT",
+    FILECOINUSDT: "FILUSDT",
+    ZKSYNCUSDT: "ZKUSDT",
+    PUMPFUNUSDT: "PUMPUSDT",
+    TRUMPOFFICIALUSDT: "TRUMPUSDT",
+    OPENLEDGERUSDT: "OPENUSDT",
+    LUNANEWUSDT: "LUNA2USDT",
+  };
+  if (sharedAliases[clean]) return sharedAliases[clean];
+  if (exchange === "binance" && clean === "1000000BABYDOGEUSDT") return "1MBABYDOGEUSDT";
+  return clean;
+}
+
+/**
+ * Normalizes timeframe strings for MEXC Perpetual Futures kline API.
+ */
+export function normalizeMexcContractInterval(resolution: string): string {
+  const raw = resolution.trim();
+  const norm = raw.toLowerCase();
+  if (raw === "1M" || raw === "M") return "Month1";
+  if (norm === "1w" || norm === "w") return "Week1";
+  if (norm === "1d" || norm === "d") return "Day1";
+  if (norm === "4h" || norm === "240") return "Hour4";
+  if (norm === "1h" || norm === "60" || norm === "60m" || norm === "2h" || norm === "120" || norm === "120m") {
+    return "Min60";
+  }
+  if (norm === "30m" || norm === "30") return "Min30";
+  if (norm === "15m" || norm === "15") return "Min15";
+  if (norm === "5m" || norm === "5") return "Min5";
+  if (norm === "1m" || norm === "1") return "Min1";
+  return "Hour4";
+}
+
+/**
+ * Converts MEXC Futures contract kline object `{ time[], open[], high[], low[], close[], vol[] }`
+ * into chronological CandlestickBar[].
+ */
+export function convertMexcContractKlines(rawData: {
+  time?: number[];
+  open?: number[];
+  high?: number[];
+  low?: number[];
+  close?: number[];
+  vol?: number[];
+} | null | undefined): CandlestickBar[] {
+  if (!rawData || !Array.isArray(rawData.time) || !Array.isArray(rawData.close)) return [];
+  const len = rawData.time.length;
+  const bars: CandlestickBar[] = [];
+  for (let i = 0; i < len; i++) {
+    const rawTime = Number(rawData.time[i]);
+    const timeMs = rawTime < 1e12 ? rawTime * 1000 : rawTime;
+    const close = Number(rawData.close[i]);
+    if (!Number.isFinite(timeMs) || !Number.isFinite(close) || close <= 0) continue;
+    bars.push({
+      time: timeMs,
+      open: Number(rawData.open?.[i] ?? close),
+      high: Number(rawData.high?.[i] ?? close),
+      low: Number(rawData.low?.[i] ?? close),
+      close,
+      volume: Number(rawData.vol?.[i] ?? 0),
+    });
+  }
+  return bars;
+}
+
 /**
  * Converts MEXC raw klines array into CandlestickBar array.
  */
@@ -226,9 +345,10 @@ export async function fetchExchangeKlines(
   };
 
   if (exchange === "binance") {
+    const targetSym = mapSymbolForPerpExchange("binance", cleanSym);
     // 1. Try Binance USDT-M Futures endpoint
     try {
-      const futuresUrl = `https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSym}&interval=${interval}&limit=${limit}`;
+      const futuresUrl = `https://fapi.binance.com/fapi/v1/klines?symbol=${targetSym}&interval=${interval}&limit=${limit}`;
       const res = await fetchWithTimeout(futuresUrl);
       if (res.ok) {
         const raw = await res.json();
@@ -250,9 +370,10 @@ export async function fetchExchangeKlines(
   }
 
   if (exchange === "bybit") {
+    const targetSym = mapSymbolForPerpExchange("bybit", cleanSym);
     // 1. Try Bybit Linear Perpetuals
     try {
-      const linearUrl = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${cleanSym}&interval=${interval}&limit=${limit}`;
+      const linearUrl = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${targetSym}&interval=${interval}&limit=${limit}`;
       const res = await fetchWithTimeout(linearUrl);
       if (res.ok) {
         const data = await res.json();
@@ -277,11 +398,39 @@ export async function fetchExchangeKlines(
     return [];
   }
 
-  // Default: MEXC Spot
+  // Default: MEXC Perpetual Futures first, with Spot fallback if contract unavailable
+  const is2h = resolution.toLowerCase() === "2h" || resolution === "120" || resolution === "120m";
+  const effectiveLimit = is2h ? limit * 2 : limit;
+  const isBrowser = typeof window !== "undefined";
+
   try {
-    const is2h = resolution.toLowerCase() === "2h" || resolution === "120" || resolution === "120m";
-    const effectiveLimit = is2h ? limit * 2 : limit;
-    const isBrowser = typeof window !== "undefined";
+    const contractSym = toMexcContractSymbol(cleanSym);
+    const contractIv = normalizeMexcContractInterval(resolution);
+    if (isBrowser) {
+      const proxyUrl = `/api/mexc/klines?symbol=${cleanSym}&interval=${interval}&limit=${effectiveLimit}&market=futures`;
+      const res = await fetchWithTimeout(proxyUrl);
+      if (res.ok) {
+        const raw = await res.json();
+        const bars = convertMexcKlines(raw);
+        if (bars.length > 0) return is2h ? aggregateBars(bars, 2) : bars;
+      }
+    } else {
+      const futUrl = `https://contract.mexc.com/api/v1/contract/kline/${encodeURIComponent(contractSym)}?interval=${contractIv}`;
+      const res = await fetchWithTimeout(futUrl);
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload?.success && payload?.data) {
+          const allBars = convertMexcContractKlines(payload.data);
+          if (allBars.length > 0) {
+            const sliced = allBars.slice(-effectiveLimit);
+            return is2h ? aggregateBars(sliced, 2) : sliced;
+          }
+        }
+      }
+    }
+  } catch {}
+
+  try {
     const mexcBase = process.env.NEXT_PUBLIC_MEXC_API_BASE || "https://api.mexc.co";
     const mexcUrl = isBrowser
       ? `/api/mexc/klines?symbol=${cleanSym}&interval=${interval}&limit=${effectiveLimit}`
@@ -375,9 +524,38 @@ export async function fetchExchangeTickers(
     return tickerMap;
   }
 
-  // Default: MEXC Spot
+  // Default: MEXC Perpetual Futures first, with Spot fallback
+  const isBrowser = typeof window !== "undefined";
   try {
-    const isBrowser = typeof window !== "undefined";
+    const futUrl = isBrowser
+      ? "/api/mexc/ticker?market=futures"
+      : "https://contract.mexc.com/api/v1/contract/ticker";
+    const res = await fetchWithTimeout(futUrl, 6000);
+    if (res.ok) {
+      const payload = await res.json();
+      const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+      for (const t of rows) {
+        if (!t?.symbol) continue;
+        const sym = fromMexcContractSymbol(String(t.symbol));
+        const rawPct = parseFloat(t.riseFallRate ?? t.priceChangePercent ?? "0");
+        const change24h = Math.abs(rawPct) <= 1.0 ? rawPct * 100 : rawPct;
+        const price = parseFloat(t.lastPrice ?? t.fairPrice ?? t.price ?? "0");
+        if (!Number.isFinite(price) || price <= 0) continue;
+        tickerMap.set(sym, {
+          symbol: sym,
+          price,
+          change24h,
+          volume24h: parseFloat(t.amount24 ?? t.quoteVolume ?? t.volume24 ?? "0"),
+          high24h: parseFloat(t.high24Price ?? t.highPrice ?? "0"),
+          low24h: parseFloat(t.low24Price ?? t.lowPrice ?? "0"),
+          exchange: "mexc",
+        });
+      }
+      if (tickerMap.size > 0) return tickerMap;
+    }
+  } catch {}
+
+  try {
     const mexcBase = process.env.NEXT_PUBLIC_MEXC_API_BASE || "https://api.mexc.co";
     const mexcUrl = isBrowser
       ? "/api/mexc/ticker"

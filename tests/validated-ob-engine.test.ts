@@ -8,6 +8,8 @@ import {
   MAJORS_UNIVERSE,
   TOP_50_MEMES,
   TOP_50_AI,
+  TOP_150_MEMES,
+  TOP_150_AI,
 } from "../src/lib/screener/universe-catalog";
 import { CandlestickBar } from "../src/lib/mexc/types";
 
@@ -183,6 +185,34 @@ describe("Validated Order Block (OB + FVG) Calculation Engine (DEC-136)", () => 
       expect(custom).toHaveLength(2);
       expect(custom[0].symbol).toBe("TIAUSDT");
       expect(custom[1].symbol).toBe("SUIUSDT");
+      expect(custom[0].marketType).toBe("futures");
+      expect(custom[0].contractSymbol).toBe("TIA_USDT");
+    });
+
+    it("ensures every curated universe contains 150 unique Crypto Perpetual Futures coins with zero Spot-only or Stock tickers", () => {
+      const universes = [
+        { name: "majors", coins: MAJORS_UNIVERSE },
+        { name: "memes", coins: TOP_150_MEMES },
+        { name: "ai", coins: TOP_150_AI },
+      ];
+
+      expect(TOP_50_MEMES).toBe(TOP_150_MEMES);
+      expect(TOP_50_AI).toBe(TOP_150_AI);
+
+      for (const u of universes) {
+        expect(u.coins.length).toBe(150);
+        const seen = new Set<string>();
+        for (const coin of u.coins) {
+          expect(seen.has(coin.symbol)).toBe(false);
+          seen.add(coin.symbol);
+          expect(coin.marketType).toBe("futures");
+          expect(coin.contractSymbol).toBeDefined();
+          expect(coin.contractSymbol?.endsWith("_USDT")).toBe(true);
+          expect(coin.symbol.endsWith("USDT")).toBe(true);
+          expect(coin.symbol.includes("STOCK")).toBe(false);
+          expect(/^[\x00-\x7F]+$/.test(coin.symbol)).toBe(true);
+        }
+      }
     });
   });
 });

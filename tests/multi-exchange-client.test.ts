@@ -4,6 +4,11 @@ import {
   convertBinanceKlines,
   convertBybitKlines,
   convertMexcKlines,
+  convertMexcContractKlines,
+  toMexcContractSymbol,
+  fromMexcContractSymbol,
+  mapSymbolForPerpExchange,
+  normalizeMexcContractInterval,
   aggregateBars,
   SUPPORTED_EXCHANGES,
 } from "../src/lib/screener/multi-exchange-client";
@@ -158,11 +163,11 @@ describe("Multi-Exchange POI Aggregation Engine (DEC-143)", () => {
       }
     });
 
-    it("defaults to MEXC when exchange is omitted", () => {
+    it("defaults to MEXC Perps when exchange is omitted", () => {
       const pois = computeRadarPois(bars, "SOLUSDT", "4H");
       expect(pois.length).toBeGreaterThan(0);
       expect(pois[0].exchange).toBe("mexc");
-      expect(pois[0].exchangeLabel).toBe("MEXC Spot");
+      expect(pois[0].exchangeLabel).toBe("MEXC Perps");
     });
   });
 
@@ -262,6 +267,54 @@ describe("Multi-Exchange POI Aggregation Engine (DEC-143)", () => {
       expect(report.text).toContain("[BYBIT]");
       expect(report.text).toContain("SOLUSDT");
       expect(report.text).toContain("IN-ZONE");
+    });
+  });
+
+  describe("MEXC Perpetual Futures Helpers", () => {
+    it("converts canonical USDT symbols to/from MEXC Perpetual contract symbols", () => {
+      expect(toMexcContractSymbol("BTCUSDT")).toBe("BTC_USDT");
+      expect(toMexcContractSymbol("BTC_USDT")).toBe("BTC_USDT");
+      expect(toMexcContractSymbol("FILUSDT")).toBe("FILECOIN_USDT");
+      expect(fromMexcContractSymbol("1000BONK_USDT")).toBe("1000BONKUSDT");
+      expect(fromMexcContractSymbol("FILECOIN_USDT")).toBe("FILECOINUSDT");
+    });
+
+    it("maps MEXC Perpetual symbols to Binance and Bybit perpetual aliases", () => {
+      expect(mapSymbolForPerpExchange("mexc", "PEPEUSDT")).toBe("PEPEUSDT");
+      expect(mapSymbolForPerpExchange("binance", "PEPEUSDT")).toBe("1000PEPEUSDT");
+      expect(mapSymbolForPerpExchange("bybit", "FILECOINUSDT")).toBe("FILUSDT");
+      expect(mapSymbolForPerpExchange("binance", "1000000BABYDOGEUSDT")).toBe("1MBABYDOGEUSDT");
+    });
+
+    it("normalizes standard intervals to MEXC Perpetual contract kline intervals", () => {
+      expect(normalizeMexcContractInterval("15m")).toBe("Min15");
+      expect(normalizeMexcContractInterval("1h")).toBe("Min60");
+      expect(normalizeMexcContractInterval("2h")).toBe("Min60");
+      expect(normalizeMexcContractInterval("4h")).toBe("Hour4");
+      expect(normalizeMexcContractInterval("1d")).toBe("Day1");
+      expect(normalizeMexcContractInterval("1w")).toBe("Week1");
+      expect(normalizeMexcContractInterval("1M")).toBe("Month1");
+    });
+
+    it("converts MEXC Perpetual contract kline columnar payload into CandlestickBar[]", () => {
+      const bars = convertMexcContractKlines({
+        time: [1700000000, 1700000900],
+        open: [100, 102],
+        high: [105, 106],
+        low: [99, 101],
+        close: [102, 105],
+        vol: [50, 60],
+      });
+      expect(bars).toHaveLength(2);
+      expect(bars[0]).toEqual({
+        time: 1700000000000,
+        open: 100,
+        high: 105,
+        low: 99,
+        close: 102,
+        volume: 50,
+      });
+      expect(bars[1].time).toBe(1700000900000);
     });
   });
 });
