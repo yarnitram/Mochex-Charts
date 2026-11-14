@@ -4155,6 +4155,22 @@ export function getStudioDraft(): { name: string; code: string; scriptId?: strin
   }
 }
 
+export const DEFAULT_OB_FVG_SCRIPT = `/**
+ * Validated OB + FVG (RGG / GRR)
+ *
+ * Strict 3-Candle Order Block + Mandatory FVG Engine:
+ * - Bullish RGG: Red Candle 1 (OB) + Green Candle 2 (Displacement) + Green Candle 3 with C3.low > C1.high
+ * - Bearish GRR: Green Candle 1 (OB) + Red Candle 2 (Displacement) + Red Candle 3 with C3.high < C1.low
+ * - First-touch OB mitigation freezes OB right edge in gray at touching candle
+ */
+function calculate(bars, inputs, ta, strategy, alertcondition) {
+  // Native execution handled by validated-ob-engine & renderObFvgZones
+  return bars.map((bar) => ({
+    time: bar.time,
+    value: bar.close,
+  }));
+}`;
+
 export const DEFAULT_SANDWICH_SCRIPT = `/**
  * Sandwich Zones ++ (Multi-Timeframe)
  *
@@ -4293,6 +4309,9 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
  */
 export function resolveCatalogScriptCode(id?: string, name?: string): string {
   const n = ((id || "") + " " + (name || "")).toLowerCase();
+  if (n.includes("validated-ob") || n.includes("validated ob") || (n.includes("rgg") && n.includes("grr"))) {
+    return DEFAULT_OB_FVG_SCRIPT;
+  }
   if (n.includes("sandwich") || n.includes("rgrr") || n.includes("grgg")) {
     return DEFAULT_SANDWICH_SCRIPT;
   }

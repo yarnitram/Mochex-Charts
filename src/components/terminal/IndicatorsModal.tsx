@@ -41,6 +41,7 @@ import {
   DEFAULT_HEAD_SHOULDERS_SCRIPT,
   DEFAULT_MTF_EMA_SCRIPT,
   DEFAULT_SANDWICH_SCRIPT,
+  DEFAULT_OB_FVG_SCRIPT,
   resolveCatalogScriptCode,
 } from "@/lib/indicators/custom-scripts-store";
 import { IndicatorSandbox } from "@/lib/indicators/sandbox";
@@ -60,6 +61,18 @@ export interface IndicatorCatalogItem {
 }
 
 const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
+  {
+    id: "validated-ob-fvg",
+    name: "Validated OB + FVG (RGG / GRR)",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "39.4K",
+    description: "Strict 3-Candle Order Block + Mandatory FVG detection (Bullish RGG & Bearish GRR) confirmed on Candle 3 close, with separate green/red OB and translucent FVG boxes, Full/Body zone modes, and automatic first-touch gray mitigation.",
+    isVerified: true,
+    code: DEFAULT_OB_FVG_SCRIPT,
+  },
   {
     id: "sandwich-zones",
     name: "Sandwich Zones ++ (Multi-Timeframe)",
