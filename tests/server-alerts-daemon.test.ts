@@ -11,6 +11,7 @@ import {
   appendServerAlertLog,
   getServerAlertLogs,
   getAllActiveServerAlerts,
+  getRemovedServerAlertIds,
 } from "../src/lib/alerts/server-alerts-store";
 import { ServerAlertDaemon } from "../src/lib/alerts/server-alert-daemon";
 import { PriceAlert, AlertLogEntry } from "../src/lib/alerts/alerts-engine";
@@ -22,10 +23,12 @@ describe("24/7 Server-Side Offline Cloud Alert Engine (DEC-135)", () => {
   const alertsFile = path.join(dataDir, "alerts.json");
   const webhooksFile = path.join(dataDir, "webhooks.json");
   const logsFile = path.join(dataDir, "alert-logs.json");
+  const removedFile = path.join(dataDir, "removed-alerts.json");
 
   let originalAlerts: string | null = null;
   let originalWebhooks: string | null = null;
   let originalLogs: string | null = null;
+  let originalRemoved: string | null = null;
 
   beforeEach(() => {
     // Backup any existing .data files
@@ -33,6 +36,7 @@ describe("24/7 Server-Side Offline Cloud Alert Engine (DEC-135)", () => {
       if (fs.existsSync(alertsFile)) originalAlerts = fs.readFileSync(alertsFile, "utf-8");
       if (fs.existsSync(webhooksFile)) originalWebhooks = fs.readFileSync(webhooksFile, "utf-8");
       if (fs.existsSync(logsFile)) originalLogs = fs.readFileSync(logsFile, "utf-8");
+      if (fs.existsSync(removedFile)) originalRemoved = fs.readFileSync(removedFile, "utf-8");
     } catch {}
   });
 
@@ -66,6 +70,16 @@ describe("24/7 Server-Side Offline Cloud Alert Engine (DEC-135)", () => {
           const map = JSON.parse(fs.readFileSync(logsFile, "utf-8"));
           delete map[testUserId];
           fs.writeFileSync(logsFile, JSON.stringify(map, null, 2), "utf-8");
+        } catch {}
+      }
+
+      if (originalRemoved !== null) {
+        fs.writeFileSync(removedFile, originalRemoved, "utf-8");
+      } else if (fs.existsSync(removedFile)) {
+        try {
+          const map = JSON.parse(fs.readFileSync(removedFile, "utf-8"));
+          delete map[testUserId];
+          fs.writeFileSync(removedFile, JSON.stringify(map, null, 2), "utf-8");
         } catch {}
       }
     } catch {}
@@ -298,6 +312,142 @@ describe("24/7 Server-Side Offline Cloud Alert Engine (DEC-135)", () => {
 
       // Should still be 1 call because cooldown is active
       expect(dispatchSpy).toHaveBeenCalledTimes(1);
+
+      daemon.stop();
+    });
+
+    it("automatically deletes a POI alarm once it is hit while still delivering webhook and log", async () => {
+      const dispatchSpy = vi
+        .spyOn(webhookDispatcher, "dispatchDirectWebhooks")
+        .mockResolvedValue({ discord: { ok: true } });
+
+      const poiAlert: PriceAlert = {
+        id: "alert-poi-btc-ob-hit",
+        symbol: "BTCUSDT",
+        targetPrice: 65000,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "price",
+        label: "BTC 1h Bullish Validated OB Hit",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        notifyDiscord: true,
+        invalidationPrice: 64200,
+        poiMetadata: {
+          poiId: "poi-btc-1h-ob",
+          category: "order_block",
+          direction: "BULLISH",
+          timeframe: "1h",
+          zoneTop: 65200,
+          zoneBottom: 64200,
+          invalidationPrice: 64200,
+        },
+      };
+
+      await saveServerAlert(poiAlert, testUserId);
+      await saveServerWebhooks(testUserId, {
+        discordWebhookUrl: "https://discord.com/api/webhooks/mock",
+        discordEnabled: true,
+      });
+
+      const daemon = new ServerAlertDaemon("wss://mock.ws");
+      await daemon.refreshActiveAlerts();
+
+      await daemon.processPriceUpdate("BTCUSDT", 65500);
+      await daemon.processPriceUpdate("BTCUSDT", 64950);
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      expect(await getServerAlerts(testUserId)).toHaveLength(0);
+      expect(await getRemovedServerAlertIds(testUserId)).toContain("alert-poi-btc-ob-hit");
+      expect(daemon.getStatus().activeAlertsCount).toBe(0);
+      expect(daemon.getStatus().trackedSymbols).not.toContain("BTCUSDT");
+
+      const logs = await getServerAlertLogs(testUserId);
+      expect(logs[0].alertId).toBe("alert-poi-btc-ob-hit");
+
+      daemon.stop();
+    });
+
+    it("automatically deletes invalidated POI alarms with or without invalidation notifications", async () => {
+      const dispatchSpy = vi
+        .spyOn(webhookDispatcher, "dispatchDirectWebhooks")
+        .mockResolvedValue({ discord: { ok: true } });
+
+      const notifiedPoi: PriceAlert = {
+        id: "alert-poi-eth-inv-notify",
+        symbol: "ETHUSDT",
+        targetPrice: 3200,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "price",
+        label: "ETH Bullish OB (Notify Inv)",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        notifyDiscord: true,
+        notifyOnInvalidation: true,
+        invalidationPrice: 3100,
+        poiMetadata: {
+          poiId: "poi-eth-1",
+          category: "order_block",
+          direction: "BULLISH",
+          timeframe: "15m",
+          zoneTop: 3220,
+          zoneBottom: 3100,
+          invalidationPrice: 3100,
+        },
+      };
+
+      const silentPoi: PriceAlert = {
+        id: "bulk-poi-eth-inv-silent",
+        symbol: "ETHUSDT",
+        targetPrice: 3250,
+        condition: "crossing_down",
+        frequency: "only_once",
+        sourceType: "price",
+        label: "ETH Bullish OB (Silent Inv)",
+        active: true,
+        triggeredCount: 0,
+        createdAt: Date.now(),
+        notifyDiscord: true,
+        notifyOnInvalidation: false,
+        invalidationPrice: 3150,
+        poiMetadata: {
+          poiId: "poi-eth-2",
+          category: "order_block",
+          direction: "BULLISH",
+          timeframe: "1h",
+          zoneTop: 3260,
+          zoneBottom: 3150,
+          invalidationPrice: 3150,
+        },
+      };
+
+      await saveServerAlert(notifiedPoi, testUserId);
+      await saveServerAlert(silentPoi, testUserId);
+      await saveServerWebhooks(testUserId, {
+        discordWebhookUrl: "https://discord.com/api/webhooks/mock",
+        discordEnabled: true,
+      });
+
+      const daemon = new ServerAlertDaemon("wss://mock.ws");
+      await daemon.refreshActiveAlerts();
+
+      // Baseline above both zones so target price crossings don't trigger hit;
+      // Start at 3180 (already inside/below both target entries? Actually crossing_down checks prev > target && curr <= target,
+      // so starting at 3120 only crosses below 3150? Wait: 3180 -> 3050 would cross 3200? No, 3180 < 3200 so neither target triggers, both invalidate!).
+      await daemon.processPriceUpdate("ETHUSDT", 3180);
+      await daemon.processPriceUpdate("ETHUSDT", 3050);
+
+      // Only the invalidation-notified alert fires a webhook, but BOTH POI alarms are deleted
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy.mock.calls[0][1].id).toBe("alert-poi-eth-inv-notify");
+      expect(await getServerAlerts(testUserId)).toHaveLength(0);
+      const removedIds = await getRemovedServerAlertIds(testUserId);
+      expect(removedIds).toContain("alert-poi-eth-inv-notify");
+      expect(removedIds).toContain("bulk-poi-eth-inv-silent");
+      expect(daemon.getStatus().activeAlertsCount).toBe(0);
 
       daemon.stop();
     });

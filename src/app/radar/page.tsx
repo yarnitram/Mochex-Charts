@@ -60,7 +60,7 @@ import {
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
-import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, isPoiPriceAlert } from "@/lib/alerts/alerts-engine";
 import { loadClientAlerts, syncAlerts } from "@/lib/alerts/alerts-sync";
 
 import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateForRisk, PoiCorrelationRiskInfo } from "@/lib/indicators/portfolio-risk-engine";
@@ -263,8 +263,12 @@ export default function RadarPage() {
     fetchActiveAlerts();
     const handleAlertsUpdated = () => fetchActiveAlerts();
     window.addEventListener("mochex:alerts-updated", handleAlertsUpdated);
+    window.addEventListener("focus", handleAlertsUpdated);
+    const interval = setInterval(fetchActiveAlerts, 15000);
     return () => {
       window.removeEventListener("mochex:alerts-updated", handleAlertsUpdated);
+      window.removeEventListener("focus", handleAlertsUpdated);
+      clearInterval(interval);
     };
   }, [fetchActiveAlerts]);
 
@@ -282,7 +286,7 @@ export default function RadarPage() {
 
   // Helper to identify radar POI alerts vs standard chart alerts (DEC-158)
   const isRadarAlert = useCallback((a: PriceAlert) => {
-    return Boolean(a.poiMetadata || a.id.startsWith("alert-poi-") || a.id.startsWith("bulk-poi-"));
+    return isPoiPriceAlert(a);
   }, []);
 
   const radarAlerts = useMemo(() => {

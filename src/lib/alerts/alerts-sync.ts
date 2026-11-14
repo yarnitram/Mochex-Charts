@@ -65,9 +65,13 @@ export function recordDeletedAlertIds(ids: string[]): void {
  */
 export function mergeClientAndServerAlerts(
   localAlerts: PriceAlert[],
-  serverAlerts: PriceAlert[]
+  serverAlerts: PriceAlert[],
+  extraDeletedIds: string[] = []
 ): PriceAlert[] {
   const deletedIds = getDeletedAlertIds();
+  for (const id of extraDeletedIds) {
+    if (id) deletedIds.add(id);
+  }
   const map = new Map<string, PriceAlert>();
 
   // 1. Add server alerts (if not marked deleted)
@@ -111,8 +115,13 @@ export async function syncAlerts(
     if (res.ok) {
       const data = await res.json().catch(() => null);
       const serverAlerts: PriceAlert[] = Array.isArray(data?.alerts) ? data.alerts : [];
+      const removedAlertIds: string[] = Array.isArray(data?.removedAlertIds) ? data.removedAlertIds : [];
 
-      const merged = mergeClientAndServerAlerts(localAlerts, serverAlerts);
+      if (removedAlertIds.length > 0) {
+        recordDeletedAlertIds(removedAlertIds);
+      }
+
+      const merged = mergeClientAndServerAlerts(localAlerts, serverAlerts, removedAlertIds);
       saveClientAlerts(merged);
       onUpdate?.(merged);
 

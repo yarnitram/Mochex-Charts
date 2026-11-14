@@ -7,6 +7,7 @@ import {
   deleteServerAlertsBatch,
   updateServerAlertsBatch,
   getServerAlertLogs,
+  getRemovedServerAlertIds,
 } from "@/lib/alerts/server-alerts-store";
 import { serverAlertDaemon } from "@/lib/alerts/server-alert-daemon";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
@@ -55,7 +56,8 @@ export async function GET(request: NextRequest) {
   try {
     const alerts = await getServerAlerts(user.userId);
     const logs = await getServerAlertLogs(user.userId);
-    return NextResponse.json({ alerts, logs });
+    const removedAlertIds = await getRemovedServerAlertIds(user.userId);
+    return NextResponse.json({ alerts, logs, removedAlertIds });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || "Failed to fetch alerts" },

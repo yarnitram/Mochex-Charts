@@ -27,7 +27,7 @@ import {
   Sparkles,
   ScrollText,
 } from "lucide-react";
-import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, isPoiPriceAlert } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -207,11 +207,17 @@ export default function RadarAlertsPage() {
     }
   }, [fetchAlerts]);
 
-  // Listen to alerts updated event
+  // Listen to alerts updated event and poll so auto-removed hit/invalidated POI alarms clear promptly
   useEffect(() => {
     const handleUpdated = () => fetchAlerts(true);
     window.addEventListener("mochex:alerts-updated", handleUpdated);
-    return () => window.removeEventListener("mochex:alerts-updated", handleUpdated);
+    window.addEventListener("focus", handleUpdated);
+    const interval = setInterval(() => fetchAlerts(true), 15000);
+    return () => {
+      window.removeEventListener("mochex:alerts-updated", handleUpdated);
+      window.removeEventListener("focus", handleUpdated);
+      clearInterval(interval);
+    };
   }, [fetchAlerts]);
 
   // Listen to webhooks updated event
@@ -232,7 +238,7 @@ export default function RadarAlertsPage() {
 
   // Helper: radar alerts vs chart alerts
   const isRadarAlert = useCallback((a: PriceAlert) => {
-    return Boolean(a.poiMetadata || a.id.startsWith("alert-poi-") || a.id.startsWith("bulk-poi-"));
+    return isPoiPriceAlert(a);
   }, []);
 
   // Filtered radar alerts list

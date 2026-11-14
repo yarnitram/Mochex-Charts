@@ -5,6 +5,7 @@ import { readJsonData, writeJsonData } from "../storage/data-dir";
 const ALERTS_FILE = "alerts.json";
 const WEBHOOKS_FILE = "webhooks.json";
 const LOGS_FILE = "alert-logs.json";
+const REMOVED_ALERTS_FILE = "removed-alerts.json";
 
 function readJsonFile<T>(filename: string, fallback: T): T {
   return readJsonData(filename, fallback, "server-alerts-store");
@@ -17,6 +18,37 @@ function writeJsonFile<T>(filename: string, data: T): void {
 export type UserAlertsMap = Record<string, PriceAlert[]>;
 export type UserWebhooksMap = Record<string, AlertWebhookConfig>;
 export type UserAlertLogsMap = Record<string, AlertLogEntry[]>;
+export type UserRemovedAlertIdsMap = Record<string, string[]>;
+
+function clearRemovedAlertIdsSync(alertIds: string[], userId: string): void {
+  if (!alertIds || alertIds.length === 0) return;
+  const removedMap = readJsonFile<UserRemovedAlertIdsMap>(REMOVED_ALERTS_FILE, {});
+  const existing = removedMap[userId];
+  if (!Array.isArray(existing) || existing.length === 0) return;
+  const clearSet = new Set(alertIds);
+  const next = existing.filter((id) => !clearSet.has(id));
+  if (next.length !== existing.length) {
+    removedMap[userId] = next;
+    writeJsonFile(REMOVED_ALERTS_FILE, removedMap);
+  }
+}
+
+export async function getRemovedServerAlertIds(userId: string): Promise<string[]> {
+  const map = readJsonFile<UserRemovedAlertIdsMap>(REMOVED_ALERTS_FILE, {});
+  return Array.isArray(map[userId]) ? map[userId] : [];
+}
+
+export async function recordRemovedServerAlertIds(
+  alertIds: string[],
+  userId: string
+): Promise<void> {
+  if (!alertIds || alertIds.length === 0) return;
+  const map = readJsonFile<UserRemovedAlertIdsMap>(REMOVED_ALERTS_FILE, {});
+  const existing = Array.isArray(map[userId]) ? map[userId] : [];
+  const merged = Array.from(new Set([...alertIds, ...existing])).slice(0, 500);
+  map[userId] = merged;
+  writeJsonFile(REMOVED_ALERTS_FILE, map);
+}
 
 /**
  * Returns all alerts created by a user
@@ -55,6 +87,7 @@ export async function saveServerAlert(alert: PriceAlert, userId: string): Promis
 
   map[userId] = userAlerts;
   writeJsonFile(ALERTS_FILE, map);
+  clearRemovedAlertIdsSync([alert.id], userId);
   return alert;
 }
 
@@ -80,6 +113,7 @@ export async function saveServerAlertsBatch(
 
   map[userId] = userAlerts;
   writeJsonFile(ALERTS_FILE, map);
+  clearRemovedAlertIdsSync(alerts.map((a) => a.id), userId);
   return alerts;
 }
 
@@ -124,6 +158,7 @@ export async function deleteServerAlert(alertId: string, userId: string): Promis
 
   map[userId] = filtered;
   writeJsonFile(ALERTS_FILE, map);
+  await recordRemovedServerAlertIds([alertId], userId);
   return true;
 }
 
@@ -143,6 +178,7 @@ export async function deleteServerAlertsBatch(
   if (count > 0) {
     map[userId] = remaining;
     writeJsonFile(ALERTS_FILE, map);
+    await recordRemovedServerAlertIds(alertIds, userId);
   }
   return count;
 }
