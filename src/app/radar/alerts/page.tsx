@@ -639,33 +639,42 @@ export default function RadarAlertsPage() {
           </div>
 
           {/* Channels Delivery */}
-          <div className="p-3.5 rounded-xl bg-[#0c1017] border border-[#1b2535] flex flex-col gap-1">
-            <div className="text-[10px] text-[#848e9c] uppercase font-bold tracking-wider flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setIsChannelsModalOpen(true)}
+            className="p-3.5 rounded-xl bg-[#0c1017] border border-[#1b2535] hover:border-[#2962ff]/50 flex flex-col gap-1 text-left transition-colors cursor-pointer"
+            title="Click to configure or enable Discord & Telegram channels"
+          >
+            <div className="text-[10px] text-[#848e9c] uppercase font-bold tracking-wider flex items-center justify-between w-full">
               <span>Channels</span>
               <Send size={12} className="text-[#5865F2]" />
             </div>
             <div className="flex items-center gap-1.5 mt-1">
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
-                  webhookConfig.discordEnabled
+                  webhookConfig.discordEnabled && webhookConfig.discordWebhookUrl
                     ? "bg-[#5865F2]/20 text-[#5865F2] border-[#5865F2]/40"
+                    : webhookConfig.discordWebhookUrl
+                    ? "bg-amber-500/15 text-amber-400 border-amber-500/40"
                     : "bg-[#121824] text-[#848e9c] border-[#233144]"
                 }`}
               >
-                DC: {webhookConfig.discordEnabled ? "ON" : "OFF"}
+                DC: {webhookConfig.discordEnabled && webhookConfig.discordWebhookUrl ? "ON" : webhookConfig.discordWebhookUrl ? "PAUSED" : "OFF"}
               </span>
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
-                  webhookConfig.telegramEnabled
+                  webhookConfig.telegramEnabled && webhookConfig.telegramBotToken && webhookConfig.telegramChatId
                     ? "bg-[#229ED9]/20 text-[#229ED9] border-[#229ED9]/40"
+                    : webhookConfig.telegramBotToken || webhookConfig.telegramChatId
+                    ? "bg-amber-500/15 text-amber-400 border-amber-500/40"
                     : "bg-[#121824] text-[#848e9c] border-[#233144]"
                 }`}
               >
-                TG: {webhookConfig.telegramEnabled ? "ON" : "OFF"}
+                TG: {webhookConfig.telegramEnabled && webhookConfig.telegramBotToken && webhookConfig.telegramChatId ? "ON" : (webhookConfig.telegramBotToken || webhookConfig.telegramChatId) ? "PAUSED" : "OFF"}
               </span>
             </div>
-            <div className="text-[10px] text-[#848e9c] mt-0.5">Push dispatch status</div>
-          </div>
+            <div className="text-[10px] text-[#848e9c] mt-0.5">Click to configure push</div>
+          </button>
         </div>
       </section>
 

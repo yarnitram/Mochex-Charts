@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X,
   Send,
@@ -99,61 +99,73 @@ export function AlertChannelsModal({
   const [isSaving, setIsSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Synchronize internal state whenever initialConfig updates or modal opens
+  // Track user edits so background sync or parent re-renders NEVER overwrite active typing
+  const hasUserEditedRef = useRef(false);
+  const initialConfigRef = useRef(initialConfig);
+  initialConfigRef.current = initialConfig;
+
+  // Hydrate internal form state strictly ONCE when the modal opens (not on every parent reference change)
   useEffect(() => {
     if (!isOpen) return;
 
-    // 1. Load from localStorage first to prevent blank flashes
-    const local = loadClientWebhooks();
-    const source =
-      initialConfig && (initialConfig.discordWebhookUrl || initialConfig.telegramBotToken)
-        ? mergeClientAndServerWebhooks(local, initialConfig)
-        : local;
+    let cancelled = false;
+    hasUserEditedRef.current = false;
 
-    if (source.discordWebhookUrl) setDiscordWebhookUrl(source.discordWebhookUrl);
-    if (typeof source.discordEnabled === "boolean") {
-      setDiscordEnabled(source.discordEnabled);
-    } else if (source.discordWebhookUrl) {
-      setDiscordEnabled(true);
-    }
+    const applyConfigToForm = (source: AlertWebhookConfig) => {
+      setDiscordWebhookUrl(source.discordWebhookUrl || "");
+      setDiscordEnabled(
+        typeof source.discordEnabled === "boolean"
+          ? source.discordEnabled
+          : Boolean(source.discordWebhookUrl?.trim())
+      );
 
-    if (source.telegramBotToken) setTelegramBotToken(source.telegramBotToken);
-    if (source.telegramChatId) setTelegramChatId(source.telegramChatId);
-    if (typeof source.telegramEnabled === "boolean") {
-      setTelegramEnabled(source.telegramEnabled);
-    } else if (source.telegramBotToken && source.telegramChatId) {
-      setTelegramEnabled(true);
-    }
+      setTelegramBotToken(source.telegramBotToken || "");
+      setTelegramChatId(source.telegramChatId || "");
+      setTelegramEnabled(
+        typeof source.telegramEnabled === "boolean"
+          ? source.telegramEnabled
+          : Boolean(source.telegramBotToken?.trim() && source.telegramChatId?.trim())
+      );
 
-    if (source.tradingWebhook) {
-      setTradingEnabled(source.tradingWebhook.enabled ?? false);
-      setTradingPlatform(source.tradingWebhook.platform || "3commas");
-      setTradingWebhookUrl(source.tradingWebhook.webhookUrl || "");
-      setTradingSecretToken(source.tradingWebhook.secretToken || "");
-      setTradingBotId(source.tradingWebhook.botId || "");
-      if (source.tradingWebhook.customTemplate) {
-        setTradingCustomTemplate(source.tradingWebhook.customTemplate);
+      if (source.tradingWebhook) {
+        setTradingEnabled(source.tradingWebhook.enabled ?? false);
+        setTradingPlatform(source.tradingWebhook.platform || "3commas");
+        setTradingWebhookUrl(source.tradingWebhook.webhookUrl || "");
+        setTradingSecretToken(source.tradingWebhook.secretToken || "");
+        setTradingBotId(source.tradingWebhook.botId || "");
+        setTradingCustomTemplate(
+          source.tradingWebhook.customTemplate ||
+            getDefaultTradingWebhookTemplate(source.tradingWebhook.platform || "3commas")
+        );
+      } else {
+        setTradingEnabled(false);
+        setTradingWebhookUrl("");
+        setTradingSecretToken("");
+        setTradingBotId("");
       }
-    }
+    };
 
-    // 2. Then perform non-destructive sync with server in background
+    // 1. Hydrate immediately from localStorage merged with latest initialConfig prop
+    const local = loadClientWebhooks();
+    const initial = initialConfigRef.current;
+    const source =
+      initial && (initial.discordWebhookUrl || initial.telegramBotToken || initial.tradingWebhook?.webhookUrl)
+        ? mergeClientAndServerWebhooks(local, initial)
+        : local;
+    applyConfigToForm(source);
+
+    // 2. Non-destructively sync with server once, only applying if user hasn't edited yet
     syncWebhooks()
       .then((synced) => {
-        if (synced.discordWebhookUrl) setDiscordWebhookUrl(synced.discordWebhookUrl);
-        if (typeof synced.discordEnabled === "boolean") setDiscordEnabled(synced.discordEnabled);
-        if (synced.telegramBotToken) setTelegramBotToken(synced.telegramBotToken);
-        if (synced.telegramChatId) setTelegramChatId(synced.telegramChatId);
-        if (typeof synced.telegramEnabled === "boolean") setTelegramEnabled(synced.telegramEnabled);
-        if (synced.tradingWebhook?.webhookUrl) {
-          setTradingEnabled(synced.tradingWebhook.enabled ?? false);
-          setTradingPlatform(synced.tradingWebhook.platform || "3commas");
-          setTradingWebhookUrl(synced.tradingWebhook.webhookUrl || "");
-          setTradingSecretToken(synced.tradingWebhook.secretToken || "");
-          setTradingBotId(synced.tradingWebhook.botId || "");
-        }
+        if (cancelled || hasUserEditedRef.current) return;
+        applyConfigToForm(synced);
       })
       .catch(() => {});
-  }, [initialConfig, isOpen]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -295,6 +307,7 @@ export function AlertChannelsModal({
       });
       const data = await res.json();
       if (res.ok && data.success && data.chatId) {
+        hasUserEditedRef.current = true;
         setTelegramChatId(data.chatId);
         setTelegramEnabled(true);
         setTelegramStatus({
@@ -470,7 +483,10 @@ export function AlertChannelsModal({
                 <input
                   type="checkbox"
                   checked={discordEnabled}
-                  onChange={(e) => setDiscordEnabled(e.target.checked)}
+                  onChange={(e) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordEnabled(e.target.checked);
+                  }}
                   className="accent-[#5865F2] rounded cursor-pointer"
                 />
                 <span className={discordEnabled ? "text-on-surface font-semibold" : "text-muted"}>
@@ -485,6 +501,7 @@ export function AlertChannelsModal({
                 type="text"
                 value={discordWebhookUrl}
                 onChange={(e) => {
+                  hasUserEditedRef.current = true;
                   const val = e.target.value;
                   setDiscordWebhookUrl(val);
                   setDiscordStatus(null);
@@ -548,7 +565,10 @@ export function AlertChannelsModal({
                 <input
                   type="checkbox"
                   checked={telegramEnabled}
-                  onChange={(e) => setTelegramEnabled(e.target.checked)}
+                  onChange={(e) => {
+                    hasUserEditedRef.current = true;
+                    setTelegramEnabled(e.target.checked);
+                  }}
                   className="accent-[#229ED9] rounded cursor-pointer"
                 />
                 <span className={telegramEnabled ? "text-on-surface font-semibold" : "text-muted"}>
@@ -564,6 +584,7 @@ export function AlertChannelsModal({
                   type="text"
                   value={telegramBotToken}
                   onChange={(e) => {
+                    hasUserEditedRef.current = true;
                     const val = e.target.value;
                     setTelegramBotToken(val);
                     setTelegramStatus(null);
@@ -592,6 +613,7 @@ export function AlertChannelsModal({
                   type="text"
                   value={telegramChatId}
                   onChange={(e) => {
+                    hasUserEditedRef.current = true;
                     const val = e.target.value;
                     setTelegramChatId(val);
                     setTelegramStatus(null);

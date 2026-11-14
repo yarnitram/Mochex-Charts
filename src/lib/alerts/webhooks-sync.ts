@@ -61,14 +61,32 @@ export function loadClientWebhooks(): AlertWebhookConfig {
 }
 
 /**
- * Persists webhook configuration to localStorage and emits update event
+ * Persists webhook configuration to localStorage and emits update event unless `silent` is true
  */
-export function saveClientWebhooks(config: AlertWebhookConfig): void {
+export function saveClientWebhooks(config: AlertWebhookConfig, options?: { silent?: boolean }): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(WEBHOOKS_STORAGE_KEY, JSON.stringify(config));
-    window.dispatchEvent(new CustomEvent("mochex:webhooks-updated", { detail: config }));
+    if (!options?.silent) {
+      window.dispatchEvent(new CustomEvent("mochex:webhooks-updated", { detail: config }));
+    }
   } catch {}
+}
+
+export function areWebhookConfigsEqual(a?: AlertWebhookConfig | null, b?: AlertWebhookConfig | null): boolean {
+  const norm = (c?: AlertWebhookConfig | null) => ({
+    discordWebhookUrl: (c?.discordWebhookUrl || "").trim(),
+    discordEnabled: Boolean(c?.discordEnabled && c?.discordWebhookUrl?.trim()),
+    telegramBotToken: (c?.telegramBotToken || "").trim(),
+    telegramChatId: (c?.telegramChatId || "").trim(),
+    telegramEnabled: Boolean(c?.telegramEnabled && c?.telegramBotToken?.trim() && c?.telegramChatId?.trim()),
+    tradingEnabled: Boolean(c?.tradingWebhook?.enabled && c?.tradingWebhook?.webhookUrl?.trim()),
+    tradingPlatform: c?.tradingWebhook?.platform || "3commas",
+    tradingWebhookUrl: (c?.tradingWebhook?.webhookUrl || "").trim(),
+    tradingSecretToken: (c?.tradingWebhook?.secretToken || "").trim(),
+    tradingBotId: (c?.tradingWebhook?.botId || "").trim(),
+  });
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
 /**
@@ -174,8 +192,10 @@ export async function syncWebhooks(): Promise<AlertWebhookConfig> {
       const serverConfig = data?.config;
       const merged = mergeClientAndServerWebhooks(local, serverConfig);
 
-      // Persist merged configuration locally
-      saveClientWebhooks(merged);
+      // Persist merged configuration locally, but only broadcast if config actually changed
+      // (avoids unnecessary parent->modal re-render event loops)
+      const changed = !areWebhookConfigsEqual(local, merged);
+      saveClientWebhooks(merged, { silent: !changed });
 
       // If local possessed credentials that server was missing, back-fill to server
       const serverMissingDiscord = !serverConfig?.discordWebhookUrl && Boolean(merged.discordWebhookUrl);
