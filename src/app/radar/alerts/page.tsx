@@ -56,7 +56,7 @@ export default function RadarAlertsPage() {
   // Filters
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "RADAR" | "CHART">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<"ALL" | "order_block" | "sandwich_zone" | "fvg">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<"ALL" | "order_block" | "sandwich_zone">("ALL");
   const [timeframeFilter, setTimeframeFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "PAUSED">("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | "BULLISH" | "BEARISH">("ALL");
@@ -106,7 +106,7 @@ export default function RadarAlertsPage() {
         const s = params.get("search");
         if (s) setSearchQuery(s);
         const cat = params.get("category");
-        if (cat && (cat === "order_block" || cat === "sandwich_zone" || cat === "fvg")) {
+        if (cat && (cat === "order_block" || cat === "sandwich_zone")) {
           setCategoryFilter(cat as any);
         }
       } catch {}
@@ -476,7 +476,7 @@ export default function RadarAlertsPage() {
                 </span>
               </div>
               <div className="text-[10px] text-[#848e9c]">
-                Centralized monitoring for Order Blocks, Sandwich Zones & FVGs
+                Centralized monitoring for Validated Order Blocks & Sandwich Zones
               </div>
             </div>
           </div>
@@ -739,10 +739,9 @@ export default function RadarAlertsPage() {
             onChange={(e) => setCategoryFilter(e.target.value as any)}
             className="bg-[#121824] text-[#d1d4dc] text-xs px-3 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
           >
-            <option value="ALL">All Categories (OB + Sandwich + FVG)</option>
+            <option value="ALL">All Categories (OB + Sandwich ++)</option>
             <option value="order_block">📦 Validated Order Blocks Only</option>
             <option value="sandwich_zone">🥪 Sandwich Zones ++ Only</option>
-            <option value="fvg">⚡ Fair Value Gaps (FVG) Only</option>
           </select>
 
           {/* Timeframe Filter */}
@@ -860,7 +859,7 @@ export default function RadarAlertsPage() {
               <h3 className="text-base font-bold text-white">No Radar Alarms Found</h3>
               <p className="text-xs text-[#848e9c]">
                 {radarAlerts.length === 0
-                  ? "You haven't armed any 24/7 cloud alarms on Order Blocks, Sandwich Zones, or FVGs yet. Use the Bulk Alarm setup to arm alarms across entire universes in 1 click!"
+                  ? "You haven't armed any 24/7 cloud alarms on Validated Order Blocks or Sandwich Zones yet. Use the Bulk Alarm setup to arm alarms across entire universes in 1 click!"
                   : "No alarms match your active search and filter criteria. Try resetting filters."}
               </p>
             </div>

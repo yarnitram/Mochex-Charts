@@ -24,6 +24,8 @@ import {
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
+  BulkAlarmPoiCategory,
+  filterPoisForBulkAlarm,
 } from "@/lib/indicators/radar-poi-engine";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
@@ -103,7 +105,7 @@ export function PoiBulkAlarmModal({
 }: PoiBulkAlarmModalProps) {
   // Category filter for the bulk alarm
   const [targetCategory, setTargetCategory] = useState<
-    "order_block" | "sandwich_zone" | "fvg" | "all"
+    BulkAlarmPoiCategory
   >("order_block");
 
   // Selected timeframes
@@ -213,14 +215,7 @@ export function PoiBulkAlarmModal({
         }
 
         // Filter by target category
-        let candidates = tfPois;
-        if (targetCategory === "order_block") {
-          candidates = tfPois.filter((p) => p.category === "order_block");
-        } else if (targetCategory === "sandwich_zone") {
-          candidates = tfPois.filter((p) => p.category === "sandwich_zone");
-        } else if (targetCategory === "fvg") {
-          candidates = tfPois.filter((p) => p.category === "fvg");
-        }
+        const candidates = filterPoisForBulkAlarm(tfPois, targetCategory);
 
         // Pick highest priority candidate for this timeframe
         if (candidates.length > 0) {
@@ -239,8 +234,6 @@ export function PoiBulkAlarmModal({
             const indicatorName =
               chosen.category === "sandwich_zone"
                 ? "Sandwich Zones ++ (Supply & Demand)"
-                : chosen.category === "fvg"
-                ? "Fair Value Gap (FVG)"
                 : "Validated Order Block (OB + FVG)";
 
             const cleanSym = coin.symbol.replace("USDT", "");
@@ -462,12 +455,11 @@ export function PoiBulkAlarmModal({
             <label className="block text-xs font-semibold text-slate-300 mb-2">
               POI Category to Alarm
             </label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {[
                 { id: "order_block", label: "Validated OB", desc: "OB + FVG Confirmed" },
                 { id: "sandwich_zone", label: "Sandwich ++", desc: "Supply & Demand" },
-                { id: "fvg", label: "FVG Imbalance", desc: "Pure 3-bar gap" },
-                { id: "all", label: "All POIs", desc: "Any valid setup" },
+                { id: "all", label: "All POIs", desc: "OB & Sandwich setups" },
               ].map((cat) => {
                 const isSelected = targetCategory === cat.id;
                 return (

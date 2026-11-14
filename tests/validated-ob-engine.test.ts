@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeValidatedOrderBlocks,
+  computeObFvgZones,
   getObAlarmTargetPrice,
 } from "../src/lib/indicators/validated-ob-engine";
 import {
@@ -187,6 +188,7 @@ describe("Validated Order Block (OB + FVG) Calculation Engine (DEC-136)", () => 
       expect(custom[1].symbol).toBe("SUIUSDT");
       expect(custom[0].marketType).toBe("futures");
       expect(custom[0].contractSymbol).toBe("TIA_USDT");
+      expect(custom[1].contractSymbol).toBe("SUI_USDT");
     });
 
     it("ensures every curated universe contains 150 unique Crypto Perpetual Futures coins with zero Spot-only or Stock tickers", () => {
@@ -213,6 +215,207 @@ describe("Validated Order Block (OB + FVG) Calculation Engine (DEC-136)", () => 
           expect(/^[\x00-\x7F]+$/.test(coin.symbol)).toBe(true);
         }
       }
+    });
+  });
+
+  describe("Strict 3-Candle RGG / GRR OB + FVG Specification & First-Touch Mitigation", () => {
+    const t0 = 1710000000000;
+    const tfMs = 5 * 60 * 1000;
+    const bar = (idx: number, open: number, high: number, low: number, close: number): CandlestickBar => ({
+      time: t0 + idx * tfMs,
+      open,
+      high,
+      low,
+      close,
+      volume: 100,
+    });
+
+    it("1. Detects valid Bullish RGG with wick-to-wick FVG and separate OB/FVG bounds", () => {
+      const bars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 114, 110, 113),
+      ];
+
+      const res = computeObFvgZones(bars, "BTCUSDT", "5m");
+      expect(res.blocks).toHaveLength(1);
+      const ob = res.blocks[0];
+      expect(ob.pattern).toBe("RGG");
+      expect(ob.type).toBe("BULLISH");
+      expect(ob.top).toBe(101);
+      expect(ob.bottom).toBe(97);
+      expect(ob.fvgBottom).toBe(101);
+      expect(ob.fvgTop).toBe(104);
+      expect(ob.lifecycleState).toBe("ACTIVE");
+      expect(ob.touched).toBe(false);
+    });
+
+    it("2. Detects valid Bearish GRR with wick-to-wick FVG and separate OB/FVG bounds", () => {
+      const bars = [
+        bar(0, 200, 205, 199, 203),
+        bar(1, 203, 203, 192, 193),
+        bar(2, 193, 195, 187, 188),
+        bar(3, 188, 190, 186, 187),
+      ];
+
+      const res = computeObFvgZones(bars, "SOLUSDT", "15m");
+      expect(res.blocks).toHaveLength(1);
+      const ob = res.blocks[0];
+      expect(ob.pattern).toBe("GRR");
+      expect(ob.type).toBe("BEARISH");
+      expect(ob.top).toBe(205);
+      expect(ob.bottom).toBe(199);
+      expect(ob.fvgTop).toBe(199);
+      expect(ob.fvgBottom).toBe(195);
+      expect(ob.lifecycleState).toBe("ACTIVE");
+    });
+
+    it("3. Rejects RGG without a wick-to-wick FVG (C3.low <= C1.high)", () => {
+      const bars = [
+        bar(0, 100, 102, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 102, 111),
+        bar(3, 111, 114, 110, 113),
+      ];
+      expect(computeObFvgZones(bars, "BTCUSDT", "5m").blocks).toHaveLength(0);
+    });
+
+    it("4. Rejects GRR without a wick-to-wick FVG (C3.high >= C1.low)", () => {
+      const bars = [
+        bar(0, 200, 205, 198, 203),
+        bar(1, 203, 203, 192, 193),
+        bar(2, 193, 198, 187, 188),
+        bar(3, 188, 190, 186, 187),
+      ];
+      expect(computeObFvgZones(bars, "SOLUSDT", "15m").blocks).toHaveLength(0);
+    });
+
+    it("5. Rejects non-RGG / non-GRR candle color sequences even if a wick gap exists", () => {
+      const bars = [
+        bar(0, 97, 101, 96, 100),
+        bar(1, 100, 106, 100, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 114, 110, 113),
+      ];
+      expect(computeObFvgZones(bars, "BTCUSDT", "5m").blocks).toHaveLength(0);
+    });
+
+    it("6. Does not confirm pattern before Candle 3 closes when confirmClosedOnly=true", () => {
+      const formingBars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+      ];
+      expect(
+        computeObFvgZones(formingBars, "BTCUSDT", "5m", {}, { confirmClosedOnly: true }).blocks
+      ).toHaveLength(0);
+
+      const closedBars = [...formingBars, bar(3, 111, 112, 110, 111.5)];
+      expect(
+        computeObFvgZones(closedBars, "BTCUSDT", "5m", {}, { confirmClosedOnly: true }).blocks
+      ).toHaveLength(1);
+    });
+
+    it("7. First live touch mitigates OB immediately and preserves first mitigatedTime across repeat touches", () => {
+      const bars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 112, 105, 110),
+        bar(4, 110, 110, 100, 102),
+        bar(5, 102, 103, 98, 101),
+      ];
+
+      const activeRes = computeObFvgZones(bars.slice(0, 4), "BTCUSDT", "5m");
+      expect(activeRes.blocks[0].lifecycleState).toBe("ACTIVE");
+      expect(activeRes.blocks[0].touched).toBe(false);
+
+      const mitigatedRes = computeObFvgZones(bars, "BTCUSDT", "5m");
+      expect(mitigatedRes.blocks).toHaveLength(1);
+      expect(mitigatedRes.blocks[0].lifecycleState).toBe("MITIGATED");
+      expect(mitigatedRes.blocks[0].status).toBe("mitigated");
+      expect(mitigatedRes.blocks[0].touched).toBe(true);
+      expect(mitigatedRes.blocks[0].mitigatedTime).toBe(bars[4].time);
+      expect(mitigatedRes.mitigatedCount).toBe(1);
+      expect(mitigatedRes.activeCount).toBe(0);
+    });
+
+    it("8. Detects touch when a single candle crosses the entire OB range in one update", () => {
+      const bars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 112, 92, 94),
+      ];
+      const res = computeObFvgZones(bars, "BTCUSDT", "5m");
+      expect(res.blocks).toHaveLength(1);
+      expect(res.blocks[0].touched).toBe(true);
+      expect(res.blocks[0].lifecycleState).toBe("MITIGATED");
+      expect(res.blocks[0].mitigatedTime).toBe(bars[3].time);
+    });
+
+    it("9. Manages multiple simultaneous OBs independently and respects timeframe isolation", () => {
+      const bars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 113, 109, 110),
+        bar(4, 112, 112, 108, 109),
+        bar(5, 109, 120, 109, 119),
+        bar(6, 119, 126, 117, 125),
+        bar(7, 125, 125, 110, 114),
+      ];
+      const res5m = computeObFvgZones(bars, "BTCUSDT", "5m");
+      expect(res5m.blocks).toHaveLength(2);
+      expect(res5m.activeCount).toBe(1);
+      expect(res5m.mitigatedCount).toBe(1);
+
+      const ob1 = res5m.blocks.find((b) => b.obIndex === 0)!;
+      const ob2 = res5m.blocks.find((b) => b.obIndex === 4)!;
+      expect(ob1.lifecycleState).toBe("ACTIVE");
+      expect(ob2.lifecycleState).toBe("MITIGATED");
+
+      const res15m = computeObFvgZones(bars, "BTCUSDT", "15m");
+      expect(res15m.blocks[0].id).not.toBe(res5m.blocks[0].id);
+      expect(res15m.blocks[0].timeframe).toBe("15m");
+    });
+
+    it("10. Supports Full Candle vs Body Only zones, optional displacement filter, and maxActiveObZones cap", () => {
+      const bars = [
+        bar(0, 101, 105, 95, 98),
+        bar(1, 98, 109, 98, 109),
+        bar(2, 109, 114, 107, 113),
+        bar(3, 113, 115, 112, 114),
+      ];
+
+      const fullRes = computeObFvgZones(bars, "BTCUSDT", "5m", { obZoneType: "full" });
+      expect(fullRes.blocks[0].top).toBe(105);
+      expect(fullRes.blocks[0].bottom).toBe(95);
+
+      const bodyRes = computeObFvgZones(bars, "BTCUSDT", "5m", { obZoneType: "body" });
+      expect(bodyRes.blocks[0].top).toBe(101);
+      expect(bodyRes.blocks[0].bottom).toBe(98);
+
+      expect(
+        computeObFvgZones(bars, "BTCUSDT", "5m", {
+          enableMinDisplacement: true,
+          minDisplacementPct: 15,
+        }).blocks
+      ).toHaveLength(0);
+
+      const twoObBars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 112, 112, 108, 109),
+        bar(4, 109, 120, 109, 119),
+        bar(5, 119, 126, 117, 125),
+        bar(6, 125, 127, 124, 126),
+      ];
+      const cappedRes = computeObFvgZones(twoObBars, "BTCUSDT", "5m", { maxActiveObZones: 1 });
+      expect(cappedRes.activeCount).toBe(1);
+      expect(cappedRes.blocks[0].obIndex).toBe(3);
     });
   });
 });

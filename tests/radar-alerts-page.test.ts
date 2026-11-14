@@ -495,5 +495,18 @@ describe("DEC-158: Radar Alerts Page & Separation Suite", () => {
     // Clean up
     await deleteServerAlertsBatch(newBatch.map((a) => a.id), cycleUser);
   });
+
+  it("excludes standalone FVG POIs from bulk alarm category filtering", async () => {
+    const { filterPoisForBulkAlarm } = await import("../src/lib/indicators/radar-poi-engine");
+    const mockPois: any[] = [
+      { id: "ob-1", category: "order_block", timeframe: "1H" },
+      { id: "sw-1", category: "sandwich_zone", timeframe: "1H" },
+      { id: "fvg-1", category: "fvg", timeframe: "1H" },
+    ];
+
+    expect(filterPoisForBulkAlarm(mockPois, "order_block").map((p) => p.id)).toEqual(["ob-1"]);
+    expect(filterPoisForBulkAlarm(mockPois, "sandwich_zone").map((p) => p.id)).toEqual(["sw-1"]);
+    expect(filterPoisForBulkAlarm(mockPois, "all").map((p) => p.id)).toEqual(["ob-1", "sw-1"]);
+  });
 });
 

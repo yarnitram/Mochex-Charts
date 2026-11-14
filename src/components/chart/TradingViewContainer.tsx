@@ -71,6 +71,14 @@ import {
 } from "@/lib/indicators/sandwich";
 import { SandwichSettingsModal } from "./SandwichSettingsModal";
 import {
+  ObFvgSettings,
+  getStoredObFvgSettings,
+  saveStoredObFvgSettings,
+  computeObFvgZones,
+} from "@/lib/indicators/validated-ob-engine";
+import { renderObFvgZones } from "@/lib/indicators/ob-fvg-renderer";
+import { ObFvgSettingsModal } from "./ObFvgSettingsModal";
+import {
   ChartDrawing,
   calculateFibLevels,
   calculateTrendFibLevels,
@@ -492,6 +500,16 @@ export function TradingViewContainer({
     const handleOpenSandwichSettings = () => setIsSandwichSettingsOpen(true);
     window.addEventListener("mochex:open-sandwich-settings", handleOpenSandwichSettings);
     return () => window.removeEventListener("mochex:open-sandwich-settings", handleOpenSandwichSettings);
+  }, []);
+
+  // Validated OB + FVG (RGG / GRR) Settings State
+  const [obFvgSettings, setObFvgSettings] = useState<ObFvgSettings>(() => getStoredObFvgSettings());
+  const [isObFvgSettingsOpen, setIsObFvgSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenObFvgSettings = () => setIsObFvgSettingsOpen(true);
+    window.addEventListener("mochex:open-ob-fvg-settings", handleOpenObFvgSettings);
+    return () => window.removeEventListener("mochex:open-ob-fvg-settings", handleOpenObFvgSettings);
   }, []);
 
   // Clear sandwich MTF candle cache on symbol change
@@ -4298,6 +4316,27 @@ const renderFixedRangeVolumeProfile = useCallback(
     });
   }, [hasSandwich, sandwichSettings, bars, resolution, symbol, sandwichFetchVersion]);
 
+  const isObFvgHidden = hiddenIndicators.some(
+    (ind) =>
+      ind.toLowerCase().includes("validated ob") ||
+      (ind.toLowerCase().includes("rgg") && ind.toLowerCase().includes("grr"))
+  );
+  const hasObFvg =
+    activeIndicators.some(
+      (ind) =>
+        ind.toLowerCase().includes("validated ob") ||
+        (ind.toLowerCase().includes("rgg") && ind.toLowerCase().includes("grr"))
+    ) && !isObFvgHidden;
+
+  const obFvgResult = useMemo(() => {
+    if (!hasObFvg || !obFvgSettings.showIndicator || bars.length === 0) {
+      return null;
+    }
+    return computeObFvgZones(bars, symbol, resolution, obFvgSettings, {
+      confirmClosedOnly: true,
+    });
+  }, [hasObFvg, obFvgSettings, bars, symbol, resolution]);
+
   const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
   const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
 
@@ -4816,6 +4855,20 @@ const renderFixedRangeVolumeProfile = useCallback(
         chartHeight: rect.height,
         barSpacingPx: getBarSpacingPx(),
         currentResolution: resolutionRef.current,
+        lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
+      });
+    }
+
+    // Validated OB + FVG (RGG / GRR) Canvas Rendering
+    if (hasObFvg && obFvgResult && obFvgResult.blocks.length > 0) {
+      renderObFvgZones({
+        ctx,
+        blocks: obFvgResult.blocks,
+        settings: obFvgSettings,
+        timeToCoordinate,
+        priceToCoordinate,
+        chartWidth: rect.width,
+        chartHeight: rect.height,
         lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
       });
     }
@@ -5433,6 +5486,9 @@ const renderFixedRangeVolumeProfile = useCallback(
     candleStructureResult,
     isCustomIndicatorHidden,
     customIndicatorData,
+    hasObFvg,
+    obFvgResult,
+    obFvgSettings,
   ]);
 
   // Listen for Multi-Chart Crosshair Synchronization events from sibling panes (DEC-075)
@@ -7495,6 +7551,44 @@ const renderFixedRangeVolumeProfile = useCallback(
               </div>
             )}
 
+            {hasObFvg && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00c087] animate-pulse" />
+                <span className="font-semibold text-on-surface">Validated OB + FVG</span>
+                {obFvgResult && (
+                  <span className="text-muted text-[9px]">
+                    ({obFvgResult.activeBullishCount} RGG · {obFvgResult.activeBearishCount} GRR · {obFvgResult.mitigatedCount} Mit)
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onToggleIndicatorVisibility?.("Validated OB + FVG (RGG / GRR)")}
+                  title={isObFvgHidden ? "Show Validated OB + FVG" : "Hide Validated OB + FVG"}
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer ml-0.5"
+                >
+                  {isObFvgHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsObFvgSettingsOpen(true)}
+                  title="Validated OB + FVG Settings"
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer"
+                >
+                  <Settings size={11} />
+                </button>
+                {onToggleIndicator && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleIndicator("Validated OB + FVG (RGG / GRR)")}
+                    title="Remove Validated OB + FVG from chart"
+                    className="text-muted hover:text-error p-0.5 cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {hasMtfEma && (
               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-outline-variant/30 text-[10px] font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2962ff] animate-pulse" />
@@ -7929,6 +8023,18 @@ const renderFixedRangeVolumeProfile = useCallback(
               onSaveSettings={(newSettings) => {
                 saveStoredSandwichSettings(newSettings);
                 setSandwichSettings(newSettings);
+                renderDrawingCanvas();
+              }}
+            />
+
+            {/* Validated OB + FVG (RGG / GRR) Settings Modal */}
+            <ObFvgSettingsModal
+              isOpen={isObFvgSettingsOpen}
+              onClose={() => setIsObFvgSettingsOpen(false)}
+              settings={obFvgSettings}
+              onSaveSettings={(newSettings) => {
+                saveStoredObFvgSettings(newSettings);
+                setObFvgSettings(newSettings);
                 renderDrawingCanvas();
               }}
             />

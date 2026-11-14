@@ -33,6 +33,25 @@ import { PoiOrderFlowTelemetry, evaluatePoiOrderFlow } from "./orderbook-cvd-eng
 import { PoiCorrelationRiskInfo, evaluatePoiCorrelationRisk, estimateBtcCorrelation } from "./portfolio-risk-engine";
 
 export type PoiCategory = "order_block" | "sandwich_zone" | "fvg";
+export type BulkAlarmPoiCategory = "order_block" | "sandwich_zone" | "all";
+
+/**
+ * Excludes standalone FVGs from POI bulk alarms so only Validated Order Blocks
+ * and Sandwich Zones ++ remain eligible.
+ */
+export function filterPoisForBulkAlarm(
+  pois: RadarPoiItem[],
+  targetCategory: BulkAlarmPoiCategory
+): RadarPoiItem[] {
+  const eligible = pois.filter((p) => p.category !== "fvg");
+  if (targetCategory === "order_block") {
+    return eligible.filter((p) => p.category === "order_block");
+  }
+  if (targetCategory === "sandwich_zone") {
+    return eligible.filter((p) => p.category === "sandwich_zone");
+  }
+  return eligible;
+}
 export type PoiDirection = "BULLISH" | "BEARISH";
 export type PoiStatus = "fresh" | "testing" | "sweep" | "mitigated" | "broken";
 
