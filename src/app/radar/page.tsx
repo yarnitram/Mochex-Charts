@@ -1144,7 +1144,26 @@ export default function RadarPage() {
             <ExternalLink size={11} className="opacity-70" />
           </Link>
 
-          {/* Direct link to Notification & Discord Delivery Logs (DEC-166) */}
+          {/* Auto Validated OB+FVG Scanner & Separate Alarm/Logs links */}
+          <Link
+            href="/radar/ob-fvg"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/45 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 font-bold text-xs transition-all cursor-pointer"
+            title="Auto Detect Unmitigated OB+FVG (MEXC Top Tokens -> Bybit/Binance)"
+          >
+            <Zap size={13} />
+            <span className="hidden sm:inline">Auto OB+FVG</span>
+          </Link>
+
+          <Link
+            href="/radar/ob-fvg-alerts"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] hover:border-amber-500/50 text-[#b6c4ff] hover:text-white font-bold text-xs transition-colors cursor-pointer"
+            title="Open Separate OB+FVG Alarm Set & Logs Page"
+          >
+            <Bell size={13} className="text-amber-400" />
+            <span className="hidden md:inline">OB Alarms &amp; Logs</span>
+          </Link>
+
+                    {/* Direct link to Notification & Discord Delivery Logs (DEC-166) */}
           <Link
             href="/radar/logs"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] hover:border-[#5865F2]/50 text-[#b6c4ff] hover:text-white font-bold text-xs transition-colors cursor-pointer"

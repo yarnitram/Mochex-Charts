@@ -68,6 +68,8 @@ export interface PriceAlert {
   /** Optional POI invalidation stop-out telemetry (DEC-150) */
   notifyOnInvalidation?: boolean;
   invalidationPrice?: number;
+  /** Exchange feed used for detection & 24/7 price monitoring */
+  exchange?: "mexc" | "binance" | "bybit";
   poiMetadata?: {
     poiId: string;
     category: "order_block" | "sandwich_zone" | "fvg";
@@ -76,6 +78,9 @@ export interface PriceAlert {
     zoneTop: number;
     zoneBottom: number;
     invalidationPrice?: number;
+    pattern?: "RGG" | "GRR";
+    autoArmed?: boolean;
+    exchange?: "mexc" | "binance" | "bybit";
   };
   /** Optional EMA 100 / EMA 200 hit target metadata */
   emaMetadata?: {
@@ -115,6 +120,8 @@ export interface AlertLogEntry {
   triggeredAt: number;
   logType?: "trigger" | "test" | "system" | "error";
   deliveryResults?: AlertDeliveryResults;
+  exchange?: "mexc" | "binance" | "bybit";
+  poiMetadata?: PriceAlert["poiMetadata"];
 }
 
 export const ALERT_COOLDOWN_MS = 60_000;
@@ -565,6 +572,8 @@ export function evaluateAlertsBatch(
         label: alert.label,
         message: customMessage,
         triggeredAt: nowMs,
+        exchange: alert.exchange || alert.poiMetadata?.exchange,
+        poiMetadata: alert.poiMetadata,
       });
 
       if (isPoiPriceAlert(alert)) {
@@ -600,6 +609,8 @@ export function evaluateAlertsBatch(
           label: alert.label,
           message: `POI invalidated beyond ${invPrice} — alarm automatically removed`,
           triggeredAt: nowMs,
+          exchange: alert.exchange || alert.poiMetadata?.exchange,
+          poiMetadata: alert.poiMetadata,
         });
       }
       continue;

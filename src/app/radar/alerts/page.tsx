@@ -43,6 +43,8 @@ import {
   playRadarChime,
 } from "@/lib/audio/sound-effects";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
+import { ObZoneMiniChart } from "@/components/radar/ObZoneMiniChart";
+import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
 import { MAJORS_UNIVERSE, TOP_150_MEMES, TOP_150_AI } from "@/lib/screener/universe-catalog";
@@ -70,6 +72,7 @@ export default function RadarAlertsPage() {
 
   // Modals
   const [isBulkAlarmModalOpen, setIsBulkAlarmModalOpen] = useState(false);
+  const [chartPreviewAlert, setChartPreviewAlert] = useState<PriceAlert | null>(null);
   const [isChannelsModalOpen, setIsChannelsModalOpen] = useState(false);
   const [isAudioModalOpen, setIsAudioModalOpen] = useState(false);
 
@@ -588,6 +591,23 @@ export default function RadarAlertsPage() {
             <span>Bulk Alarm Setup</span>
           </button>
 
+          {/* Auto OB+FVG Link */}
+          <Link
+            href="/radar/ob-fvg"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-black font-bold text-xs transition-all"
+            title="Auto Validated OB+FVG Monitor (MEXC -> Bybit/Binance)"
+          >
+            <span>Auto OB+FVG</span>
+          </Link>
+
+          <Link
+            href="/radar/ob-fvg-alerts"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#233144] bg-[#121824] hover:bg-[#1a2332] text-xs font-bold text-[#b6c4ff] hover:text-white transition-colors"
+            title="Open Separate OB+FVG Alarm Set & Logs Page"
+          >
+            <span>OB Alarms &amp; Logs</span>
+          </Link>
+
           {/* Logs Link (DEC-166) */}
           <Link
             href="/radar/logs"
@@ -1039,7 +1059,7 @@ export default function RadarAlertsPage() {
                         {/* Category & Zone Label */}
                         <td className="py-3 px-3">
                           <div className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-wrap">
                               <span
                                 className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
                                   isEma
@@ -1063,6 +1083,11 @@ export default function RadarAlertsPage() {
                                     : "⚡ FVG"
                                   : `📈 ${a.sourceType.replace(/_/g, " ").toUpperCase()}`}
                               </span>
+                              {(a.exchange || a.poiMetadata?.exchange) && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-orange-500/15 text-orange-300 border border-orange-500/30 font-bold uppercase">
+                                  {(a.exchange || a.poiMetadata?.exchange)} PERPS
+                                </span>
+                              )}
                             </div>
                             <span className="text-[10px] text-[#848e9c] truncate max-w-[220px]" title={a.label}>
                               {a.label || a.conditionMessage}
@@ -1095,11 +1120,16 @@ export default function RadarAlertsPage() {
                           </span>
                         </td>
 
-                        {/* Target Price */}
+                        {/* Target Price + OB Range */}
                         <td className="py-3 px-3">
                           <div className="font-extrabold text-white text-[11px]">
                             ${formattedTarget}
                           </div>
+                          {a.poiMetadata && a.poiMetadata.zoneTop > 0 && a.poiMetadata.zoneBottom > 0 && (
+                            <div className="text-[9px] text-[#b6c4ff]">
+                              OB: ${formatPoiPrice(Math.min(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))} - ${formatPoiPrice(Math.max(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))}
+                            </div>
+                          )}
                         </td>
 
                         {/* Condition */}
@@ -1164,6 +1194,14 @@ export default function RadarAlertsPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
+                              onClick={() => setChartPreviewAlert(a)}
+                              className="p-1.5 rounded border border-[#233144] bg-[#121824] text-[#848e9c] hover:text-[#2962ff] hover:border-[#2962ff]/40 hover:bg-[#2962ff]/10 transition-colors cursor-pointer"
+                              title="Show Chart & OB Range"
+                            >
+                              <TrendingUp size={12} />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleToggleAlertActive(a.id, a.active)}
                               className={`p-1.5 rounded border transition-colors cursor-pointer ${
                                 a.active
@@ -1224,6 +1262,47 @@ export default function RadarAlertsPage() {
         config={webhookConfig}
         onSave={(newCfg: AlertWebhookConfig) => setWebhookConfig(newCfg)}
       />
+
+      {/* Inline Exchange Chart & OB Range Preview Modal */}
+      {chartPreviewAlert && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+          onClick={() => setChartPreviewAlert(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl border border-[#233144] bg-[#0c1017] p-4 shadow-2xl flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-white truncate pr-4">
+                {chartPreviewAlert.label || chartPreviewAlert.symbol}
+              </span>
+              <button
+                type="button"
+                onClick={() => setChartPreviewAlert(null)}
+                className="px-2 py-1 rounded bg-[#121824] border border-[#233144] text-[#848e9c] hover:text-white cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            <ObZoneMiniChart
+              symbol={chartPreviewAlert.symbol}
+              timeframe={chartPreviewAlert.poiMetadata?.timeframe || chartPreviewAlert.emaMetadata?.timeframe || "4H"}
+              exchange={chartPreviewAlert.exchange || chartPreviewAlert.poiMetadata?.exchange || "mexc"}
+              zoneTop={chartPreviewAlert.poiMetadata?.zoneTop ?? chartPreviewAlert.targetPrice}
+              zoneBottom={chartPreviewAlert.poiMetadata?.zoneBottom ?? chartPreviewAlert.targetPrice}
+              direction={
+                chartPreviewAlert.poiMetadata?.direction ||
+                (chartPreviewAlert.condition === "crossing_up" ? "BEARISH" : "BULLISH")
+              }
+              targetPrice={chartPreviewAlert.targetPrice}
+              invalidationPrice={chartPreviewAlert.invalidationPrice ?? chartPreviewAlert.poiMetadata?.invalidationPrice}
+              pattern={chartPreviewAlert.poiMetadata?.pattern}
+              height={340}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Radar Audio Settings Modal */}
       <RadarAudioSettingsModal

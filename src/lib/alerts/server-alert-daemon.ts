@@ -16,7 +16,13 @@ import {
   AlertLogEntry,
   ALERT_COOLDOWN_MS,
 } from "./alerts-engine";
-import { fromMexcContractSymbol, fetchExchangeKlines } from "../screener/multi-exchange-client";
+import {
+  fromMexcContractSymbol,
+  fetchExchangeKlines,
+  fetchExchangeTickers,
+  mapSymbolForPerpExchange,
+  SupportedExchange,
+} from "../screener/multi-exchange-client";
 import { computeLatestEma100And200 } from "./ema-alerts";
 import {
   dispatchDirectWebhooks,
@@ -158,12 +164,17 @@ export class ServerAlertDaemon {
   /**
    * Processes a market price update for a given symbol
    */
-  public async processPriceUpdate(symbol: string, currentPrice: number): Promise<void> {
+  public async processPriceUpdate(
+    symbol: string,
+    currentPrice: number,
+    exchange: SupportedExchange = "mexc"
+  ): Promise<void> {
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
 
     const upperSymbol = symbol.toUpperCase();
-    const prevPrice = this.lastPrices.get(upperSymbol);
-    this.lastPrices.set(upperSymbol, currentPrice);
+    const priceKey = exchange === "mexc" ? upperSymbol : `${exchange}:${upperSymbol}`;
+    const prevPrice = this.lastPrices.get(priceKey);
+    this.lastPrices.set(priceKey, currentPrice);
 
     // Initial price recording: need at least 2 distinct price points to detect transition
     if (prevPrice === undefined || prevPrice === currentPrice) {
@@ -176,7 +187,12 @@ export class ServerAlertDaemon {
     // Snapshot alerts so removing hit or invalidated alerts mid-loop never skips siblings
     const candidateAlerts = [...this.activeAlertsWithContext];
     for (const item of candidateAlerts) {
-      if (!item.alert.active || item.alert.symbol.toUpperCase() !== upperSymbol) {
+      const alertExchange: SupportedExchange = item.alert.exchange || "mexc";
+      if (
+        !item.alert.active ||
+        item.alert.symbol.toUpperCase() !== upperSymbol ||
+        alertExchange !== exchange
+      ) {
         continue;
       }
 
@@ -272,9 +288,11 @@ export class ServerAlertDaemon {
         condition: alert.poiMetadata?.direction === "BULLISH" ? "crossing_down" : "crossing_up",
         sourceType: alert.sourceType,
         label: alert.label || `${alert.symbol} POI Alert`,
-        message: `POI invalidated beyond $${invalidationPrice} — alarm automatically removed`,
+        message: `POI invalidated beyond ${invalidationPrice} — alarm automatically removed`,
         triggeredAt: nowMs,
         logType: "system",
+        exchange: alert.exchange || alert.poiMetadata?.exchange,
+        poiMetadata: alert.poiMetadata,
       });
     } catch (storeErr) {
       console.warn("[ServerAlertDaemon] Error removing invalidated POI alert:", storeErr);
@@ -318,8 +336,10 @@ export class ServerAlertDaemon {
       condition: alert.condition,
       sourceType: alert.sourceType,
       label: alert.label || `${alert.symbol} Price Alert`,
-      message: alert.conditionMessage || `Market price crossed target $${targetPrice}`,
+      message: alert.conditionMessage || `Market price crossed target ${targetPrice}`,
       triggeredAt: nowMs,
+      exchange: alert.exchange || alert.poiMetadata?.exchange,
+      poiMetadata: alert.poiMetadata,
     };
 
     console.log(
@@ -539,9 +559,12 @@ export class ServerAlertDaemon {
 
       if (this.trackedSymbols.size === 0) return;
 
+      const hasExternalExchange = this.activeAlertsWithContext.some(
+        (ctx) => ctx.alert.active && (ctx.alert.exchange === "bybit" || ctx.alert.exchange === "binance")
+      );
       const wsSilent = Date.now() - this.lastWsMessageTime > 10000;
       const safetyRestDue = Date.now() - this.lastRestPollAt >= 15000;
-      if (!this.wsConnected || wsSilent || safetyRestDue) {
+      if (!this.wsConnected || wsSilent || safetyRestDue || hasExternalExchange) {
         await this.pollRestPrices();
       }
     }, 5000);
@@ -575,8 +598,9 @@ export class ServerAlertDaemon {
 
     for (const [key, items] of grouped.entries()) {
       const [sym, tf] = key.split("|");
+      const targetEx: SupportedExchange = items[0]?.alert.exchange || "mexc";
       try {
-        const bars = await fetchExchangeKlines("mexc", sym, tf, 220);
+        const bars = await fetchExchangeKlines(targetEx, sym, tf, 220);
         if (!bars || bars.length < 100) continue;
         const levels = computeLatestEma100And200(bars.map((b) => b.close));
 
@@ -624,6 +648,65 @@ export class ServerAlertDaemon {
 
     this.lastRestPollAt = Date.now();
     this.restPollCount++;
+
+    // Poll Bybit and Binance for any alerts scoped to those exchanges
+    const bybitSymbols = Array.from(
+      new Set(
+        this.activeAlertsWithContext
+          .filter((c) => c.alert.active && c.alert.exchange === "bybit")
+          .map((c) => c.alert.symbol.toUpperCase())
+      )
+    );
+    const binanceSymbols = Array.from(
+      new Set(
+        this.activeAlertsWithContext
+          .filter((c) => c.alert.active && c.alert.exchange === "binance")
+          .map((c) => c.alert.symbol.toUpperCase())
+      )
+    );
+    const mexcSymbols = Array.from(
+      new Set(
+        this.activeAlertsWithContext
+          .filter((c) => c.alert.active && (!c.alert.exchange || c.alert.exchange === "mexc"))
+          .map((c) => c.alert.symbol.toUpperCase())
+      )
+    );
+
+    if (bybitSymbols.length > 0) {
+      try {
+        const bybitMap = await fetchExchangeTickers("bybit");
+        for (const sym of bybitSymbols) {
+          const mapped = mapSymbolForPerpExchange("bybit", sym);
+          const ticker = bybitMap.get(sym) || bybitMap.get(mapped);
+          if (ticker && ticker.price > 0) {
+            await this.processPriceUpdate(sym, ticker.price, "bybit");
+          }
+        }
+        this.lastRestPollSuccessAt = Date.now();
+        this.lastRestError = null;
+      } catch (err) {
+        this.lastRestError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    if (binanceSymbols.length > 0) {
+      try {
+        const binanceMap = await fetchExchangeTickers("binance");
+        for (const sym of binanceSymbols) {
+          const mapped = mapSymbolForPerpExchange("binance", sym);
+          const ticker = binanceMap.get(sym) || binanceMap.get(mapped);
+          if (ticker && ticker.price > 0) {
+            await this.processPriceUpdate(sym, ticker.price, "binance");
+          }
+        }
+        this.lastRestPollSuccessAt = Date.now();
+        this.lastRestError = null;
+      } catch (err) {
+        this.lastRestError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    if (mexcSymbols.length === 0) return;
 
     const endpoints = [
       "https://api.mexc.co/api/v3/ticker/price",
@@ -688,10 +771,10 @@ export class ServerAlertDaemon {
           }
         }
 
-        for (const sym of symbols) {
+        for (const sym of mexcSymbols) {
           const price = priceMap.get(sym.toUpperCase());
           if (price !== undefined) {
-            this.processPriceUpdate(sym, price);
+            this.processPriceUpdate(sym, price, "mexc");
           }
         }
 

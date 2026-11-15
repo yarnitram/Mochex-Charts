@@ -226,6 +226,15 @@ export function formatDiscordPayload(
     },
   ];
 
+  const activeExchange = alert.exchange || log.exchange || alert.poiMetadata?.exchange;
+  if (activeExchange) {
+    fields.push({
+      name: "Exchange",
+      value: `${activeExchange.toUpperCase()} PERPS`,
+      inline: true,
+    });
+  }
+
   if (log.sourceType) {
     fields.push({
       name: "Source",
@@ -234,23 +243,24 @@ export function formatDiscordPayload(
     });
   }
 
+  const poiMeta = alert.poiMetadata || log.poiMetadata;
   if (
-    alert.poiMetadata &&
-    Number.isFinite(alert.poiMetadata.zoneBottom) &&
-    Number.isFinite(alert.poiMetadata.zoneTop) &&
-    alert.poiMetadata.zoneTop > 0
+    poiMeta &&
+    Number.isFinite(poiMeta.zoneBottom) &&
+    Number.isFinite(poiMeta.zoneTop) &&
+    poiMeta.zoneTop > 0
   ) {
-    const low = Math.min(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
-    const high = Math.max(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const low = Math.min(poiMeta.zoneBottom, poiMeta.zoneTop);
+    const high = Math.max(poiMeta.zoneBottom, poiMeta.zoneTop);
     const spreadPct = low > 0 ? ((high - low) / low) * 100 : 0;
     const categoryLabel =
-      alert.poiMetadata.category === "order_block"
+      poiMeta.category === "order_block"
         ? "Validated OB Range"
-        : alert.poiMetadata.category === "fvg"
+        : poiMeta.category === "fvg"
         ? "FVG Range"
         : "POI Zone Range";
     fields.push({
-      name: `${categoryLabel} (${alert.poiMetadata.timeframe})`,
+      name: `${categoryLabel} (${poiMeta.timeframe})`,
       value: `\`$${formatPriceNumber(low)}\` — \`$${formatPriceNumber(high)}\` (${spreadPct.toFixed(2)}% width)`,
       inline: false,
     });
@@ -311,22 +321,27 @@ export function formatTelegramMessage(
   text += `<b>Condition:</b> <code>${escapeHtml(conditionStr)}</code>\n`;
   text += `<b>Trigger Price:</b> <code>$${triggerFmt}</code>\n`;
   text += `<b>Target Level:</b> <code>$${targetFmt}</code>\n`;
+  const activeExchange = alert.exchange || log.exchange || alert.poiMetadata?.exchange;
+  if (activeExchange) {
+    text += `<b>Exchange:</b> <code>${escapeHtml(activeExchange.toUpperCase())} PERPS</code>\n`;
+  }
+  const poiMeta = alert.poiMetadata || log.poiMetadata;
   if (
-    alert.poiMetadata &&
-    Number.isFinite(alert.poiMetadata.zoneBottom) &&
-    Number.isFinite(alert.poiMetadata.zoneTop) &&
-    alert.poiMetadata.zoneTop > 0
+    poiMeta &&
+    Number.isFinite(poiMeta.zoneBottom) &&
+    Number.isFinite(poiMeta.zoneTop) &&
+    poiMeta.zoneTop > 0
   ) {
-    const low = Math.min(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
-    const high = Math.max(alert.poiMetadata.zoneBottom, alert.poiMetadata.zoneTop);
+    const low = Math.min(poiMeta.zoneBottom, poiMeta.zoneTop);
+    const high = Math.max(poiMeta.zoneBottom, poiMeta.zoneTop);
     const spreadPct = low > 0 ? ((high - low) / low) * 100 : 0;
     const catName =
-      alert.poiMetadata.category === "order_block"
+      poiMeta.category === "order_block"
         ? "Validated OB Range"
-        : alert.poiMetadata.category === "fvg"
+        : poiMeta.category === "fvg"
         ? "FVG Range"
         : "POI Zone Range";
-    text += `<b>${catName} (${escapeHtml(alert.poiMetadata.timeframe)}):</b> <code>$${formatPriceNumber(low)} - $${formatPriceNumber(high)}</code> (${spreadPct.toFixed(2)}%)\n`;
+    text += `<b>${catName} (${escapeHtml(poiMeta.timeframe)}):</b> <code>$${formatPriceNumber(low)} - $${formatPriceNumber(high)}</code> (${spreadPct.toFixed(2)}%)\n`;
   }
   if (alert.emaMetadata) {
     text += `<b>EMA Level (${escapeHtml(alert.emaMetadata.timeframe)}):</b> <code>EMA ${alert.emaMetadata.period} @ $${formatPriceNumber(log.targetPrice)}</code>\n`;
