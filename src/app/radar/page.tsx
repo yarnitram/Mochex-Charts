@@ -58,6 +58,7 @@ import {
   getPoiZoneRange,
 } from "@/lib/indicators/radar-poi-engine";
 import { detectPoiInvalidationBreak } from "@/lib/indicators/poi-invalidation-engine";
+import { TimeframeEmaLevels } from "@/lib/alerts/ema-alerts";
 import { PoiAlarmModal } from "@/components/radar/PoiAlarmModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
 import { PriceAlert, isPoiPriceAlert } from "@/lib/alerts/alerts-engine";
@@ -111,6 +112,7 @@ interface RadarCoinData {
   nearestSandwich: RadarPoiItem | null;
   nearestFvg: RadarPoiItem | null;
   poisByTimeframe: Record<string, RadarPoiItem[]>;
+  emaByTimeframe?: Record<string, TimeframeEmaLevels>;
   exchange?: string;
   metrics?: PoiHistoricalMetrics | null;
   correlation?: PoiCorrelationRiskInfo | null;
@@ -197,6 +199,7 @@ export default function RadarPage() {
     symbol: string;
     poi: RadarPoiItem;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
+    emaByTimeframe?: Record<string, TimeframeEmaLevels>;
   } | null>(null);
 
   // Alert Channels Webhook Modal State (DEC-154)
@@ -286,7 +289,7 @@ export default function RadarPage() {
 
   // Helper to identify radar POI alerts vs standard chart alerts (DEC-158)
   const isRadarAlert = useCallback((a: PriceAlert) => {
-    return isPoiPriceAlert(a);
+    return isPoiPriceAlert(a) || Boolean(a.emaMetadata);
   }, []);
 
   const radarAlerts = useMemo(() => {
@@ -827,13 +830,17 @@ export default function RadarPage() {
       Object.values(data?.poisByTimeframe || {}).forEach((tPois) => {
         if (Array.isArray(tPois)) allPois.push(...tPois);
       });
-      if (allPois.length > 0 || data.nearestPoi || data.nearestOb || data.nearestSandwich || data.nearestFvg) {
+      const hasValidEma = Object.values(data.emaByTimeframe || {}).some(
+        (lv) => Boolean(lv?.ema100 || lv?.ema200)
+      );
+      if (allPois.length > 0 || data.nearestPoi || data.nearestOb || data.nearestSandwich || data.nearestFvg || hasValidEma) {
         list.push({
           symbol: coin.symbol,
           name: coin.name,
           price: data.price || 0,
           pois: allPois.length > 0 ? allPois : (data.nearestPoi ? [data.nearestPoi] : []),
           poisByTimeframe: data.poisByTimeframe || {},
+          emaByTimeframe: data.emaByTimeframe || {},
         });
       }
     }
@@ -2126,6 +2133,7 @@ export default function RadarPage() {
                                       symbol: coin.symbol,
                                       poi: selectedPoi,
                                       poisByTimeframe: data?.poisByTimeframe || {},
+                                      emaByTimeframe: data?.emaByTimeframe || {},
                                     })
                                   }
                                   title="Set 24/7 Cloud Offline Alarm"
@@ -2510,6 +2518,7 @@ export default function RadarPage() {
                                   symbol: coin.symbol,
                                   poi: selectedPoi,
                                   poisByTimeframe: data?.poisByTimeframe || {},
+                                  emaByTimeframe: data?.emaByTimeframe || {},
                                 })
                               }
                               className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -2563,6 +2572,8 @@ export default function RadarPage() {
           symbol={alarmModalData.symbol}
           poi={alarmModalData.poi}
           availablePoisByTimeframe={alarmModalData.poisByTimeframe}
+          availableEmasByTimeframe={alarmModalData.emaByTimeframe}
+          currentPrice={radarData[alarmModalData.symbol]?.price}
           existingAlerts={activeAlerts}
           onSuccess={(count) => {
             setToastMessage(`Created ${count} 24/7 Cloud POI Alarm(s)!`);
@@ -2589,6 +2600,7 @@ export default function RadarPage() {
               symbol: sym,
               poi: previewData.poi,
               poisByTimeframe: coinData?.poisByTimeframe || {},
+              emaByTimeframe: coinData?.emaByTimeframe || {},
             });
           }}
           onOpenPaperTradeModal={() => {

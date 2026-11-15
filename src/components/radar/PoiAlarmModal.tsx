@@ -31,6 +31,13 @@ import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
+  TimeframeEmaLevels,
+  computeLatestEma100And200,
+  buildEmaTouchAlert,
+  resolveTimeframeValue,
+  formatEmaPrice,
+} from "@/lib/alerts/ema-alerts";
+import {
   loadClientAlerts,
   saveClientAlerts,
   mergeClientAndServerAlerts,
@@ -50,12 +57,24 @@ import {
   convertAudioBlobToBase64,
 } from "@/lib/audio/custom-audio-store";
 
+function toMexcKlinesQueryInterval(tf: string): string {
+  const upper = tf.toUpperCase();
+  if (upper === "1H") return "60m";
+  if (upper === "2H") return "120";
+  if (upper === "4H") return "4h";
+  if (upper === "1D") return "1d";
+  if (upper === "1W") return "1w";
+  return tf.toLowerCase();
+}
+
 interface PoiAlarmModalProps {
   isOpen: boolean;
   onClose: () => void;
   symbol: string;
   poi: RadarPoiItem;
   availablePoisByTimeframe?: Record<string, RadarPoiItem[]>;
+  availableEmasByTimeframe?: Record<string, TimeframeEmaLevels>;
+  currentPrice?: number;
   existingAlerts?: PriceAlert[];
   onSuccess?: (createdAlertsCount: number) => void;
 }
@@ -66,6 +85,8 @@ export function PoiAlarmModal({
   symbol,
   poi,
   availablePoisByTimeframe = {},
+  availableEmasByTimeframe = {},
+  currentPrice,
   existingAlerts = [],
   onSuccess,
 }: PoiAlarmModalProps) {
@@ -93,6 +114,72 @@ export function PoiAlarmModal({
         (tf === poi.timeframe && isPoiUnmitigated(poi) ? poi : null)
     );
   });
+
+  // Target selection: POI Zone and/or EMA 100 / EMA 200
+  const [includePoiZone, setIncludePoiZone] = useState(true);
+  const [includeEma100, setIncludeEma100] = useState(false);
+  const [includeEma200, setIncludeEma200] = useState(false);
+  const [fetchedEmasByTf, setFetchedEmasByTf] = useState<Record<string, TimeframeEmaLevels>>({});
+  const [loadingEmas, setLoadingEmas] = useState(false);
+
+  const mergedEmasByTf = React.useMemo(
+    () => ({
+      ...availableEmasByTimeframe,
+      ...fetchedEmasByTf,
+    }),
+    [availableEmasByTimeframe, fetchedEmasByTf]
+  );
+
+  const fetchEmasForTimeframe = React.useCallback(
+    async (tf: string): Promise<TimeframeEmaLevels | null> => {
+      try {
+        const iv = toMexcKlinesQueryInterval(tf);
+        const res = await fetch(
+          `/api/mexc/klines?symbol=${encodeURIComponent(symbol.toUpperCase())}&interval=${encodeURIComponent(iv)}&limit=220&market=futures`
+        );
+        if (!res.ok) return null;
+        const raw = await res.json();
+        if (!Array.isArray(raw) || raw.length === 0) return null;
+        const closes = raw.map((k) => Number(k[4])).filter((n) => Number.isFinite(n) && n > 0);
+        return computeLatestEma100And200(closes);
+      } catch {
+        return null;
+      }
+    },
+    [symbol]
+  );
+
+  useEffect(() => {
+    if (!isOpen || (!includeEma100 && !includeEma200)) return;
+    const missingTfs = selectedTimeframes.filter((tf) => !resolveTimeframeValue(mergedEmasByTf, tf));
+    if (missingTfs.length === 0) return;
+
+    let cancelled = false;
+    setLoadingEmas(true);
+    Promise.all(
+      missingTfs.map(async (tf) => ({
+        tf,
+        levels: await fetchEmasForTimeframe(tf),
+      }))
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setFetchedEmasByTf((prev) => {
+          const next = { ...prev };
+          for (const { tf, levels } of results) {
+            if (levels) next[tf] = levels;
+          }
+          return next;
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEmas(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, includeEma100, includeEma200, selectedTimeframes, mergedEmasByTf, fetchEmasForTimeframe]);
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
   const [touchLevel, setTouchLevel] = useState<OrderBlockTouchLevel>("fifty_pct");
@@ -231,13 +318,14 @@ export function PoiAlarmModal({
     try {
       const alertsToCreate: PriceAlert[] = [];
       for (const tf of selectedTimeframes) {
-        // Find matching POI for this timeframe, or fallback to the current poi
-        const tfPois = availablePoisByTimeframe[tf] || [];
-        const targetPoi =
-          tfPois.find((p) => p.category === poi.category && p.type === poi.type && isPoiUnmitigated(p)) ||
-          (tf === poi.timeframe && isPoiUnmitigated(poi) ? poi : null);
+        // 1. Optional POI Zone alert
+        if (includePoiZone) {
+          const tfPois = availablePoisByTimeframe[tf] || [];
+          const targetPoi =
+            tfPois.find((p) => p.category === poi.category && p.type === poi.type && isPoiUnmitigated(p)) ||
+            (tf === poi.timeframe && isPoiUnmitigated(poi) ? poi : null);
 
-        if (!targetPoi) continue;
+          if (targetPoi) {
 
         const targetPrice = getRadarPoiAlarmTargetPrice(targetPoi, touchLevel);
         const touchLabel =
@@ -282,13 +370,65 @@ export function PoiAlarmModal({
           soundType: alarmChime,
         };
         alertsToCreate.push(alert);
+          }
+        }
+
+        // 2. Optional EMA 100 & EMA 200 alerts for this timeframe
+        if (includeEma100 || includeEma200) {
+          let tfEmas = resolveTimeframeValue(mergedEmasByTf, tf);
+          if (!tfEmas) {
+            const fetched = await fetchEmasForTimeframe(tf);
+            if (fetched) {
+              tfEmas = fetched;
+              setFetchedEmasByTf((prev) => ({ ...prev, [tf]: fetched }));
+            }
+          }
+          if (tfEmas) {
+            if (includeEma100 && tfEmas.ema100 && tfEmas.ema100 > 0) {
+              alertsToCreate.push(
+                buildEmaTouchAlert({
+                  idPrefix: "alert",
+                  symbol,
+                  timeframe: tf,
+                  period: 100,
+                  emaPrice: tfEmas.ema100,
+                  currentPrice,
+                  notifyDiscord,
+                  notifyTelegram,
+                  notifyTradingWebhook,
+                  soundType: alarmChime,
+                  now,
+                })
+              );
+            }
+            if (includeEma200 && tfEmas.ema200 && tfEmas.ema200 > 0) {
+              alertsToCreate.push(
+                buildEmaTouchAlert({
+                  idPrefix: "alert",
+                  symbol,
+                  timeframe: tf,
+                  period: 200,
+                  emaPrice: tfEmas.ema200,
+                  currentPrice,
+                  notifyDiscord,
+                  notifyTelegram,
+                  notifyTradingWebhook,
+                  soundType: alarmChime,
+                  now,
+                })
+              );
+            }
+          }
+        }
       }
 
       if (alertsToCreate.length === 0) {
         setStatusMessage(
-          poi.category === "order_block"
-            ? "Validated OB must be unmitigated (0% hit) to create an alarm"
-            : "No matching POI found for selected timeframes"
+          includeEma100 || includeEma200
+            ? "Could not resolve an unmitigated POI or valid EMA 100/200 levels for selected timeframes"
+            : poi.category === "order_block"
+              ? "Validated OB must be unmitigated (0% hit) to create an alarm (or select EMA 100 / EMA 200)"
+              : "No matching POI found for selected timeframes"
         );
         return;
       }
@@ -498,11 +638,24 @@ export function PoiAlarmModal({
             </div>
           </div>
 
-          {/* 2. Touch Level Options */}
+          {/* 2. Touch Level Options (POI Zone) */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] text-[#b6c4ff] font-semibold">
-              Trigger Touch Level
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                className="text-[11px] text-[#b6c4ff] font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={includePoiZone}
+                  onChange={(e) => setIncludePoiZone(e.target.checked)}
+                  className="accent-[#2962ff] rounded cursor-pointer"
+                />
+                <span>POI Trigger Touch Level</span>
+              </label>
+              {!includePoiZone && (
+                <span className="text-[10px] text-[#848e9c]">POI zone skipped</span>
+              )}
+            </div>
             <div className="flex flex-col gap-1.5">
               <label
                 onClick={() => setTouchLevel("entry")}
@@ -576,6 +729,53 @@ export function PoiAlarmModal({
                   </div>
                 </div>
               </label>
+            </div>
+          </div>
+
+          {/* 2B. EMA 100 & EMA 200 Targets (Selected Timeframes) */}
+          <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1f2c3f]">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] text-[#b6c4ff] font-semibold">
+                EMA 100 &amp; EMA 200 Hit Alarms
+              </label>
+              <span className="text-[9px] text-[#848e9c]">
+                {loadingEmas ? "Loading 220-bar EMAs..." : "Dynamic 24/7 Moving Average"}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([100, 200] as const).map((period) => {
+                const checked = period === 100 ? includeEma100 : includeEma200;
+                const toggle = () =>
+                  period === 100 ? setIncludeEma100((v) => !v) : setIncludeEma200((v) => !v);
+                const firstTf = selectedTimeframes[0] || poi.timeframe || "4H";
+                const levels = resolveTimeframeValue(mergedEmasByTf, firstTf);
+                const val = period === 100 ? levels?.ema100 : levels?.ema200;
+                return (
+                  <label
+                    key={period}
+                    className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+                      checked
+                        ? "bg-amber-500/15 border-amber-500/60 text-white"
+                        : "bg-[#0e141f] border-[#1f2c3f] text-[#848e9c] hover:text-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={toggle}
+                        className="accent-amber-500 rounded cursor-pointer"
+                      />
+                      <div>
+                        <div className="font-bold text-[11px]">EMA {period}</div>
+                        <div className="text-[9px] text-[#848e9c]">
+                          {firstTf} {val ? `${formatEmaPrice(val)}` : checked ? "Calculating..." : "Tap to arm"}
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -831,9 +1031,9 @@ export function PoiAlarmModal({
             )}
           </div>
 
-          {poi.category === "order_block" && !hasEligibleSelectedPoi && (
+          {poi.category === "order_block" && !hasEligibleSelectedPoi && includePoiZone && (
             <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/35 text-rose-300 text-[11px] leading-relaxed">
-              This Validated Order Block has already been touched/mitigated (&gt;0% hit). Only completely unmitigated (0% hit) Order Blocks can be armed for new alarms.
+              This Validated Order Block has already been touched/mitigated (&gt;0% hit). Only completely unmitigated (0% hit) Order Blocks can be armed for new POI alarms ? or select EMA 100 / EMA 200 above.
             </div>
           )}
 
@@ -861,7 +1061,7 @@ export function PoiAlarmModal({
             <button
               type="button"
               onClick={handleCreateAlarms}
-              disabled={saving || !hasEligibleSelectedPoi}
+              disabled={saving || (!(includePoiZone && hasEligibleSelectedPoi) && !includeEma100 && !includeEma200)}
               className="px-4 py-1.5 rounded bg-[#2962ff] hover:bg-[#1e50db] text-white font-bold flex items-center gap-1.5 transition-all shadow-md shadow-[#2962ff]/30 cursor-pointer disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
