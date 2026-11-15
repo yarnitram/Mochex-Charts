@@ -12,6 +12,7 @@ import {
   attachLiquidityToPoi,
 } from "@/lib/indicators/poi-liquidity-heatmap";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
+import { computeLatestEma100And200, TimeframeEmaLevels } from "@/lib/alerts/ema-alerts";
 import { evaluatePortfolioRiskHeat, ScannedCandidateForRisk } from "@/lib/indicators/portfolio-risk-engine";
 import {
   SupportedExchange,
@@ -38,6 +39,7 @@ interface CachedPoiEntry {
     nearestSandwich: RadarPoiItem | null;
     nearestFvg: RadarPoiItem | null;
     poisByTimeframe: Record<string, RadarPoiItem[]>;
+    emaByTimeframe?: Record<string, TimeframeEmaLevels>;
     exchange?: string;
     metrics?: any;
     orderFlow?: any;
@@ -135,19 +137,30 @@ export async function POST(request: NextRequest) {
         };
 
         const poisByTimeframe: Record<string, RadarPoiItem[]> = {};
+        const emaByTimeframe: Record<string, TimeframeEmaLevels> = {};
         const allPois: RadarPoiItem[] = [];
 
         for (const tf of timeframes) {
           poisByTimeframe[tf] = [];
 
-          // Query each target exchange
+          // Query each target exchange (220 bars provides full warmup for EMA 100 & EMA 200)
           for (const ex of targetExchanges) {
             try {
-              const bars = await fetchExchangeKlines(ex, upperSym, tf, 100);
+              const bars = await fetchExchangeKlines(ex, upperSym, tf, 220);
               if (bars && bars.length >= 4) {
                 const detected = computeRadarPois(bars, upperSym, tf, ex);
                 poisByTimeframe[tf].push(...detected);
                 allPois.push(...detected);
+
+                if (!emaByTimeframe[tf] || (emaByTimeframe[tf].ema200 === null && bars.length >= 200)) {
+                  const emaLevels = computeLatestEma100And200(bars.map((b) => b.close));
+                  if (emaLevels.ema100 !== null || emaLevels.ema200 !== null) {
+                    emaByTimeframe[tf] = {
+                      ema100: emaByTimeframe[tf]?.ema100 ?? emaLevels.ema100,
+                      ema200: emaByTimeframe[tf]?.ema200 ?? emaLevels.ema200,
+                    };
+                  }
+                }
               }
             } catch {}
           }
@@ -192,6 +205,7 @@ export async function POST(request: NextRequest) {
           nearestSandwich,
           nearestFvg,
           poisByTimeframe,
+          emaByTimeframe,
           exchange: exchangeFilter,
           metrics: nearestPoi?.metrics || null,
           confluence: nearestPoi?.confluence || null,

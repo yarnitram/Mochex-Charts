@@ -16,7 +16,8 @@ import {
   AlertLogEntry,
   ALERT_COOLDOWN_MS,
 } from "./alerts-engine";
-import { fromMexcContractSymbol } from "../screener/multi-exchange-client";
+import { fromMexcContractSymbol, fetchExchangeKlines } from "../screener/multi-exchange-client";
+import { computeLatestEma100And200 } from "./ema-alerts";
 import {
   dispatchDirectWebhooks,
   AlertWebhookConfig,
@@ -530,6 +531,12 @@ export class ServerAlertDaemon {
         await this.refreshActiveAlerts().catch(() => {});
       }
 
+      // Periodically refresh dynamic EMA 100 / EMA 200 targets as timeframe candles evolve (every 3m)
+      if (Date.now() - this.lastEmaRefreshAt >= 180_000) {
+        this.lastEmaRefreshAt = Date.now();
+        await this.refreshDynamicEmaTargets().catch(() => {});
+      }
+
       if (this.trackedSymbols.size === 0) return;
 
       const wsSilent = Date.now() - this.lastWsMessageTime > 10000;
@@ -541,10 +548,53 @@ export class ServerAlertDaemon {
   }
 
   private lastPeriodicRefreshAt = 0;
+  private lastEmaRefreshAt = 0;
   private lastRestPollAt = 0;
   private lastRestPollSuccessAt: number | null = null;
   private lastRestError: string | null = null;
   private restPollCount = 0;
+
+  /**
+   * Refreshes target prices for active EMA 100 / EMA 200 alerts from live selected-timeframe klines.
+   */
+  public async refreshDynamicEmaTargets(): Promise<void> {
+    const emaItems = this.activeAlertsWithContext.filter(
+      (item) => item.alert.active && item.alert.emaMetadata
+    );
+    if (emaItems.length === 0) return;
+
+    const grouped = new Map<string, ActiveAlertContext[]>();
+    for (const item of emaItems) {
+      const tf = item.alert.emaMetadata?.timeframe || "4H";
+      const sym = item.alert.symbol.toUpperCase();
+      const key = `${sym}|${tf}`;
+      const list = grouped.get(key);
+      if (list) list.push(item);
+      else grouped.set(key, [item]);
+    }
+
+    for (const [key, items] of grouped.entries()) {
+      const [sym, tf] = key.split("|");
+      try {
+        const bars = await fetchExchangeKlines("mexc", sym, tf, 220);
+        if (!bars || bars.length < 100) continue;
+        const levels = computeLatestEma100And200(bars.map((b) => b.close));
+
+        for (const item of items) {
+          const period = item.alert.emaMetadata?.period;
+          const nextTarget = period === 100 ? levels.ema100 : period === 200 ? levels.ema200 : null;
+          if (typeof nextTarget !== "number" || !Number.isFinite(nextTarget) || nextTarget <= 0) {
+            continue;
+          }
+          const prevTarget = item.alert.targetPrice;
+          if (!prevTarget || Math.abs(nextTarget - prevTarget) / prevTarget > 0.0002) {
+            item.alert.targetPrice = nextTarget;
+            await updateServerAlert(item.alert.id, { targetPrice: nextTarget }, item.userId).catch(() => {});
+          }
+        }
+      } catch {}
+    }
+  }
 
   /**
    * Starts the background alert daemon if not already running in this Node runtime.

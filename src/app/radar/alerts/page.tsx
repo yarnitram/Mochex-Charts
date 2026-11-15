@@ -56,7 +56,7 @@ export default function RadarAlertsPage() {
   // Filters
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "RADAR" | "CHART">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<"ALL" | "order_block" | "sandwich_zone">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<"ALL" | "order_block" | "sandwich_zone" | "ema_100" | "ema_200">("ALL");
   const [timeframeFilter, setTimeframeFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "PAUSED">("ALL");
   const [directionFilter, setDirectionFilter] = useState<"ALL" | "BULLISH" | "BEARISH">("ALL");
@@ -106,7 +106,7 @@ export default function RadarAlertsPage() {
         const s = params.get("search");
         if (s) setSearchQuery(s);
         const cat = params.get("category");
-        if (cat && (cat === "order_block" || cat === "sandwich_zone")) {
+        if (cat && (cat === "order_block" || cat === "sandwich_zone" || cat === "ema_100" || cat === "ema_200")) {
           setCategoryFilter(cat as any);
         }
       } catch {}
@@ -142,6 +142,7 @@ export default function RadarAlertsPage() {
                 price: item.price || 0,
                 pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
                 poisByTimeframe: item.poisByTimeframe || {},
+                emaByTimeframe: item.emaByTimeframe || {},
               };
             });
             if (list.length > 0) {
@@ -198,6 +199,7 @@ export default function RadarAlertsPage() {
                 price: item.price || 0,
                 pois: allPois.length > 0 ? allPois : (item.nearestPoi ? [item.nearestPoi] : []),
                 poisByTimeframe: item.poisByTimeframe || {},
+                emaByTimeframe: item.emaByTimeframe || {},
               };
             });
             setCandidateCoins(list);
@@ -238,7 +240,7 @@ export default function RadarAlertsPage() {
 
   // Helper: radar alerts vs chart alerts
   const isRadarAlert = useCallback((a: PriceAlert) => {
-    return isPoiPriceAlert(a);
+    return isPoiPriceAlert(a) || Boolean(a.emaMetadata);
   }, []);
 
   // Filtered radar alerts list
@@ -270,13 +272,19 @@ export default function RadarAlertsPage() {
 
       // Category
       if (categoryFilter !== "ALL") {
-        const cat = a.poiMetadata?.category;
-        if (cat !== categoryFilter) return false;
+        if (categoryFilter === "ema_100") {
+          if (a.emaMetadata?.period !== 100) return false;
+        } else if (categoryFilter === "ema_200") {
+          if (a.emaMetadata?.period !== 200) return false;
+        } else {
+          const cat = a.poiMetadata?.category;
+          if (cat !== categoryFilter) return false;
+        }
       }
 
       // Timeframe
       if (timeframeFilter !== "ALL") {
-        const tf = a.poiMetadata?.timeframe;
+        const tf = a.poiMetadata?.timeframe || a.emaMetadata?.timeframe;
         if (timeframeFilter === "15m" && tf !== "15m" && tf !== "15") return false;
         if (timeframeFilter === "30m" && tf !== "30m" && tf !== "30") return false;
         if (timeframeFilter === "1H" && tf !== "1H" && tf !== "60") return false;
@@ -292,7 +300,13 @@ export default function RadarAlertsPage() {
 
       // Direction
       if (directionFilter !== "ALL") {
-        const dir = a.poiMetadata?.direction;
+        const dir =
+          a.poiMetadata?.direction ||
+          (a.emaMetadata
+            ? a.emaMetadata.direction === "SUPPORT" || a.condition === "crossing_down"
+              ? "BULLISH"
+              : "BEARISH"
+            : undefined);
         if (dir !== directionFilter) return false;
       }
 
@@ -778,9 +792,11 @@ export default function RadarAlertsPage() {
             onChange={(e) => setCategoryFilter(e.target.value as any)}
             className="bg-[#121824] text-[#d1d4dc] text-xs px-3 py-2 rounded-lg border border-[#233144] outline-none cursor-pointer font-bold"
           >
-            <option value="ALL">All Categories (OB + Sandwich ++)</option>
+            <option value="ALL">All Categories (OB + Sandwich + EMA)</option>
             <option value="order_block">📦 Validated Order Blocks Only</option>
             <option value="sandwich_zone">🥪 Sandwich Zones ++ Only</option>
+            <option value="ema_100">📈 EMA 100 Only</option>
+            <option value="ema_200">📈 EMA 200 Only</option>
           </select>
 
           {/* Timeframe Filter */}
@@ -976,12 +992,15 @@ export default function RadarAlertsPage() {
                     const formattedTarget =
                       a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
                     const isRadar = isRadarAlert(a);
+                    const isEma = Boolean(a.emaMetadata);
                     const category = a.poiMetadata?.category || "order_block";
-                    const isOb = category === "order_block";
-                    const isSandwich = category === "sandwich_zone";
-                    const isFvg = category === "fvg";
+                    const isOb = !isEma && category === "order_block";
+                    const isSandwich = !isEma && category === "sandwich_zone";
+                    const isFvg = !isEma && category === "fvg";
 
-                    const isBullish = isRadar
+                    const isBullish = isEma
+                      ? a.emaMetadata?.direction === "SUPPORT" || a.condition === "crossing_down"
+                      : isRadar
                       ? a.poiMetadata?.direction === "BULLISH"
                       : a.condition.includes("up");
 
@@ -1023,7 +1042,9 @@ export default function RadarAlertsPage() {
                             <div className="flex items-center gap-1">
                               <span
                                 className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
-                                  isRadar
+                                  isEma
+                                    ? "bg-amber-500/15 text-amber-300 border-amber-500/35"
+                                    : isRadar
                                     ? isOb
                                       ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                                       : isSandwich
@@ -1032,7 +1053,9 @@ export default function RadarAlertsPage() {
                                     : "bg-[#2962ff]/15 text-[#2962ff] border-[#2962ff]/30"
                                 }`}
                               >
-                                {isRadar
+                                {isEma
+                                  ? `📈 EMA ${a.emaMetadata?.period}`
+                                  : isRadar
                                   ? isOb
                                     ? "📦 Validated OB"
                                     : isSandwich
@@ -1050,7 +1073,7 @@ export default function RadarAlertsPage() {
                         {/* Timeframe */}
                         <td className="py-3 px-3">
                           <span className="px-1.5 py-0.5 rounded bg-[#121824] border border-[#233144] text-[10px] font-bold text-white">
-                            {isRadar ? (a.poiMetadata?.timeframe || "1H") : "Chart"}
+                            {isRadar ? (a.poiMetadata?.timeframe || a.emaMetadata?.timeframe || "1H") : "Chart"}
                           </span>
                         </td>
 
@@ -1062,7 +1085,13 @@ export default function RadarAlertsPage() {
                             }`}
                           >
                             <span>{isBullish ? "🟢" : "🔴"}</span>
-                            <span>{isBullish ? "DEMAND" : "SUPPLY"}</span>
+                            <span>
+                              {isEma
+                                ? a.emaMetadata?.direction || (isBullish ? "SUPPORT" : "RESISTANCE")
+                                : isBullish
+                                ? "DEMAND"
+                                : "SUPPLY"}
+                            </span>
                           </span>
                         </td>
 

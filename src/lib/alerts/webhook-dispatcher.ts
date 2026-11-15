@@ -256,6 +256,14 @@ export function formatDiscordPayload(
     });
   }
 
+  if (alert.emaMetadata) {
+    fields.push({
+      name: `Moving Average (${alert.emaMetadata.timeframe})`,
+      value: `\`EMA ${alert.emaMetadata.period}\` @ \`$${formatPriceNumber(log.targetPrice)}\`${alert.emaMetadata.direction ? ` (${alert.emaMetadata.direction})` : ""}`,
+      inline: true,
+    });
+  }
+
   if (log.message) {
     fields.push({
       name: "Signal Note",
@@ -319,6 +327,9 @@ export function formatTelegramMessage(
         ? "FVG Range"
         : "POI Zone Range";
     text += `<b>${catName} (${escapeHtml(alert.poiMetadata.timeframe)}):</b> <code>$${formatPriceNumber(low)} - $${formatPriceNumber(high)}</code> (${spreadPct.toFixed(2)}%)\n`;
+  }
+  if (alert.emaMetadata) {
+    text += `<b>EMA Level (${escapeHtml(alert.emaMetadata.timeframe)}):</b> <code>EMA ${alert.emaMetadata.period} @ $${formatPriceNumber(log.targetPrice)}</code>\n`;
   }
   if (log.sourceType) {
     text += `<b>Source:</b> ${escapeHtml(log.sourceType.replace(/_/g, " ").toUpperCase())}\n`;

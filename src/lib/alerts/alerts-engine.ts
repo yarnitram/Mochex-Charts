@@ -77,6 +77,12 @@ export interface PriceAlert {
     zoneBottom: number;
     invalidationPrice?: number;
   };
+  /** Optional EMA 100 / EMA 200 hit target metadata */
+  emaMetadata?: {
+    period: 100 | 200;
+    timeframe: string;
+    direction?: "SUPPORT" | "RESISTANCE";
+  };
   breakTelemetry?: any;
 }
 
@@ -186,7 +192,7 @@ export function findDuplicateAlerts(alerts: PriceAlert[]): {
 
   for (const alert of alerts) {
     const sym = (alert.symbol || "").toUpperCase().replace(/[\/\-_]/g, "");
-    const tf = normalizeAlertTimeframe(alert.poiMetadata?.timeframe);
+    const tf = normalizeAlertTimeframe(alert.poiMetadata?.timeframe || alert.emaMetadata?.timeframe);
     const priceKey = Number.isFinite(alert.targetPrice)
       ? String(Number(alert.targetPrice.toPrecision(12)))
       : String(alert.targetPrice);
@@ -519,9 +525,14 @@ export function evaluateAlertsBatch(
     let customMessage: string | undefined = undefined;
     let orderSide: "long" | "short" | undefined = undefined;
 
+    const isPriceCrossingCond =
+      alert.condition === "crossing" ||
+      alert.condition === "crossing_up" ||
+      alert.condition === "crossing_down";
+
     if (
       alert.sourceType === "strategy_order" ||
-      alert.sourceType === "indicator_condition"
+      (alert.sourceType === "indicator_condition" && !isPriceCrossingCond)
     ) {
       const res = evaluateStrategyConditionAlert(alert, fullCtx);
       triggered = res.triggered;

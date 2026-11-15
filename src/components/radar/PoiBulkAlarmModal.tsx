@@ -27,6 +27,12 @@ import {
   BulkAlarmPoiCategory,
   filterPoisForBulkAlarm,
 } from "@/lib/indicators/radar-poi-engine";
+import {
+  TimeframeEmaLevels,
+  resolveTimeframeValue,
+  buildEmaTouchAlert,
+  formatEmaPrice,
+} from "@/lib/alerts/ema-alerts";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import {
@@ -50,7 +56,10 @@ export interface CandidateCoinForBulkAlarm {
   price: number;
   pois: RadarPoiItem[];
   poisByTimeframe: Record<string, RadarPoiItem[]>;
+  emaByTimeframe?: Record<string, TimeframeEmaLevels>;
 }
+
+type BulkAlarmTargetCategory = BulkAlarmPoiCategory | "ema_100_200";
 
 interface PoiBulkAlarmModalProps {
   isOpen: boolean;
@@ -104,8 +113,10 @@ export function PoiBulkAlarmModal({
   onSuccess,
 }: PoiBulkAlarmModalProps) {
   // Category filter for the bulk alarm
-  const [targetCategory, setTargetCategory] = useState<BulkAlarmPoiCategory>("order_block");
+  const [targetCategory, setTargetCategory] = useState<BulkAlarmTargetCategory>("order_block");
   const [requireUnmitigatedOb, setRequireUnmitigatedOb] = useState(true);
+  const [includeEma100, setIncludeEma100] = useState(true);
+  const [includeEma200, setIncludeEma200] = useState(true);
 
   // Selected timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(() => {
@@ -187,7 +198,7 @@ export function PoiBulkAlarmModal({
       name?: string;
       price: number;
       existingCount: number;
-      pois: { tf: string; poi: RadarPoiItem; targetPrice: number }[];
+      pois: { tf: string; poi?: RadarPoiItem; tag?: string; targetPrice: number }[];
     }[] = [];
 
     const now = Date.now();
@@ -195,78 +206,113 @@ export function PoiBulkAlarmModal({
     for (const coin of coins) {
       const normKey = coin.symbol.toUpperCase().replace(/[\/\-_]/g, "");
       const existingCount = existingAlertsMap[normKey]?.length || 0;
-      const coinPois: { tf: string; poi: RadarPoiItem; targetPrice: number }[] = [];
+      const coinPois: { tf: string; poi?: RadarPoiItem; tag?: string; targetPrice: number }[] = [];
 
-      for (const tf of selectedTimeframes) {
-        let tfPois = getPoisForTf(coin.poisByTimeframe, tf);
-        if (tfPois.length === 0 && coin.pois && coin.pois.length > 0) {
-          tfPois = coin.pois.filter(
-            (p) =>
-              p.timeframe === tf ||
-              (tf === "15m" && (p.timeframe === "15m" || p.timeframe === "15")) ||
-              (tf === "30m" && (p.timeframe === "30m" || p.timeframe === "30")) ||
-              (tf === "1H" && (p.timeframe === "60" || p.timeframe === "1h" || p.timeframe === "1H")) ||
-              (tf === "2H" && (p.timeframe === "120" || p.timeframe === "2h" || p.timeframe === "2H")) ||
-              (tf === "4H" && (p.timeframe === "240" || p.timeframe === "4h" || p.timeframe === "4H")) ||
-              (tf === "1D" && (p.timeframe === "1D" || p.timeframe === "1d" || p.timeframe === "D")) ||
-              (tf === "1W" && (p.timeframe === "1W" || p.timeframe === "1w" || p.timeframe === "W"))
-          );
+      if (targetCategory === "ema_100_200") {
+        for (const tf of selectedTimeframes) {
+          const emaLevels = resolveTimeframeValue(coin.emaByTimeframe, tf);
+          if (!emaLevels) continue;
+
+          const periodsToArm: Array<{ period: 100 | 200; price: number | null }> = [];
+          if (includeEma100) periodsToArm.push({ period: 100, price: emaLevels.ema100 });
+          if (includeEma200) periodsToArm.push({ period: 200, price: emaLevels.ema200 });
+
+          for (const entry of periodsToArm) {
+            if (typeof entry.price !== "number" || !Number.isFinite(entry.price) || entry.price <= 0) {
+              continue;
+            }
+            coinPois.push({ tf, tag: `EMA ${entry.period}`, targetPrice: entry.price });
+            if (!deselectedSymbols[coin.symbol]) {
+              plannedAlerts.push(
+                buildEmaTouchAlert({
+                  idPrefix: "bulk",
+                  symbol: coin.symbol,
+                  timeframe: tf,
+                  period: entry.period,
+                  emaPrice: entry.price,
+                  currentPrice: coin.price,
+                  notifyDiscord,
+                  notifyTelegram,
+                  notifyTradingWebhook,
+                  soundType: alarmChime,
+                  now,
+                })
+              );
+            }
+          }
         }
+      } else {
+        for (const tf of selectedTimeframes) {
+          let tfPois = getPoisForTf(coin.poisByTimeframe, tf);
+          if (tfPois.length === 0 && coin.pois && coin.pois.length > 0) {
+            tfPois = coin.pois.filter(
+              (p) =>
+                p.timeframe === tf ||
+                (tf === "15m" && (p.timeframe === "15m" || p.timeframe === "15")) ||
+                (tf === "30m" && (p.timeframe === "30m" || p.timeframe === "30")) ||
+                (tf === "1H" && (p.timeframe === "60" || p.timeframe === "1h" || p.timeframe === "1H")) ||
+                (tf === "2H" && (p.timeframe === "120" || p.timeframe === "2h" || p.timeframe === "2H")) ||
+                (tf === "4H" && (p.timeframe === "240" || p.timeframe === "4h" || p.timeframe === "4H")) ||
+                (tf === "1D" && (p.timeframe === "1D" || p.timeframe === "1d" || p.timeframe === "D")) ||
+                (tf === "1W" && (p.timeframe === "1W" || p.timeframe === "1w" || p.timeframe === "W"))
+            );
+          }
 
-        // Filter by target category
-        const candidates = filterPoisForBulkAlarm(tfPois, targetCategory, { requireUnmitigatedOb });
+          // Filter by target category
+          const candidates = filterPoisForBulkAlarm(tfPois, targetCategory, { requireUnmitigatedOb });
 
-        // Pick highest priority candidate for this timeframe
-        if (candidates.length > 0) {
-          const chosen = candidates[0];
-          const targetPrice = getRadarPoiAlarmTargetPrice(chosen, touchLevel);
-          coinPois.push({ tf, poi: chosen, targetPrice });
+          // Pick highest priority candidate for this timeframe
+          if (candidates.length > 0) {
+            const chosen = candidates[0];
+            const targetPrice = getRadarPoiAlarmTargetPrice(chosen, touchLevel);
+            coinPois.push({ tf, poi: chosen, targetPrice });
 
-          if (!deselectedSymbols[coin.symbol]) {
-            const touchLabel =
-              touchLevel === "entry"
-                ? "Zone Entry"
-                : touchLevel === "fifty_pct"
-                ? "50% Mean Threshold"
-                : "Full Retest";
+            if (!deselectedSymbols[coin.symbol]) {
+              const touchLabel =
+                touchLevel === "entry"
+                  ? "Zone Entry"
+                  : touchLevel === "fifty_pct"
+                  ? "50% Mean Threshold"
+                  : "Full Retest";
 
-            const indicatorName =
-              chosen.category === "sandwich_zone"
-                ? "Sandwich Zones ++ (Supply & Demand)"
-                : "Validated Order Block (OB + FVG)";
+              const indicatorName =
+                chosen.category === "sandwich_zone"
+                  ? "Sandwich Zones ++ (Supply & Demand)"
+                  : "Validated Order Block (OB + FVG)";
 
-            const cleanSym = coin.symbol.replace("USDT", "");
-            plannedAlerts.push({
-              id: `bulk-poi-${normKey}-${tf}-${chosen.category}-${touchLevel}-${now}-${Math.floor(Math.random() * 1000)}`,
-              symbol: normKey,
-              targetPrice,
-              condition: chosen.type === "BULLISH" ? "crossing_down" : "crossing_up",
-              frequency: "only_once",
-              sourceType: "indicator_condition",
-              indicatorName,
-              label: `${cleanSym} ${tf} ${chosen.label} (${touchLabel})`,
-              conditionMessage: `[Bulk Alarm] Price reached ${touchLabel} of ${tf} ${chosen.label} @ $${
-                targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)
-              }`,
-              active: true,
-              triggeredCount: 0,
-              createdAt: now,
-              notifyDiscord,
-              notifyTelegram,
-              notifyTradingWebhook,
-              notifyOnInvalidation,
-              invalidationPrice: chosen.invalidationPrice ?? chosen.fullRetestPrice,
-              poiMetadata: {
-                poiId: chosen.id,
-                category: chosen.category,
-                direction: chosen.type,
-                timeframe: tf,
-                zoneTop: chosen.top,
-                zoneBottom: chosen.bottom,
+              const cleanSym = coin.symbol.replace("USDT", "");
+              plannedAlerts.push({
+                id: `bulk-poi-${normKey}-${tf}-${chosen.category}-${touchLevel}-${now}-${Math.floor(Math.random() * 1000)}`,
+                symbol: normKey,
+                targetPrice,
+                condition: chosen.type === "BULLISH" ? "crossing_down" : "crossing_up",
+                frequency: "only_once",
+                sourceType: "indicator_condition",
+                indicatorName,
+                label: `${cleanSym} ${tf} ${chosen.label} (${touchLabel})`,
+                conditionMessage: `[Bulk Alarm] Price reached ${touchLabel} of ${tf} ${chosen.label} @ $${
+                  targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)
+                }`,
+                active: true,
+                triggeredCount: 0,
+                createdAt: now,
+                notifyDiscord,
+                notifyTelegram,
+                notifyTradingWebhook,
+                notifyOnInvalidation,
                 invalidationPrice: chosen.invalidationPrice ?? chosen.fullRetestPrice,
-              },
-              soundType: alarmChime,
-            });
+                poiMetadata: {
+                  poiId: chosen.id,
+                  category: chosen.category,
+                  direction: chosen.type,
+                  timeframe: tf,
+                  zoneTop: chosen.top,
+                  zoneBottom: chosen.bottom,
+                  invalidationPrice: chosen.invalidationPrice ?? chosen.fullRetestPrice,
+                },
+                soundType: alarmChime,
+              });
+            }
           }
         }
       }
@@ -288,6 +334,8 @@ export function PoiBulkAlarmModal({
     selectedTimeframes,
     targetCategory,
     requireUnmitigatedOb,
+    includeEma100,
+    includeEma200,
     touchLevel,
     deselectedSymbols,
     notifyDiscord,
@@ -450,16 +498,17 @@ export function PoiBulkAlarmModal({
             </div>
           </div>
 
-          {/* POI Category Selection */}
+          {/* POI / Indicator Category Selection */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-2">
-              POI Category to Alarm
+              Category to Alarm
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { id: "order_block", label: "Validated OB", desc: "OB + FVG Confirmed" },
                 { id: "sandwich_zone", label: "Sandwich ++", desc: "Supply & Demand" },
                 { id: "all", label: "All POIs", desc: "OB & Sandwich setups" },
+                { id: "ema_100_200", label: "EMA 100 & 200", desc: "Dynamic MA hit targets" },
               ].map((cat) => {
                 const isSelected = targetCategory === cat.id;
                 return (
@@ -553,48 +602,82 @@ export function PoiBulkAlarmModal({
             </div>
           </div>
 
-          {/* Touch Level Trigger Selection */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
-              Alarm Trigger Touch Level
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                {
-                  id: "entry",
-                  title: "Zone Entry",
-                  subtitle: "Earliest Reaction (Outer Edge)",
-                },
-                {
-                  id: "fifty_pct",
-                  title: "50% Mean Threshold",
-                  subtitle: "Equilibrium (Institutional MT/CE)",
-                },
-                {
-                  id: "full",
-                  title: "Full Retest",
-                  subtitle: "Deep Invalidation Buffer",
-                },
-              ].map((lvl) => {
-                const isSelected = touchLevel === lvl.id;
-                return (
-                  <button
-                    key={lvl.id}
-                    type="button"
-                    onClick={() => setTouchLevel(lvl.id as OrderBlockTouchLevel)}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
-                      isSelected
-                        ? "bg-slate-800 border-amber-500/50 text-amber-300 shadow-sm"
-                        : "bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700"
-                    }`}
-                  >
-                    <div className="text-xs font-bold leading-tight">{lvl.title}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{lvl.subtitle}</div>
-                  </button>
-                );
-              })}
+          {targetCategory === "ema_100_200" ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                EMA Targets to Monitor on Selected Timeframes
+              </label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label className="flex items-center justify-between p-2.5 bg-slate-900 border border-cyan-500/35 rounded-xl cursor-pointer hover:border-cyan-400/60">
+                  <div>
+                    <div className="font-bold text-cyan-300">EMA 100 Hit</div>
+                    <div className="text-[10px] text-slate-400">Triggers when price reaches 100 EMA</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={includeEma100}
+                    onChange={(e) => setIncludeEma100(e.target.checked)}
+                    className="accent-cyan-500 h-4 w-4 cursor-pointer"
+                  />
+                </label>
+
+                <label className="flex items-center justify-between p-2.5 bg-slate-900 border border-indigo-500/35 rounded-xl cursor-pointer hover:border-indigo-400/60">
+                  <div>
+                    <div className="font-bold text-indigo-300">EMA 200 Hit</div>
+                    <div className="text-[10px] text-slate-400">Triggers when price reaches 200 EMA</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={includeEma200}
+                    onChange={(e) => setIncludeEma200(e.target.checked)}
+                    className="accent-indigo-500 h-4 w-4 cursor-pointer"
+                  />
+                </label>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                Alarm Trigger Touch Level
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  {
+                    id: "entry",
+                    title: "Zone Entry",
+                    subtitle: "Earliest Reaction (Outer Edge)",
+                  },
+                  {
+                    id: "fifty_pct",
+                    title: "50% Mean Threshold",
+                    subtitle: "Equilibrium (Institutional MT/CE)",
+                  },
+                  {
+                    id: "full",
+                    title: "Full Retest",
+                    subtitle: "Deep Invalidation Buffer",
+                  },
+                ].map((lvl) => {
+                  const isSelected = touchLevel === lvl.id;
+                  return (
+                    <button
+                      key={lvl.id}
+                      type="button"
+                      onClick={() => setTouchLevel(lvl.id as OrderBlockTouchLevel)}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        isSelected
+                          ? "bg-slate-800 border-amber-500/50 text-amber-300 shadow-sm"
+                          : "bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="text-xs font-bold leading-tight">{lvl.title}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{lvl.subtitle}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Notification Channels & Invalidation */}
           <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl space-y-3">
@@ -745,7 +828,7 @@ export function PoiBulkAlarmModal({
                               key={idx}
                               className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300"
                             >
-                              {p.tf} ${p.targetPrice >= 1 ? p.targetPrice.toFixed(2) : p.targetPrice.toFixed(4)}
+                              {p.tf}{p.tag ? ` ${p.tag}` : ""} ${formatEmaPrice(p.targetPrice)}
                             </span>
                           ))}
                         </div>
