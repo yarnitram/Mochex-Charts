@@ -28,6 +28,7 @@ import {
   AutoObFvgSetup,
   AutoObTouchMode,
   buildAutoObFvgAlarm,
+  getCatalogCategoryCount,
   ObSearchExchangePreference,
 } from "@/lib/alerts/auto-ob-fvg-engine";
 import { PriceAlert } from "@/lib/alerts/alerts-engine";
@@ -371,10 +372,10 @@ export default function AutoObFvgMonitorPage() {
               <div className="grid grid-cols-2 gap-1.5">
                 {(
                   [
-                    { id: "majors", label: "Majors" },
-                    { id: "memes", label: "Top Memes" },
-                    { id: "ai", label: "Top AI" },
-                    { id: "all", label: "All 3 Categories" },
+                    { id: "majors", label: `Majors (${getCatalogCategoryCount("majors")})` },
+                    { id: "memes", label: `Top Memes (${getCatalogCategoryCount("memes")})` },
+                    { id: "ai", label: `Top AI (${getCatalogCategoryCount("ai")})` },
+                    { id: "all", label: `All 3 Cat. (${getCatalogCategoryCount("all")}+)` },
                   ] as const
                 ).map((c) => (
                   <button
@@ -431,8 +432,27 @@ export default function AutoObFvgMonitorPage() {
                   <option value={25}>Top 25 Tokens</option>
                   <option value={50}>Top 50 Tokens</option>
                   <option value={100}>Top 100 Tokens</option>
+                  <option value={150}>Top 150 Tokens (Full Category)</option>
+                  <option value={250}>Top 250 Tokens</option>
+                  <option value={350}>Top 350 Tokens</option>
+                  <option value={450}>Top 450 Tokens (All 3 Cat.)</option>
+                  <option value={600}>Top 600 (+ Live MEXC Perps)</option>
                 </select>
               </div>
+              {category !== "all" && topLimit > getCatalogCategoryCount(category) && (
+                <div className="text-[10px] text-amber-300/90 flex items-center justify-between gap-1">
+                  <span>
+                    This category has {getCatalogCategoryCount(category)} tokens.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCategory("all")}
+                    className="underline font-bold hover:text-white cursor-pointer shrink-0"
+                  >
+                    Use All 3 Cat.
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 3. Timeframes & Zone Rules */}

@@ -10,6 +10,7 @@ import {
   AutoObFvgSetup,
   AutoObTouchMode,
   detectUnmitigatedObFvgBars,
+  MAX_AUTO_OB_TOP_LIMIT,
   ObSearchExchangePreference,
   pickObExchangeForToken,
   rankTopTokensOnMexc,
@@ -24,6 +25,7 @@ import { serverAlertDaemon } from "@/lib/alerts/server-alert-daemon";
 import { ObZoneType } from "@/lib/indicators/validated-ob-engine";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 async function resolveUserId(request: NextRequest): Promise<string> {
   const token =
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
     const exchangePreference: ObSearchExchangePreference =
       rawPref === "bybit" ? "bybit" : rawPref === "binance" ? "binance" : "auto";
 
-    const topLimit = Math.max(5, Math.min(100, Number(body.topLimit) || 25));
+    const topLimit = Math.max(5, Math.min(MAX_AUTO_OB_TOP_LIMIT, Number(body.topLimit) || 25));
     const timeframes: string[] =
       Array.isArray(body.timeframes) && body.timeframes.length > 0
         ? body.timeframes.map((tf: any) => String(tf))
@@ -89,20 +91,27 @@ export async function POST(request: NextRequest) {
 
     const rankedTokens = rankTopTokensOnMexc(category, mexcTickers, topLimit);
 
-    // 2. For each MEXC top token, search Bybit / Binance klines for strict unmitigated OB+FVG
-    const CHUNK_SIZE = 10;
+    // 2. Match MEXC top tokens to Bybit / Binance and scan klines in fast concurrent batches
+    const eligibleTokens = rankedTokens
+      .map((token) => ({
+        token,
+        picked: pickObExchangeForToken(token.symbol, exchangePreference, {
+          bybit: bybitTickers,
+          binance: binanceTickers,
+        }),
+      }))
+      .filter(
+        (entry): entry is { token: (typeof rankedTokens)[number]; picked: NonNullable<ReturnType<typeof pickObExchangeForToken>> } =>
+          entry.picked !== null
+      );
+
+    const CHUNK_SIZE = 16;
     const allSetups: AutoObFvgSetup[] = [];
 
-    for (let i = 0; i < rankedTokens.length; i += CHUNK_SIZE) {
-      const chunk = rankedTokens.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < eligibleTokens.length; i += CHUNK_SIZE) {
+      const chunk = eligibleTokens.slice(i, i + CHUNK_SIZE);
       const chunkResults = await Promise.all(
-        chunk.map(async (token) => {
-          const picked = pickObExchangeForToken(token.symbol, exchangePreference, {
-            bybit: bybitTickers,
-            binance: binanceTickers,
-          });
-          if (!picked) return [];
-
+        chunk.map(async ({ token, picked }) => {
           const tokenSetups: AutoObFvgSetup[] = [];
           await Promise.all(
             timeframes.map(async (tf) => {

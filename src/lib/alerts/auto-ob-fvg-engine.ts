@@ -26,6 +26,8 @@ export type AutoObCategory = "majors" | "memes" | "ai" | "all";
 export type ObSearchExchangePreference = "auto" | "bybit" | "binance";
 export type AutoObTouchMode = "entry" | "fifty_pct";
 
+export const MAX_AUTO_OB_TOP_LIMIT = 600;
+
 export interface MexcRankedToken {
   symbol: string;
   name: string;
@@ -89,9 +91,15 @@ export function getCatalogCoinsForCategory(category: AutoObCategory): CuratedCoi
   return combined;
 }
 
+export function getCatalogCategoryCount(category: AutoObCategory): number {
+  return getCatalogCoinsForCategory(category).length;
+}
+
 /**
  * Ranks tokens from the 3 curated universes using live MEXC Futures 24h volume
  * so we discover the top active tokens on MEXC before scanning Bybit / Binance for OBs.
+ * When `category === "all"` and `limit` exceeds the combined catalog size, additional
+ * live MEXC USDT perpetual pairs are appended by 24h volume.
  */
 export function rankTopTokensOnMexc(
   category: AutoObCategory,
@@ -99,9 +107,11 @@ export function rankTopTokensOnMexc(
   limit = 30
 ): MexcRankedToken[] {
   const coins = getCatalogCoinsForCategory(category);
+  const seenSymbols = new Set<string>();
 
   const enriched = coins.map((c, idx) => {
     const cleanSym = normalizeSymbolKey(c.symbol);
+    seenSymbols.add(cleanSym);
     const ticker = mexcTickers.get(cleanSym) || mexcTickers.get(c.symbol.toUpperCase());
     return {
       symbol: cleanSym,
@@ -114,6 +124,33 @@ export function rankTopTokensOnMexc(
     };
   });
 
+  const cappedLimit = Math.max(1, Math.min(MAX_AUTO_OB_TOP_LIMIT, Math.floor(limit)));
+
+  if (category === "all" && cappedLimit > enriched.length && mexcTickers.size > 0) {
+    let extraIdx = enriched.length;
+    for (const [rawKey, ticker] of mexcTickers.entries()) {
+      const cleanSym = normalizeSymbolKey(ticker?.symbol || rawKey);
+      if (
+        !cleanSym.endsWith("USDT") ||
+        cleanSym.length <= 4 ||
+        seenSymbols.has(cleanSym) ||
+        !(ticker?.price > 0)
+      ) {
+        continue;
+      }
+      seenSymbols.add(cleanSym);
+      enriched.push({
+        symbol: cleanSym,
+        name: cleanSym.slice(0, -4),
+        category: "majors",
+        catalogIdx: extraIdx++,
+        mexcPrice: ticker.price,
+        mexcVolume24h: ticker.volume24h ?? 0,
+        mexcChange24h: ticker.change24h ?? 0,
+      });
+    }
+  }
+
   enriched.sort((a, b) => {
     if (b.mexcVolume24h !== a.mexcVolume24h) {
       return b.mexcVolume24h - a.mexcVolume24h;
@@ -121,7 +158,6 @@ export function rankTopTokensOnMexc(
     return a.catalogIdx - b.catalogIdx;
   });
 
-  const cappedLimit = Math.max(1, Math.min(160, Math.floor(limit)));
   return enriched.slice(0, cappedLimit).map((item, rankIdx) => ({
     symbol: item.symbol,
     name: item.name,

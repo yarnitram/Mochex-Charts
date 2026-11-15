@@ -90,6 +90,23 @@ describe("Auto Validated OB+FVG Monitor (MEXC Top -> Bybit/Binance)", () => {
 
     const all = rankTopTokensOnMexc("all", mexcMap, 5);
     expect(all[0].symbol).toBe("DOGEUSDT");
+
+    const fullMemes = rankTopTokensOnMexc("memes", mexcMap, 150);
+    expect(fullMemes.length).toBe(150);
+
+    const expandedMap = new Map(mexcMap);
+    expandedMap.set("EXTRATESTUSDT", {
+      symbol: "EXTRATESTUSDT",
+      price: 4.2,
+      change24h: 12,
+      volume24h: 2_200_000_000,
+      high24h: 4.5,
+      low24h: 3.9,
+      exchange: "mexc",
+    });
+    const expandedAll = rankTopTokensOnMexc("all", expandedMap, 600);
+    expect(expandedAll.length).toBeGreaterThan(350);
+    expect(expandedAll[0].symbol).toBe("EXTRATESTUSDT");
   });
 
   it("picks Bybit or Binance according to preference with Auto fallback", () => {
