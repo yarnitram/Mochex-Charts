@@ -32,6 +32,7 @@ import {
   ObSearchExchangePreference,
 } from "@/lib/alerts/auto-ob-fvg-engine";
 import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
+import { buildMochexChartUrl } from "@/lib/chart/chart-url";
 import {
   loadClientAlerts,
   mergeClientAndServerAlerts,
@@ -729,13 +730,28 @@ export default function AutoObFvgMonitorPage() {
                   <span className="font-bold text-white">
                     OB + FVG Zone Telemetry
                   </span>
-                  <Link
-                    href="/radar/ob-fvg-alerts"
-                    className="text-[11px] text-amber-300 hover:underline flex items-center gap-1"
-                  >
-                    <span>Open Alarm Set &amp; Logs</span>
-                    <ExternalLink size={11} />
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={buildMochexChartUrl({
+                        symbol: selectedSetup.symbol,
+                        timeframe: selectedSetup.timeframe,
+                        exchange: selectedSetup.exchange,
+                        indicator: "validated-ob-radar",
+                        targetPrice: touchMode === "fifty_pct" ? selectedSetup.meanThreshold : selectedSetup.entryPrice,
+                      })}
+                      className="text-[11px] text-[#8eaaff] hover:underline flex items-center gap-1"
+                    >
+                      <span>Open Full Chart</span>
+                      <ExternalLink size={11} />
+                    </Link>
+                    <Link
+                      href="/radar/ob-fvg-alerts"
+                      className="text-[11px] text-amber-300 hover:underline flex items-center gap-1"
+                    >
+                      <span>Alarm Set &amp; Logs</span>
+                      <ExternalLink size={11} />
+                    </Link>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-[11px]">

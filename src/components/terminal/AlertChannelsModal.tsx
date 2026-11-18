@@ -82,6 +82,9 @@ export function AlertChannelsModal({
   const [discordEmaEnabled, setDiscordEmaEnabled] = useState(
     effectiveInitial.discordEmaWebhookUrl ? effectiveInitial.discordEmaEnabled !== false : false
   );
+  const [appBaseUrl, setAppBaseUrl] = useState(
+    effectiveInitial.appBaseUrl || (typeof window !== "undefined" ? window.location.origin : "")
+  );
   const [discordTestingTarget, setDiscordTestingTarget] = useState<"default" | "ob" | "ema" | null>(null);
   const [discordStatus, setDiscordStatus] = useState<{
     target: "default" | "ob" | "ema";
@@ -141,6 +144,9 @@ export function AlertChannelsModal({
       setDiscordEmaWebhookUrl(source.discordEmaWebhookUrl || "");
       setDiscordEmaEnabled(
         Boolean(source.discordEmaWebhookUrl?.trim()) && source.discordEmaEnabled !== false
+      );
+      setAppBaseUrl(
+        source.appBaseUrl || (typeof window !== "undefined" ? window.location.origin : "")
       );
 
       setTelegramBotToken(source.telegramBotToken || "");
@@ -461,6 +467,7 @@ export function AlertChannelsModal({
       discordObEnabled: hasDiscordOb ? (discordObEnabled ?? true) : false,
       discordEmaWebhookUrl: discordEmaWebhookUrl.trim(),
       discordEmaEnabled: hasDiscordEma ? (discordEmaEnabled ?? true) : false,
+      appBaseUrl: appBaseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : ""),
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
       telegramEnabled: hasTelegram ? (telegramEnabled ?? true) : false,
@@ -661,6 +668,25 @@ export function AlertChannelsModal({
                 </div>
               );
             })}
+
+            <div className="p-2.5 rounded-md bg-surface/40 border border-border/50 flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-semibold text-on-surface">
+                  Mochex Chart Link Base URL (for Discord &amp; Telegram)
+                </label>
+                <span className="text-[9px] text-muted">Auto-fills from your URL</span>
+              </div>
+              <input
+                type="text"
+                value={appBaseUrl}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setAppBaseUrl(e.target.value);
+                }}
+                placeholder="https://your-mochex-domain.com"
+                className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#5865F2] outline-none"
+              />
+            </div>
           </div>
 
           {/* 2. TELEGRAM INTEGRATION CARD */}

@@ -24,6 +24,7 @@ import {
   SupportedExchange,
 } from "../screener/multi-exchange-client";
 import { getLatestEmaValue } from "./ema-alerts";
+import { resolveMaxLeverageInfo } from "../screener/leverage-lookup";
 import {
   dispatchDirectWebhooks,
   AlertWebhookConfig,
@@ -367,7 +368,18 @@ export class ServerAlertDaemon {
       console.warn("[ServerAlertDaemon] Error updating alert in store:", storeErr);
     }
 
-    // 2. Dispatch notifications to Discord/Telegram and persist delivery diagnostics
+    // 2. Enrich alert/log with exchange max leverage & dispatch notifications
+    if (alert.maxLeverage == null && log.maxLeverage == null) {
+      const lev = await resolveMaxLeverageInfo(
+        alert.symbol,
+        alert.exchange || alert.poiMetadata?.exchange
+      ).catch(() => null);
+      if (lev) {
+        log.maxLeverage = lev.maxLeverage;
+        log.maxLeverageSource = lev.source;
+      }
+    }
+
     let dispatchResult: Record<string, unknown> | undefined;
     let dispatchErr: unknown;
 

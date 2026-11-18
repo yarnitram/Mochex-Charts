@@ -36,6 +36,7 @@ import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { ObZoneMiniChart } from "@/components/radar/ObZoneMiniChart";
+import { buildMochexChartUrl } from "@/lib/chart/chart-url";
 
 import { SUPPORTED_EXCHANGES, SupportedExchange } from "@/lib/screener/multi-exchange-client";
 
@@ -652,8 +653,23 @@ export default function ObFvgAlertsAndLogsPage() {
               />
 
               <div className="p-4 rounded-xl border border-[#1b2535] bg-[#0c1017] flex flex-col gap-2 text-xs">
-                <div className="font-bold text-white truncate">
-                  {inspectTarget.label}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-white truncate">
+                    {inspectTarget.label}
+                  </div>
+                  <Link
+                    href={buildMochexChartUrl({
+                      symbol: inspectTarget.symbol,
+                      timeframe: inspectTarget.timeframe,
+                      exchange: inspectTarget.exchange,
+                      indicator: "validated-ob-radar",
+                      targetPrice: inspectTarget.targetPrice,
+                    })}
+                    className="text-[11px] text-[#8eaaff] hover:underline flex items-center gap-1 shrink-0"
+                  >
+                    <span>Full Chart</span>
+                    <ExternalLink size={11} />
+                  </Link>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <div className="p-2.5 rounded-lg bg-[#121824] border border-[#1b2535]">
