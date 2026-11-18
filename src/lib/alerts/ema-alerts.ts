@@ -15,6 +15,36 @@ export interface TimeframeEmaLevels {
   ema50?: number | null;
 }
 
+export const SELECTABLE_EMA_PERIODS: readonly EmaPeriod[] = [20, 50, 100, 200];
+
+/**
+ * Normalizes user/request EMA period selections into deduplicated sorted periods within [20, 50, 100, 200].
+ */
+export function normalizeSelectedEmaPeriods(
+  raw: unknown,
+  fallback: EmaPeriod[] = [...SELECTABLE_EMA_PERIODS]
+): EmaPeriod[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const valid = new Set<EmaPeriod>();
+  for (const item of raw) {
+    const n = Number(item);
+    if (n === 20 || n === 50 || n === 100 || n === 200) {
+      valid.add(n);
+    }
+  }
+  if (valid.size === 0) return [...fallback];
+  return SELECTABLE_EMA_PERIODS.filter((p) => valid.has(p));
+}
+
+export function getEmaLevelForPeriod(
+  levels: TimeframeEmaLevels | null | undefined,
+  period: EmaPeriod
+): number | null {
+  if (!levels) return null;
+  const val = levels[`ema${period}` as keyof TimeframeEmaLevels];
+  return typeof val === "number" && Number.isFinite(val) && val > 0 ? val : null;
+}
+
 const TIMEFRAME_ALIAS_MAP: Record<string, string[]> = {
   "15m": ["15m", "15"],
   "30m": ["30m", "30"],

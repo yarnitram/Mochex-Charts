@@ -11,7 +11,8 @@ import { PriceAlert } from "@/lib/alerts/alerts-engine";
 import { loadClientAlerts, mergeClientAndServerAlerts, saveClientAlerts, syncAlerts } from "@/lib/alerts/alerts-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
-import { formatEmaPrice } from "@/lib/alerts/ema-alerts";
+import { formatEmaPrice, SELECTABLE_EMA_PERIODS } from "@/lib/alerts/ema-alerts";
+import type { EmaPeriod } from "@/lib/indicators/mtf-ema/types";
 import { SUPPORTED_EXCHANGES } from "@/lib/screener/multi-exchange-client";
 
 const TIMEFRAME_OPTIONS = ["15m", "30m", "1H", "2H", "4H", "1D", "1W"];
@@ -33,6 +34,7 @@ export default function EmaAlarmScannerPage() {
   const [exchangePreference, setExchangePreference] = useState<ObSearchExchangePreference>("auto");
   const [topLimit, setTopLimit] = useState(25);
   const [timeframes, setTimeframes] = useState<string[]>(["15m", "1H", "4H"]);
+  const [selectedPeriods, setSelectedPeriods] = useState<EmaPeriod[]>([20, 50, 100, 200]);
   const [maxDistancePct, setMaxDistancePct] = useState(5);
   const [autoArm, setAutoArm] = useState(true);
   const [autoRefreshMinutes, setAutoRefreshMinutes] = useState(0);
@@ -74,7 +76,7 @@ export default function EmaAlarmScannerPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          category, exchangePreference, topLimit, timeframes, maxDistancePct, autoArm,
+          category, exchangePreference, topLimit, timeframes, periods: selectedPeriods, maxDistancePct, autoArm,
           notifyDiscord: webhookConfig.discordEnabled !== false,
           notifyTelegram: webhookConfig.telegramEnabled !== false,
           notifyTradingWebhook: Boolean(webhookConfig.tradingWebhook?.enabled),
@@ -102,7 +104,7 @@ export default function EmaAlarmScannerPage() {
     } finally {
       setScanning(false);
     }
-  }, [category, exchangePreference, topLimit, timeframes, maxDistancePct, autoArm, webhookConfig]);
+  }, [category, exchangePreference, topLimit, timeframes, selectedPeriods, maxDistancePct, autoArm, webhookConfig]);
 
   useEffect(() => {
     runScan();
@@ -119,6 +121,10 @@ export default function EmaAlarmScannerPage() {
   const toggleTimeframe = (timeframe: string) => setTimeframes((current) => current.includes(timeframe)
     ? current.length > 1 ? current.filter((value) => value !== timeframe) : current
     : [...current, timeframe]);
+
+  const togglePeriod = (period: EmaPeriod) => setSelectedPeriods((current) => current.includes(period)
+    ? current.length > 1 ? current.filter((value) => value !== period) : current
+    : SELECTABLE_EMA_PERIODS.filter((p) => p === period || current.includes(p)));
 
   const armOne = async (setup: AutoEmaSetup) => {
     const alert = buildAutoEmaAlarm(setup, {
@@ -158,7 +164,7 @@ export default function EmaAlarmScannerPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#1b2535]">
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
               <span className="px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 font-bold">1. Rank by MEXC Futures volume</span><span className="text-[#848e9c]">→</span>
-              <span className="px-2 py-1 rounded bg-orange-500/15 border border-orange-500/35 text-orange-300 font-bold">2. Calculate 4 EMA periods on Bybit / Binance</span><span className="text-[#848e9c]">→</span>
+              <span className="px-2 py-1 rounded bg-orange-500/15 border border-orange-500/35 text-orange-300 font-bold">2. Calculate {selectedPeriods.map((p) => `EMA ${p}`).join(" / ")} on Bybit / Binance</span><span className="text-[#848e9c]">→</span>
               <span className="px-2 py-1 rounded bg-violet-500/15 border border-violet-500/35 text-violet-300 font-bold">3. Arm dynamic 24/7 touch alarms</span>
             </div>
             {scannedAt && <div className="text-[10px] text-[#848e9c] flex items-center gap-2"><Clock size={11} /> Scanned {scannedCount} tokens at {new Date(scannedAt).toLocaleTimeString()} {runSummary && <span className="text-amber-300">· New +{runSummary.armed} · Duplicates {runSummary.duplicates}</span>}</div>}
@@ -169,7 +175,31 @@ export default function EmaAlarmScannerPage() {
 
             <div className="flex flex-col gap-1.5"><label className="text-[10px] uppercase font-bold text-[#848e9c]">EMA Source Exchange</label><div className="grid grid-cols-3 gap-1">{([{ id: "auto", label: "Auto" }, { id: "bybit", label: "Bybit" }, { id: "binance", label: "Binance" }] as const).map((item) => <button key={item.id} type="button" onClick={() => setExchangePreference(item.id)} className={`px-2 py-1.5 rounded-lg border text-[10px] font-bold ${exchangePreference === item.id ? "bg-orange-500/20 border-orange-500 text-orange-300" : "bg-[#121824] border-[#233144] text-[#848e9c]"}`}>{item.label}</button>)}</div><div className="flex items-center justify-between text-[10px] text-[#848e9c]">Top volume<select value={topLimit} onChange={(event) => setTopLimit(Number(event.target.value))} className="bg-[#121824] border border-[#233144] rounded px-2 py-1 text-white"><option value={15}>15 tokens</option><option value={25}>25 tokens</option><option value={50}>50 tokens</option><option value={100}>100 tokens</option><option value={150}>150 tokens</option><option value={250}>250 tokens</option><option value={450}>450 tokens</option><option value={600}>600 tokens</option></select></div></div>
 
-            <div className="flex flex-col gap-1.5"><label className="text-[10px] uppercase font-bold text-[#848e9c]">Timeframes ({timeframes.length})</label><div className="flex flex-wrap gap-1">{TIMEFRAME_OPTIONS.map((timeframe) => <button key={timeframe} type="button" onClick={() => toggleTimeframe(timeframe)} className={`px-2 py-1 rounded border text-[10px] font-bold ${timeframes.includes(timeframe) ? "bg-violet-500/20 border-violet-400 text-violet-200" : "bg-[#121824] border-[#233144] text-[#848e9c]"}`}>{timeframe}</button>)}</div><label className="flex items-center justify-between gap-2 text-[10px] text-[#848e9c]">Max price distance<select value={maxDistancePct} onChange={(event) => setMaxDistancePct(Number(event.target.value))} className="bg-[#121824] border border-[#233144] rounded px-2 py-1 text-white"><option value={0.5}>0.5%</option><option value={1}>1%</option><option value={2}>2%</option><option value={5}>5%</option><option value={10}>10%</option><option value={25}>25%</option></select></label></div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-[#848e9c]">Timeframes ({timeframes.length})</label>
+              <div className="flex flex-wrap gap-1">{TIMEFRAME_OPTIONS.map((timeframe) => <button key={timeframe} type="button" onClick={() => toggleTimeframe(timeframe)} className={`px-2 py-1 rounded border text-[10px] font-bold cursor-pointer ${timeframes.includes(timeframe) ? "bg-violet-500/20 border-violet-400 text-violet-200" : "bg-[#121824] border-[#233144] text-[#848e9c]"}`}>{timeframe}</button>)}</div>
+              <div className="flex items-center justify-between text-[10px] text-[#848e9c] pt-0.5">
+                <span className="uppercase font-bold">EMAs to Hit ({selectedPeriods.length})</span>
+                <span className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => setSelectedPeriods([20, 50, 100, 200])} className="hover:text-white underline cursor-pointer">All</button>
+                  <button type="button" onClick={() => setSelectedPeriods([20, 50])} className="hover:text-white underline cursor-pointer">20·50</button>
+                  <button type="button" onClick={() => setSelectedPeriods([100, 200])} className="hover:text-white underline cursor-pointer">100·200</button>
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {SELECTABLE_EMA_PERIODS.map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => togglePeriod(period)}
+                    className={`px-1.5 py-1 rounded border text-[10px] font-bold cursor-pointer ${selectedPeriods.includes(period) ? "bg-amber-500/20 border-amber-400 text-amber-300" : "bg-[#121824] border-[#233144] text-[#848e9c] hover:text-white"}`}
+                  >
+                    EMA {period}
+                  </button>
+                ))}
+              </div>
+              <label className="flex items-center justify-between gap-2 text-[10px] text-[#848e9c]">Max price distance<select value={maxDistancePct} onChange={(event) => setMaxDistancePct(Number(event.target.value))} className="bg-[#121824] border border-[#233144] rounded px-2 py-1 text-white"><option value={0.5}>0.5%</option><option value={1}>1%</option><option value={2}>2%</option><option value={5}>5%</option><option value={10}>10%</option><option value={25}>25%</option></select></label>
+            </div>
 
             <div className="flex flex-col justify-between gap-2"><div className="flex flex-col gap-2"><label className="flex items-center gap-2 text-[11px] font-bold text-white"><input type="checkbox" checked={autoArm} onChange={(event) => setAutoArm(event.target.checked)} className="accent-violet-400" /> Auto-set 24/7 EMA touch alarms</label><div className="flex items-center justify-between text-[10px] text-[#848e9c]">Auto-scan loop<select value={autoRefreshMinutes} onChange={(event) => setAutoRefreshMinutes(Number(event.target.value))} className="bg-[#121824] border border-[#233144] rounded px-2 py-1 text-white"><option value={0}>Manual only</option><option value={1}>Every 1 min</option><option value={3}>Every 3 min</option><option value={5}>Every 5 min</option></select></div></div><button type="button" onClick={runScan} disabled={scanning} className="w-full py-2 rounded-lg bg-violet-400 hover:bg-violet-300 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 disabled:opacity-60">{scanning ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} {scanning ? "Scanning EMA levels…" : autoArm ? "Scan & Auto-Arm EMA Alarms" : "Scan EMA Levels"}</button></div>
           </div>

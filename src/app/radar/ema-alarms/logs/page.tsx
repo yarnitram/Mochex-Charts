@@ -34,6 +34,7 @@ export default function EmaAlarmSetLogsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [exchangeFilter, setExchangeFilter] = useState<"ALL" | SupportedExchange>("ALL");
+  const [periodFilter, setPeriodFilter] = useState<"ALL" | "20" | "50" | "100" | "200">("ALL");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [webhookConfig, setWebhookConfig] = useState<AlertWebhookConfig>(loadClientWebhooks);
   const [channelsOpen, setChannelsOpen] = useState(false);
@@ -69,14 +70,16 @@ export default function EmaAlarmSetLogsPage() {
 
   const scopedAlerts = useMemo(() => alerts.filter(isAutoEma).filter((item) => {
     if (exchangeFilter !== "ALL" && (item.exchange || "mexc") !== exchangeFilter) return false;
+    if (periodFilter !== "ALL" && String(item.emaMetadata?.period || "") !== periodFilter) return false;
     const q = query.trim().toLowerCase();
     return !q || item.symbol.toLowerCase().includes(q) || item.label.toLowerCase().includes(q);
-  }), [alerts, exchangeFilter, query]);
+  }), [alerts, exchangeFilter, periodFilter, query]);
   const scopedLogs = useMemo(() => logs.filter(isAutoEma).filter((item) => {
     if (exchangeFilter !== "ALL" && (item.exchange || "mexc") !== exchangeFilter) return false;
+    if (periodFilter !== "ALL" && String(item.emaMetadata?.period || "") !== periodFilter) return false;
     const q = query.trim().toLowerCase();
     return !q || item.symbol.toLowerCase().includes(q) || item.label.toLowerCase().includes(q) || (item.message || "").toLowerCase().includes(q);
-  }), [logs, exchangeFilter, query]);
+  }), [logs, exchangeFilter, periodFilter, query]);
   const selected: EmaItem | undefined = tab === "alarms"
     ? scopedAlerts.find((item) => item.id === selectedId) || scopedAlerts[0]
     : scopedLogs.find((item) => item.id === selectedId) || scopedLogs[0];
@@ -120,7 +123,7 @@ export default function EmaAlarmSetLogsPage() {
 
       <section className="px-4 sm:px-6 pt-4 max-w-7xl mx-auto w-full flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#0c1017] border border-[#1b2535]"><button type="button" onClick={() => { setTab("alarms"); setSelectedId(null); }} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 ${tab === "alarms" ? "bg-amber-400 text-slate-950" : "text-[#848e9c]"}`}><Bell size={13} /> Alarm Set ({scopedAlerts.length})</button><button type="button" onClick={() => { setTab("logs"); setSelectedId(null); }} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 ${tab === "logs" ? "bg-[#2962ff] text-white" : "text-[#848e9c]"}`}><ScrollText size={13} /> Trigger &amp; Delivery Logs ({scopedLogs.length})</button></div>
-        <div className="flex flex-wrap items-center gap-2"><div className="relative"><Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#848e9c]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter symbol…" className="bg-[#0c1017] border border-[#233144] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white" /></div><select value={exchangeFilter} onChange={(event) => setExchangeFilter(event.target.value as typeof exchangeFilter)} className="bg-[#0c1017] border border-[#233144] rounded-lg px-2.5 py-1.5 text-xs text-white"><option value="ALL">All exchanges</option><option value="bybit">Bybit Perps</option><option value="binance">Binance Perps</option><option value="mexc">MEXC Perps</option></select>{tab === "logs" && logs.length > 0 && <button type="button" onClick={clearLogs} className="px-2.5 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs font-bold">Clear Logs</button>}</div>
+        <div className="flex flex-wrap items-center gap-2"><div className="relative"><Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#848e9c]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter symbol…" className="bg-[#0c1017] border border-[#233144] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white" /></div><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value as typeof periodFilter)} className="bg-[#0c1017] border border-[#233144] rounded-lg px-2.5 py-1.5 text-xs text-white"><option value="ALL">All EMAs</option><option value="20">EMA 20</option><option value="50">EMA 50</option><option value="100">EMA 100</option><option value="200">EMA 200</option></select><select value={exchangeFilter} onChange={(event) => setExchangeFilter(event.target.value as typeof exchangeFilter)} className="bg-[#0c1017] border border-[#233144] rounded-lg px-2.5 py-1.5 text-xs text-white"><option value="ALL">All exchanges</option><option value="bybit">Bybit Perps</option><option value="binance">Binance Perps</option><option value="mexc">MEXC Perps</option></select>{tab === "logs" && logs.length > 0 && <button type="button" onClick={clearLogs} className="px-2.5 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs font-bold">Clear Logs</button>}</div>
       </section>
 
       <main className="px-4 sm:px-6 py-4 max-w-7xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">

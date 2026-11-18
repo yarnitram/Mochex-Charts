@@ -32,7 +32,10 @@ import {
   resolveTimeframeValue,
   buildEmaTouchAlert,
   formatEmaPrice,
+  getEmaLevelForPeriod,
+  SELECTABLE_EMA_PERIODS,
 } from "@/lib/alerts/ema-alerts";
+import type { EmaPeriod } from "@/lib/indicators/mtf-ema/types";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
@@ -115,8 +118,13 @@ export function PoiBulkAlarmModal({
   // Category filter for the bulk alarm
   const [targetCategory, setTargetCategory] = useState<BulkAlarmTargetCategory>("order_block");
   const [requireUnmitigatedOb, setRequireUnmitigatedOb] = useState(true);
-  const [includeEma100, setIncludeEma100] = useState(true);
-  const [includeEma200, setIncludeEma200] = useState(true);
+  const [selectedEmaPeriods, setSelectedEmaPeriods] = useState<EmaPeriod[]>([100, 200]);
+  const toggleEmaPeriod = (period: EmaPeriod) =>
+    setSelectedEmaPeriods((prev) =>
+      prev.includes(period)
+        ? prev.length > 1 ? prev.filter((p) => p !== period) : prev
+        : SELECTABLE_EMA_PERIODS.filter((p) => p === period || prev.includes(p))
+    );
 
   // Selected timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(() => {
@@ -213,23 +221,18 @@ export function PoiBulkAlarmModal({
           const emaLevels = resolveTimeframeValue(coin.emaByTimeframe, tf);
           if (!emaLevels) continue;
 
-          const periodsToArm: Array<{ period: 100 | 200; price: number | null }> = [];
-          if (includeEma100) periodsToArm.push({ period: 100, price: emaLevels.ema100 });
-          if (includeEma200) periodsToArm.push({ period: 200, price: emaLevels.ema200 });
-
-          for (const entry of periodsToArm) {
-            if (typeof entry.price !== "number" || !Number.isFinite(entry.price) || entry.price <= 0) {
-              continue;
-            }
-            coinPois.push({ tf, tag: `EMA ${entry.period}`, targetPrice: entry.price });
+          for (const period of selectedEmaPeriods) {
+            const emaPrice = getEmaLevelForPeriod(emaLevels, period);
+            if (emaPrice === null) continue;
+            coinPois.push({ tf, tag: `EMA ${period}`, targetPrice: emaPrice });
             if (!deselectedSymbols[coin.symbol]) {
               plannedAlerts.push(
                 buildEmaTouchAlert({
                   idPrefix: "bulk",
                   symbol: coin.symbol,
                   timeframe: tf,
-                  period: entry.period,
-                  emaPrice: entry.price,
+                  period,
+                  emaPrice,
                   currentPrice: coin.price,
                   notifyDiscord,
                   notifyTelegram,
@@ -332,8 +335,7 @@ export function PoiBulkAlarmModal({
     selectedTimeframes,
     targetCategory,
     requireUnmitigatedOb,
-    includeEma100,
-    includeEma200,
+    selectedEmaPeriods,
     touchLevel,
     deselectedSymbols,
     notifyDiscord,
@@ -506,7 +508,7 @@ export function PoiBulkAlarmModal({
                 { id: "order_block", label: "Validated OB", desc: "OB + FVG Confirmed" },
                 { id: "sandwich_zone", label: "Sandwich ++", desc: "Supply & Demand" },
                 { id: "all", label: "All POIs", desc: "OB & Sandwich setups" },
-                { id: "ema_100_200", label: "EMA 100 & 200", desc: "Dynamic MA hit targets" },
+                { id: "ema_100_200", label: "EMA 20·50·100·200", desc: "Custom EMA hit targets" },
               ].map((cat) => {
                 const isSelected = targetCategory === cat.id;
                 return (
@@ -602,35 +604,61 @@ export function PoiBulkAlarmModal({
 
           {targetCategory === "ema_100_200" ? (
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
-                EMA Targets to Monitor on Selected Timeframes
-              </label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <label className="flex items-center justify-between p-2.5 bg-slate-900 border border-cyan-500/35 rounded-xl cursor-pointer hover:border-cyan-400/60">
-                  <div>
-                    <div className="font-bold text-cyan-300">EMA 100 Hit</div>
-                    <div className="text-[10px] text-slate-400">Triggers when price reaches 100 EMA</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={includeEma100}
-                    onChange={(e) => setIncludeEma100(e.target.checked)}
-                    className="accent-cyan-500 h-4 w-4 cursor-pointer"
-                  />
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-slate-300">
+                  Choose EMA Targets to Hit on Selected Timeframes
                 </label>
-
-                <label className="flex items-center justify-between p-2.5 bg-slate-900 border border-indigo-500/35 rounded-xl cursor-pointer hover:border-indigo-400/60">
-                  <div>
-                    <div className="font-bold text-indigo-300">EMA 200 Hit</div>
-                    <div className="text-[10px] text-slate-400">Triggers when price reaches 200 EMA</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={includeEma200}
-                    onChange={(e) => setIncludeEma200(e.target.checked)}
-                    className="accent-indigo-500 h-4 w-4 cursor-pointer"
-                  />
-                </label>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmaPeriods([20, 50, 100, 200])}
+                    className="text-cyan-400 hover:text-cyan-300"
+                  >
+                    All 4
+                  </button>
+                  <span className="text-slate-600">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmaPeriods([20, 50])}
+                    className="text-cyan-400 hover:text-cyan-300"
+                  >
+                    20·50
+                  </button>
+                  <span className="text-slate-600">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmaPeriods([100, 200])}
+                    className="text-cyan-400 hover:text-cyan-300"
+                  >
+                    100·200
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {SELECTABLE_EMA_PERIODS.map((period) => {
+                  const checked = selectedEmaPeriods.includes(period);
+                  return (
+                    <label
+                      key={period}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                        checked
+                          ? "bg-cyan-950/50 border-cyan-500/60 text-white"
+                          : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-cyan-300">EMA {period}</div>
+                        <div className="text-[10px] text-slate-400">{period} EMA hit</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleEmaPeriod(period)}
+                        className="accent-cyan-500 h-4 w-4 cursor-pointer"
+                      />
+                    </label>
+                  );
+                })}
               </div>
             </div>
           ) : (

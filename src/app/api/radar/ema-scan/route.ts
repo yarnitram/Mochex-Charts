@@ -13,6 +13,7 @@ import {
   selectNonDuplicateAutoEmaAlarms,
   AutoEmaSetup,
 } from "@/lib/alerts/auto-ema-engine";
+import { normalizeSelectedEmaPeriods, SELECTABLE_EMA_PERIODS } from "@/lib/alerts/ema-alerts";
 import { ExchangeTicker, fetchExchangeKlines, fetchExchangeTickers } from "@/lib/screener/multi-exchange-client";
 import { getServerAlerts, saveServerAlertsBatch } from "@/lib/alerts/server-alerts-store";
 import { serverAlertDaemon } from "@/lib/alerts/server-alert-daemon";
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
     const timeframes: string[] = Array.isArray(body.timeframes) && body.timeframes.length
       ? body.timeframes.map((tf: unknown) => String(tf))
       : ["15m", "1H", "4H"];
+    const periods = normalizeSelectedEmaPeriods(body.periods, [...SELECTABLE_EMA_PERIODS]);
     const maxDistancePct = Math.max(0.1, Math.min(50, Number(body.maxDistancePct) || 5));
     const autoArm = body.autoArm !== false;
     const notificationOptions = {
@@ -86,6 +88,7 @@ export async function POST(request: NextRequest) {
             if (bars?.length) found.push(...detectEmaSetups(bars, token, timeframe, picked.exchange, {
               livePriceOverride: picked.ticker?.price,
               maxDistancePct,
+              periods,
             }));
           } catch {}
         }));
@@ -112,6 +115,7 @@ export async function POST(request: NextRequest) {
       success: true,
       category,
       exchangePreference,
+      periods,
       maxDistancePct,
       scannedTokensCount: rankedTokens.length,
       rankedTokens,
