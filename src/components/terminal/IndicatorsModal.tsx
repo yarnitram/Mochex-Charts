@@ -62,6 +62,17 @@ export interface IndicatorCatalogItem {
 
 const STATIC_CATALOG_ITEMS: IndicatorCatalogItem[] = [
   {
+    id: "validated-ob-radar",
+    name: "Validated OB (Radar / Alarm)",
+    author: "Mochex Core",
+    category: "builtins",
+    type: "Overlay",
+    rating: 5.0,
+    usersCount: "40.1K",
+    description: "Matches Radar & Auto-Alarm Validated OB detection: strictly unmitigated (0% hit) 3-Candle RGG/GRR Order Blocks with mandatory FVG confirmation, showing only active untouched OB zones with Entry, 50% MT, and exact price ranges.",
+    isVerified: true,
+  },
+  {
     id: "validated-ob-fvg",
     name: "Validated OB + FVG (RGG / GRR)",
     author: "Mochex Core",

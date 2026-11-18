@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeValidatedOrderBlocks,
   computeObFvgZones,
+  computeRadarValidatedObZones,
   getObAlarmTargetPrice,
 } from "../src/lib/indicators/validated-ob-engine";
 import {
@@ -416,6 +417,34 @@ describe("Validated Order Block (OB + FVG) Calculation Engine (DEC-136)", () => 
       const cappedRes = computeObFvgZones(twoObBars, "BTCUSDT", "5m", { maxActiveObZones: 1 });
       expect(cappedRes.activeCount).toBe(1);
       expect(cappedRes.blocks[0].obIndex).toBe(3);
+    });
+
+    it("11. computeRadarValidatedObZones strictly mirrors Radar/Alarm 0%-hit unmitigated validation", () => {
+      const bars = [
+        bar(0, 100, 101, 97, 98),
+        bar(1, 98, 106, 98, 106),
+        bar(2, 106, 112, 104, 111),
+        bar(3, 111, 113, 109, 112),
+      ];
+
+      // Before touching -> valid 0% hit ACTIVE OB
+      const fresh = computeRadarValidatedObZones(bars, "BTCUSDT", "1H");
+      expect(fresh.blocks).toHaveLength(1);
+      expect(fresh.blocks[0].touched).toBe(false);
+      expect(fresh.mitigatedCount).toBe(0);
+      expect(fresh.activeBullishCount).toBe(1);
+
+      // Forming Candle 3 without bar 3 -> must NOT confirm yet
+      expect(computeRadarValidatedObZones(bars.slice(0, 3), "BTCUSDT", "1H").blocks).toHaveLength(0);
+
+      // Once touched/wicked into OB -> excluded completely (0% hit only)
+      const touched = [...bars, bar(4, 112, 112, 100.5, 108)];
+      expect(computeRadarValidatedObZones(touched, "BTCUSDT", "1H").blocks).toHaveLength(0);
+
+      // Supports Body Only mode
+      const bodyOnly = computeRadarValidatedObZones(bars, "BTCUSDT", "1H", { obZoneType: "body" });
+      expect(bodyOnly.blocks[0].top).toBe(100);
+      expect(bodyOnly.blocks[0].bottom).toBe(98);
     });
   });
 });

@@ -72,11 +72,13 @@ import {
 import { SandwichSettingsModal } from "./SandwichSettingsModal";
 import {
   ObFvgSettings,
+  ObZoneType,
   getStoredObFvgSettings,
   saveStoredObFvgSettings,
   computeObFvgZones,
+  computeRadarValidatedObZones,
 } from "@/lib/indicators/validated-ob-engine";
-import { renderObFvgZones } from "@/lib/indicators/ob-fvg-renderer";
+import { renderObFvgZones, renderRadarValidatedObs } from "@/lib/indicators/ob-fvg-renderer";
 import { ObFvgSettingsModal } from "./ObFvgSettingsModal";
 import {
   ChartDrawing,
@@ -505,6 +507,8 @@ export function TradingViewContainer({
   // Validated OB + FVG (RGG / GRR) Settings State
   const [obFvgSettings, setObFvgSettings] = useState<ObFvgSettings>(() => getStoredObFvgSettings());
   const [isObFvgSettingsOpen, setIsObFvgSettingsOpen] = useState(false);
+  // Radar / Alarm Validated OB (0% Hit) Zone Mode
+  const [radarObZoneType, setRadarObZoneType] = useState<ObZoneType>("full");
 
   useEffect(() => {
     const handleOpenObFvgSettings = () => setIsObFvgSettingsOpen(true);
@@ -4316,17 +4320,29 @@ const renderFixedRangeVolumeProfile = useCallback(
     });
   }, [hasSandwich, sandwichSettings, bars, resolution, symbol, sandwichFetchVersion]);
 
-  const isObFvgHidden = hiddenIndicators.some(
-    (ind) =>
-      ind.toLowerCase().includes("validated ob") ||
-      (ind.toLowerCase().includes("rgg") && ind.toLowerCase().includes("grr"))
-  );
-  const hasObFvg =
-    activeIndicators.some(
-      (ind) =>
-        ind.toLowerCase().includes("validated ob") ||
-        (ind.toLowerCase().includes("rgg") && ind.toLowerCase().includes("grr"))
-    ) && !isObFvgHidden;
+  const matchesObFvgIndicator = (ind: string) => {
+    const lower = ind.toLowerCase();
+    return (
+      lower.includes("validated ob + fvg") ||
+      lower.includes("validated-ob-fvg") ||
+      (lower.includes("rgg") && lower.includes("grr"))
+    );
+  };
+  const matchesRadarValidatedObIndicator = (ind: string) => {
+    const lower = ind.toLowerCase();
+    return (
+      lower.includes("validated ob (radar") ||
+      lower.includes("validated-ob-radar") ||
+      (lower.includes("validated ob") && lower.includes("alarm"))
+    );
+  };
+
+  const isObFvgHidden = hiddenIndicators.some(matchesObFvgIndicator);
+  const hasObFvg = activeIndicators.some(matchesObFvgIndicator) && !isObFvgHidden;
+
+  const isRadarValidatedObActive = activeIndicators.some(matchesRadarValidatedObIndicator);
+  const isRadarValidatedObHidden = hiddenIndicators.some(matchesRadarValidatedObIndicator);
+  const hasRadarValidatedOb = isRadarValidatedObActive && !isRadarValidatedObHidden;
 
   const obFvgResult = useMemo(() => {
     if (!hasObFvg || !obFvgSettings.showIndicator || bars.length === 0) {
@@ -4336,6 +4352,16 @@ const renderFixedRangeVolumeProfile = useCallback(
       confirmClosedOnly: true,
     });
   }, [hasObFvg, obFvgSettings, bars, symbol, resolution]);
+
+  const radarValidatedObResult = useMemo(() => {
+    if (!hasRadarValidatedOb || bars.length === 0) {
+      return null;
+    }
+    return computeRadarValidatedObZones(bars, symbol, resolution, {
+      obZoneType: radarObZoneType,
+      requireUntouchedLivePrice: true,
+    });
+  }, [hasRadarValidatedOb, bars, symbol, resolution, radarObZoneType]);
 
   const bullFvgCount = activeFvgZones.filter((z) => z.type === "BULLISH").length;
   const bearFvgCount = activeFvgZones.filter((z) => z.type === "BEARISH").length;
@@ -4865,6 +4891,19 @@ const renderFixedRangeVolumeProfile = useCallback(
         ctx,
         blocks: obFvgResult.blocks,
         settings: obFvgSettings,
+        timeToCoordinate,
+        priceToCoordinate,
+        chartWidth: rect.width,
+        chartHeight: rect.height,
+        lastBarTimeMs: barsRef.current[barsRef.current.length - 1]?.time,
+      });
+    }
+
+    // Radar / Alarm Validated OB (0% Hit Unmitigated) Canvas Rendering
+    if (hasRadarValidatedOb && radarValidatedObResult && radarValidatedObResult.blocks.length > 0) {
+      renderRadarValidatedObs({
+        ctx,
+        blocks: radarValidatedObResult.blocks,
         timeToCoordinate,
         priceToCoordinate,
         chartWidth: rect.width,
@@ -5489,6 +5528,8 @@ const renderFixedRangeVolumeProfile = useCallback(
     hasObFvg,
     obFvgResult,
     obFvgSettings,
+    hasRadarValidatedOb,
+    radarValidatedObResult,
   ]);
 
   // Listen for Multi-Chart Crosshair Synchronization events from sibling panes (DEC-075)
@@ -7543,6 +7584,44 @@ const renderFixedRangeVolumeProfile = useCallback(
                     type="button"
                     onClick={() => onToggleIndicator("Sandwich Zones ++ (Multi-Timeframe)")}
                     title="Remove Sandwich Zones from chart"
+                    className="text-muted hover:text-error p-0.5 cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isRadarValidatedObActive && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-container border border-emerald-500/40 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-semibold text-emerald-300">Validated OB (0% Hit)</span>
+                {radarValidatedObResult && (
+                  <span className="text-muted text-[9px]">
+                    ({radarValidatedObResult.activeBullishCount} Bull · {radarValidatedObResult.activeBearishCount} Bear)
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setRadarObZoneType((prev) => (prev === "full" ? "body" : "full"))}
+                  title="Toggle Full Candle vs Body Only OB validation"
+                  className="px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 text-[9px] font-bold uppercase cursor-pointer"
+                >
+                  {radarObZoneType}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onToggleIndicatorVisibility?.("Validated OB (Radar / Alarm)")}
+                  title={isRadarValidatedObHidden ? "Show Validated OB (Radar / Alarm)" : "Hide Validated OB (Radar / Alarm)"}
+                  className="text-muted hover:text-on-surface p-0.5 cursor-pointer ml-0.5"
+                >
+                  {isRadarValidatedObHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+                {onToggleIndicator && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleIndicator("Validated OB (Radar / Alarm)")}
+                    title="Remove Validated OB (Radar / Alarm) from chart"
                     className="text-muted hover:text-error p-0.5 cursor-pointer"
                   >
                     <X size={11} />
