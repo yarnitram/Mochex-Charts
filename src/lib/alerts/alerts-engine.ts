@@ -129,6 +129,62 @@ export interface AlertLogEntry {
 export const ALERT_COOLDOWN_MS = 60_000;
 
 /**
+ * Formats alarm prices with high precision (7-9 decimal places for sub-$1 tokens,
+ * up to 7 for $1-$999, and clean fractional precision for larger assets).
+ */
+export function formatAlarmPrice(price: number): string {
+  if (!Number.isFinite(price) || price === 0) return "0.00";
+  const abs = Math.abs(price);
+  if (abs >= 1000) {
+    return price.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    });
+  }
+  if (abs >= 1) {
+    return price.toFixed(7).replace(/(\.\d{4,}?)0+$/, "$1");
+  }
+  if (abs >= 0.01) {
+    return price.toFixed(9).replace(/(\.\d{7,}?)0+$/, "$1");
+  }
+  if (abs >= 0.0001) {
+    return price.toFixed(9).replace(/(\.\d{8,}?)0+$/, "$1");
+  }
+  if (abs >= 0.00001) {
+    const fixed9 = price.toFixed(9);
+    return fixed9.endsWith("0") ? fixed9.slice(0, -1) : fixed9;
+  }
+  return price.toFixed(9);
+}
+
+/**
+ * Formats an ungrouped numeric input string for editable alarm price inputs.
+ */
+export function formatAlarmInputPrice(price: number): string {
+  return formatAlarmPrice(price).replace(/,/g, "");
+}
+
+/**
+ * Computes Lightweight Charts priceFormat precision/minMove (up to 9 decimals).
+ */
+export function getAlarmChartPriceFormat(referencePrice: number): {
+  type: "price";
+  precision: number;
+  minMove: number;
+} {
+  const abs = Math.abs(referencePrice || 0);
+  let precision = 2;
+  if (abs === 0) precision = 7;
+  else if (abs < 0.00001) precision = 9;
+  else if (abs < 0.0001) precision = 8;
+  else if (abs < 1) precision = 7;
+  else if (abs < 100) precision = 4;
+  else precision = 2;
+  const minMove = Number((1 / Math.pow(10, precision)).toFixed(precision));
+  return { type: "price", precision, minMove };
+}
+
+/**
  * Identifies whether a PriceAlert is a Radar/POI alarm (as opposed to a standard chart alert).
  */
 export function isPoiPriceAlert(alert: PriceAlert): boolean {
@@ -654,7 +710,7 @@ export function createAlertsFromDrawing(
         drawingId: drawing.id,
         label: drawing.text
           ? `H-Line (${drawing.text})`
-          : `Horizontal Line @ $${drawing.startPrice.toFixed(2)}`,
+          : `Horizontal Line @ ${formatAlarmPrice(drawing.startPrice)}`,
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
@@ -704,7 +760,7 @@ export function createAlertsFromDrawing(
         frequency: "only_once",
         sourceType: "rectangle",
         drawingId: drawing.id,
-        label: `Rect Resistance Breakout @ $${topPrice.toFixed(2)}`,
+        label: `Rect Resistance Breakout @ ${formatAlarmPrice(topPrice)}`,
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
@@ -719,7 +775,7 @@ export function createAlertsFromDrawing(
         frequency: "only_once",
         sourceType: "rectangle",
         drawingId: drawing.id,
-        label: `Rect Support Breakdown @ $${bottomPrice.toFixed(2)}`,
+        label: `Rect Support Breakdown @ ${formatAlarmPrice(bottomPrice)}`,
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
@@ -745,7 +801,7 @@ export function createAlertsFromDrawing(
         frequency: "only_once",
         sourceType: "position_tp",
         drawingId: drawing.id,
-        label: `${isLong ? "Long" : "Short"} Take Profit @ $${tpPrice.toFixed(2)}`,
+        label: `${isLong ? "Long" : "Short"} Take Profit @ ${formatAlarmPrice(tpPrice)}`,
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
@@ -760,7 +816,7 @@ export function createAlertsFromDrawing(
         frequency: "only_once",
         sourceType: "position_sl",
         drawingId: drawing.id,
-        label: `${isLong ? "Long" : "Short"} Stop Loss @ $${slPrice.toFixed(2)}`,
+        label: `${isLong ? "Long" : "Short"} Stop Loss @ ${formatAlarmPrice(slPrice)}`,
         active: true,
         triggeredCount: 0,
         createdAt: nowMs,
@@ -780,7 +836,7 @@ export function createAlertsFromDrawing(
       frequency: "only_once",
       sourceType: "price",
       drawingId: drawing.id,
-      label: `${drawing.type.replace("_", " ").toUpperCase()} @ $${drawing.startPrice.toFixed(2)}`,
+      label: `${drawing.type.replace("_", " ").toUpperCase()} @ ${formatAlarmPrice(drawing.startPrice)}`,
       active: true,
       triggeredCount: 0,
       createdAt: nowMs,

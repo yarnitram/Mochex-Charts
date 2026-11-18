@@ -4,7 +4,7 @@ import {
   ObZoneType,
   ValidatedOrderBlock,
 } from "@/lib/indicators/validated-ob-engine";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+
 import {
   CuratedCoin,
   MAJORS_UNIVERSE,
@@ -18,6 +18,7 @@ import {
   mapSymbolForPerpExchange,
 } from "@/lib/screener/multi-exchange-client";
 import {
+  formatAlarmPrice,
   normalizeAlertTimeframe,
   PriceAlert,
 } from "@/lib/alerts/alerts-engine";
@@ -297,7 +298,7 @@ export function detectUnmitigatedObFvgBars(
       distanceToEntryPct: distEntry,
       obTime: ob.obTime,
       confirmTime: ob.confirmTime ?? ob.fvgTime,
-      zoneRangeText: `$${formatPoiPrice(low)} - $${formatPoiPrice(high)}`,
+      zoneRangeText: `${formatAlarmPrice(low)} - ${formatAlarmPrice(high)}`,
       spreadPct,
       touched: false,
     });
@@ -334,7 +335,7 @@ export function buildAutoObFvgAlarm(
     sourceType: "indicator_condition",
     indicatorName: `Validated OB + FVG (${setup.pattern})`,
     label: `${setup.symbol.replace("USDT", "")} ${setup.timeframe} ${setup.type} OB (${setup.pattern} • ${exTag}) [${touchLabel}]`,
-    conditionMessage: `[${exTag} Perps] ${setup.type} ${setup.pattern} OB+FVG touched ${touchLabel} @ $${formatPoiPrice(targetPrice)} (Range ${setup.zoneRangeText})`,
+    conditionMessage: `[${exTag} Perps] ${setup.type} ${setup.pattern} OB+FVG touched ${touchLabel} @ ${formatAlarmPrice(targetPrice)} (Range ${setup.zoneRangeText})`,
     active: true,
     triggeredCount: 0,
     createdAt: now,

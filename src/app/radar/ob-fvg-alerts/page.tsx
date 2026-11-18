@@ -23,6 +23,7 @@ import {
   AlertLogEntry,
   ChannelDeliveryResult,
   findDuplicateAlerts,
+  formatAlarmPrice,
   PriceAlert,
 } from "@/lib/alerts/alerts-engine";
 import {
@@ -35,7 +36,7 @@ import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { ObZoneMiniChart } from "@/components/radar/ObZoneMiniChart";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+
 import { SUPPORTED_EXCHANGES, SupportedExchange } from "@/lib/screener/multi-exchange-client";
 
 interface InspectableChartTarget {
@@ -525,7 +526,7 @@ export default function ObFvgAlertsAndLogsPage() {
                           OB Price Range:{" "}
                           {high > 0 ? (
                             <strong className="text-white">
-                              ${formatPoiPrice(low)} — ${formatPoiPrice(high)}
+                              ${formatAlarmPrice(low)} — ${formatAlarmPrice(high)}
                             </strong>
                           ) : (
                             <span className="text-[#848e9c]">—</span>
@@ -537,7 +538,7 @@ export default function ObFvgAlertsAndLogsPage() {
                           )}
                         </div>
                         <div className="text-amber-300 font-bold">
-                          Trigger: ${formatPoiPrice(alert.targetPrice)}
+                          Trigger: ${formatAlarmPrice(alert.targetPrice)}
                         </div>
                       </div>
                     </div>
@@ -602,14 +603,14 @@ export default function ObFvgAlertsAndLogsPage() {
                         <span>
                           Hit:{" "}
                           <strong className="text-white">
-                            ${formatPoiPrice(log.triggerPrice)}
+                            ${formatAlarmPrice(log.triggerPrice)}
                           </strong>
                         </span>
                         {high > 0 && (
                           <span className="text-[#b6c4ff]">
                             OB Range:{" "}
                             <strong className="text-white">
-                              ${formatPoiPrice(low)} — ${formatPoiPrice(high)}
+                              ${formatAlarmPrice(low)} — ${formatAlarmPrice(high)}
                             </strong>
                           </span>
                         )}
@@ -666,7 +667,7 @@ export default function ObFvgAlertsAndLogsPage() {
                   <div className="p-2.5 rounded-lg bg-[#121824] border border-[#1b2535]">
                     <div className="text-[10px] text-[#848e9c]">Alarm Target</div>
                     <div className="font-bold text-amber-300 mt-0.5">
-                      ${formatPoiPrice(inspectTarget.targetPrice)}
+                      ${formatAlarmPrice(inspectTarget.targetPrice)}
                     </div>
                   </div>
                   <div className="col-span-2 p-2.5 rounded-lg bg-[#121824] border border-[#1b2535]">
@@ -675,11 +676,11 @@ export default function ObFvgAlertsAndLogsPage() {
                     </div>
                     <div className="font-bold text-white mt-0.5">
                       $
-                      {formatPoiPrice(
+                      {formatAlarmPrice(
                         Math.min(inspectTarget.zoneBottom, inspectTarget.zoneTop)
                       )}{" "}
                       — $
-                      {formatPoiPrice(
+                      {formatAlarmPrice(
                         Math.max(inspectTarget.zoneBottom, inspectTarget.zoneTop)
                       )}
                     </div>

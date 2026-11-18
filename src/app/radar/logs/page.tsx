@@ -22,8 +22,7 @@ import {
   WifiOff,
   XCircle,
 } from "lucide-react";
-import { AlertLogEntry, ChannelDeliveryResult, PriceAlert } from "@/lib/alerts/alerts-engine";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+import { AlertLogEntry, ChannelDeliveryResult, PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import { loadClientAlerts, syncAlerts } from "@/lib/alerts/alerts-sync";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
@@ -737,10 +736,10 @@ export default function RadarLogsPage() {
                           {entry.triggerPrice > 0 || entry.targetPrice > 0 ? (
                             <div className="flex flex-col gap-0.5">
                               <span className="text-white">
-                                Hit: ${formatPoiPrice(entry.triggerPrice)}
+                                Hit: ${formatAlarmPrice(entry.triggerPrice)}
                               </span>
                               <span className="text-[#848e9c]">
-                                Target: ${formatPoiPrice(entry.targetPrice)}
+                                Target: ${formatAlarmPrice(entry.targetPrice)}
                               </span>
                             </div>
                           ) : (

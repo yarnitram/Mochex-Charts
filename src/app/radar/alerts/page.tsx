@@ -27,7 +27,7 @@ import {
   Sparkles,
   ScrollText,
 } from "lucide-react";
-import { PriceAlert, isPoiPriceAlert, findDuplicateAlerts } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, isPoiPriceAlert, findDuplicateAlerts, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -44,7 +44,7 @@ import {
 } from "@/lib/audio/sound-effects";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { ObZoneMiniChart } from "@/components/radar/ObZoneMiniChart";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+
 import { RadarAudioSettingsModal } from "@/components/radar/RadarAudioSettingsModal";
 import { PoiBulkAlarmModal, CandidateCoinForBulkAlarm } from "@/components/radar/PoiBulkAlarmModal";
 import { MAJORS_UNIVERSE, TOP_150_MEMES, TOP_150_AI } from "@/lib/screener/universe-catalog";
@@ -1018,8 +1018,7 @@ export default function RadarAlertsPage() {
                 <tbody className="divide-y divide-[#1b2535]/50">
                   {filteredAlerts.map((a) => {
                     const isSelected = selectedIds.has(a.id);
-                    const formattedTarget =
-                      a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                    const formattedTarget = formatAlarmPrice(a.targetPrice);
                     const isRadar = isRadarAlert(a);
                     const isEma = Boolean(a.emaMetadata);
                     const category = a.poiMetadata?.category || "order_block";
@@ -1136,7 +1135,7 @@ export default function RadarAlertsPage() {
                           </div>
                           {a.poiMetadata && a.poiMetadata.zoneTop > 0 && a.poiMetadata.zoneBottom > 0 && (
                             <div className="text-[9px] text-[#b6c4ff]">
-                              OB: ${formatPoiPrice(Math.min(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))} - ${formatPoiPrice(Math.max(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))}
+                              OB: ${formatAlarmPrice(Math.min(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))} - ${formatAlarmPrice(Math.max(a.poiMetadata.zoneBottom, a.poiMetadata.zoneTop))}
                             </div>
                           )}
                         </td>
@@ -1150,7 +1149,7 @@ export default function RadarAlertsPage() {
                         <td className="py-3 px-3">
                           {a.invalidationPrice ? (
                             <span className="text-[10px] text-rose-400 font-mono" title="Invalidation Stop-Out">
-                              ${a.invalidationPrice >= 1 ? a.invalidationPrice.toFixed(2) : a.invalidationPrice.toFixed(4)}
+                              ${formatAlarmPrice(a.invalidationPrice)}
                             </span>
                           ) : (
                             <span className="text-[10px] text-slate-600">—</span>

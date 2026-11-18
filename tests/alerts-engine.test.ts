@@ -7,6 +7,9 @@ import {
   evaluateStrategyConditionAlert,
   getEffectiveAlertTargetPrice,
   createAlertsFromDrawing,
+  formatAlarmPrice,
+  formatAlarmInputPrice,
+  getAlarmChartPriceFormat,
   ALERT_COOLDOWN_MS,
 } from "../src/lib/alerts/alerts-engine";
 import { ChartDrawing } from "../src/lib/chart/drawing-math";
@@ -494,5 +497,39 @@ describe("Custom Strategy Condition Alerts Engine (DEC-079)", () => {
       "diff-tf",
       "diff-price",
     ]);
+  });
+});
+
+describe("High-Precision Alarm Price Formatting (7-9 decimals)", () => {
+  it("formats sub-$1 tokens with 7 to 9 decimal places and avoids zero truncation", () => {
+    expect(formatAlarmPrice(0.2512345)).toBe("0.2512345");
+    expect(formatAlarmPrice(0.456)).toBe("0.4560000");
+    expect(formatAlarmPrice(0.00456789)).toBe("0.00456789");
+    expect(formatAlarmPrice(0.004567891)).toBe("0.004567891");
+    expect(formatAlarmPrice(0.000012345)).toBe("0.000012345");
+    expect(formatAlarmPrice(0.000012)).toBe("0.00001200");
+    expect(formatAlarmPrice(0.000000842)).toBe("0.000000842");
+
+    expect(formatAlarmPrice(1.2345678)).toBe("1.2345678");
+    expect(formatAlarmPrice(68420.5)).toBe("68,420.50");
+    expect(formatAlarmInputPrice(68420.5)).toBe("68420.50");
+  });
+
+  it("computes chart precision & minMove up to 9 decimals for alarm mini charts", () => {
+    expect(getAlarmChartPriceFormat(0.2512345)).toEqual({
+      type: "price",
+      precision: 7,
+      minMove: 0.0000001,
+    });
+    expect(getAlarmChartPriceFormat(0.000012)).toEqual({
+      type: "price",
+      precision: 8,
+      minMove: 0.00000001,
+    });
+    expect(getAlarmChartPriceFormat(0.000000842)).toEqual({
+      type: "price",
+      precision: 9,
+      minMove: 0.000000001,
+    });
   });
 });

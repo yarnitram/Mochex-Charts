@@ -34,7 +34,7 @@ import {
   formatEmaPrice,
 } from "@/lib/alerts/ema-alerts";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
-import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -290,9 +290,7 @@ export function PoiBulkAlarmModal({
                 sourceType: "indicator_condition",
                 indicatorName,
                 label: `${cleanSym} ${tf} ${chosen.label} (${touchLabel})`,
-                conditionMessage: `[Bulk Alarm] Price reached ${touchLabel} of ${tf} ${chosen.label} @ $${
-                  targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)
-                }`,
+                conditionMessage: `[Bulk Alarm] Price reached ${touchLabel} of ${tf} ${chosen.label} @ ${formatAlarmPrice(targetPrice)}`,
                 active: true,
                 triggeredCount: 0,
                 createdAt: now,

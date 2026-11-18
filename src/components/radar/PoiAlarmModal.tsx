@@ -21,7 +21,6 @@ import {
 import {
   RadarPoiItem,
   getRadarPoiAlarmTargetPrice,
-  formatPoiPrice,
   getPoiZoneRange,
   isUnmitigatedValidatedOb,
 } from "@/lib/indicators/radar-poi-engine";
@@ -29,7 +28,7 @@ import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
-import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
   TimeframeEmaLevels,
   computeLatestEma100And200,
@@ -349,7 +348,7 @@ export function PoiAlarmModal({
           sourceType: "indicator_condition",
           indicatorName,
           label: `${symbol.replace("USDT", "")} ${tf} ${targetPoi.label} (${touchLabel})`,
-          conditionMessage: `Price touched ${touchLabel} of ${tf} ${targetPoi.label} @ $${targetPrice >= 1 ? targetPrice.toFixed(2) : targetPrice.toFixed(4)}`,
+          conditionMessage: `Price touched ${touchLabel} of ${tf} ${targetPoi.label} @ ${formatAlarmPrice(targetPrice)}`,
           active: true,
           triggeredCount: 0,
           createdAt: now,
@@ -471,10 +470,7 @@ export function PoiAlarmModal({
   };
 
   const previewTargetPrice = getRadarPoiAlarmTargetPrice(poi, touchLevel);
-  const formattedPreview =
-    previewTargetPrice >= 1
-      ? previewTargetPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : previewTargetPrice.toFixed(4);
+  const formattedPreview = formatAlarmPrice(previewTargetPrice);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs select-none">
@@ -558,23 +554,23 @@ export function PoiAlarmModal({
             <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-[#172233]">
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Top</div>
-                <div className="font-bold text-white text-[11px]">${formatPoiPrice(poi.top)}</div>
+                <div className="font-bold text-white text-[11px]">${formatAlarmPrice(poi.top)}</div>
               </div>
               <div className="bg-[#151e2c] rounded py-0.5 border border-[#223044]">
                 <div className="text-[9px] text-[#2962ff] font-semibold">
                   {poi.category === "fvg" ? "50% CE" : "50% MT"}
                 </div>
-                <div className="font-bold text-[#b6c4ff] text-[11px]">${formatPoiPrice(poi.meanThreshold)}</div>
+                <div className="font-bold text-[#b6c4ff] text-[11px]">${formatAlarmPrice(poi.meanThreshold)}</div>
               </div>
               <div>
                 <div className="text-[9px] text-[#848e9c]">Zone Bottom</div>
-                <div className="font-bold text-white text-[11px]">${formatPoiPrice(poi.bottom)}</div>
+                <div className="font-bold text-white text-[11px]">${formatAlarmPrice(poi.bottom)}</div>
               </div>
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-[#172233]/70 text-[#848e9c]">
               <span>Zone Range (Bottom → Top)</span>
               <span className="text-white font-semibold">
-                {getPoiZoneRange(poi).rangeText} ({getPoiZoneRange(poi).spreadPct.toFixed(2)}%)
+                ${formatAlarmPrice(Math.min(poi.bottom, poi.top))} - ${formatAlarmPrice(Math.max(poi.bottom, poi.top))} ({getPoiZoneRange(poi).spreadPct.toFixed(2)}%)
               </span>
             </div>
           </div>
@@ -602,7 +598,7 @@ export function PoiAlarmModal({
                   >
                     <span className="truncate pr-2">{a.label || a.conditionMessage}</span>
                     <span className="text-amber-400 font-bold shrink-0">
-                      ${a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4)}
+                      ${formatAlarmPrice(a.targetPrice)}
                     </span>
                   </div>
                 ))}
@@ -675,7 +671,7 @@ export function PoiAlarmModal({
                 <div>
                   <div className="font-semibold text-xs">Zone Entry / Wick Touch</div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms when price touches outer zone boundary (${poi.entryPrice.toFixed(2)})
+                    Alarms when price touches outer zone boundary (${formatAlarmPrice(poi.entryPrice)})
                   </div>
                 </div>
               </label>
@@ -702,7 +698,7 @@ export function PoiAlarmModal({
                       : "50% Mean Threshold (Equilibrium) • Recommended"}
                   </div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms when price hits exact institutional 50% midpoint (${poi.meanThreshold.toFixed(2)})
+                    Alarms when price hits exact institutional 50% midpoint (${formatAlarmPrice(poi.meanThreshold)})
                   </div>
                 </div>
               </label>
@@ -725,7 +721,7 @@ export function PoiAlarmModal({
                 <div>
                   <div className="font-semibold text-xs">Full Zone Retest / Invalidation Level</div>
                   <div className="text-[10px] text-[#848e9c]">
-                    Alarms on deep retest to opposite boundary (${poi.fullRetestPrice.toFixed(2)})
+                    Alarms on deep retest to opposite boundary (${formatAlarmPrice(poi.fullRetestPrice)})
                   </div>
                 </div>
               </label>
@@ -857,7 +853,7 @@ export function PoiAlarmModal({
                   <span>🚨</span> Notify on Invalidation / Stop-Out Break
                 </span>
                 <span className="text-[10px] text-[#848e9c] ml-auto">
-                  Breach Stop (${(poi.invalidationPrice ?? poi.fullRetestPrice).toFixed(2)})
+                  Breach Stop (${formatAlarmPrice(poi.invalidationPrice ?? poi.fullRetestPrice)})
                 </span>
               </label>
             </div>

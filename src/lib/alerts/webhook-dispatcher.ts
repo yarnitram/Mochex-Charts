@@ -3,7 +3,7 @@
  * Handles payload formatting, validation, and delivery for Mochex alert events.
  */
 
-import { PriceAlert, AlertLogEntry } from "./alerts-engine";
+import { PriceAlert, AlertLogEntry, formatAlarmPrice } from "./alerts-engine";
 import {
   formatPoiInvalidationTelegramMessage,
   formatPoiInvalidationDiscordPayload,
@@ -167,15 +167,7 @@ export function escapeHtml(text: string): string {
 }
 
 function formatPriceNumber(price: number): string {
-  if (!Number.isFinite(price)) return "0.00";
-  const abs = Math.abs(price);
-  if (abs >= 1) {
-    return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  if (abs >= 0.01) return price.toFixed(4);
-  if (abs >= 0.0001) return price.toFixed(6);
-  if (abs > 0) return price.toFixed(8);
-  return "0.00";
+  return formatAlarmPrice(price);
 }
 
 /**
@@ -390,11 +382,13 @@ export function formatTradingWebhookPayload(
   const tfMatch = log.label.match(/\b(15m|1h|4h|1d)\b/i);
   const timeframe = tfMatch ? tfMatch[0].toUpperCase() : "4H";
 
-  const numPrice = Number(price.toFixed(price >= 1 ? 2 : 4));
-  const numTargetPrice = Number(log.targetPrice.toFixed(log.targetPrice >= 1 ? 2 : 4));
-  const numStopLoss = Number(stopLoss.toFixed(price >= 1 ? 2 : 4));
-  const numTp2 = Number(tp2.toFixed(price >= 1 ? 2 : 4));
-  const numTp3 = Number(tp3.toFixed(price >= 1 ? 2 : 4));
+  const pricePrecision = price >= 1000 ? 2 : price >= 1 ? 6 : 9;
+  const targetPrecision = log.targetPrice >= 1000 ? 2 : log.targetPrice >= 1 ? 6 : 9;
+  const numPrice = Number(price.toFixed(pricePrecision));
+  const numTargetPrice = Number(log.targetPrice.toFixed(targetPrecision));
+  const numStopLoss = Number(stopLoss.toFixed(pricePrecision));
+  const numTp2 = Number(tp2.toFixed(pricePrecision));
+  const numTp3 = Number(tp3.toFixed(pricePrecision));
 
   const replacements: Record<string, string | number> = {
     symbol: rawSymbol,

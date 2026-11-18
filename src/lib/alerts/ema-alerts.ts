@@ -3,6 +3,7 @@ import { EmaPeriod } from "@/lib/indicators/mtf-ema/types";
 import {
   AlertCondition,
   PriceAlert,
+  formatAlarmPrice,
   normalizeAlertTimeframe,
 } from "./alerts-engine";
 import { SupportedExchange } from "@/lib/screener/multi-exchange-client";
@@ -98,11 +99,7 @@ export interface BuildEmaAlertParams {
  * Formats an EMA target price consistently across asset scales.
  */
 export function formatEmaPrice(price: number): string {
-  if (!Number.isFinite(price)) return "0.00";
-  if (price >= 100) return price.toFixed(2);
-  if (price >= 1) return price.toFixed(4);
-  if (price >= 0.01) return price.toFixed(5);
-  return price.toFixed(6);
+  return formatAlarmPrice(price);
 }
 
 /**
