@@ -5,6 +5,8 @@ import {
   computeLatestEma100And200,
   computeLatestEmaLevels,
   buildEmaTouchAlert,
+  getEmaLevelForPeriod,
+  normalizeSelectedEmaPeriods,
   resolveTimeframeValue,
 } from "../src/lib/alerts/ema-alerts";
 import {
@@ -302,5 +304,39 @@ describe("Auto EMA 20/50/100/200 Radar Engine", () => {
     expect(skippedDuplicatesCount).toBe(1);
     expect(alertsToArm).toHaveLength(3);
     expect(alertsToArm.every((a) => a.emaMetadata?.autoArmed === true)).toBe(true);
+  });
+
+  it("filters EMA setups strictly to user-selected EMA periods", () => {
+    expect(normalizeSelectedEmaPeriods([200, 20, 999, 20])).toEqual([20, 200]);
+    expect(normalizeSelectedEmaPeriods([])).toEqual([20, 50, 100, 200]);
+
+    const bars = Array.from({ length: 220 }, (_, i) => ({
+      time: 1700000000000 + i * 3600_000,
+      open: 100 + i * 0.05,
+      high: 100.5 + i * 0.05,
+      low: 99.5 + i * 0.05,
+      close: 100 + i * 0.05,
+      volume: 1000,
+    }));
+    const levels = computeLatestEmaLevels(bars.map((b) => b.close));
+    expect(getEmaLevelForPeriod(levels, 20)).toBe(levels.ema20);
+    expect(getEmaLevelForPeriod(levels, 50)).toBe(levels.ema50);
+
+    const subset = detectEmaSetups(
+      bars,
+      {
+        symbol: "BTCUSDT",
+        name: "Bitcoin",
+        category: "majors",
+        mexcRank: 1,
+        mexcPrice: bars[bars.length - 1].close,
+        mexcVolume24h: 2_000_000_000,
+        mexcChange24h: 1.5,
+      },
+      "4H",
+      "binance",
+      { maxDistancePct: 10, periods: [20, 200] }
+    );
+    expect(subset.map((s) => s.period)).toEqual([20, 200]);
   });
 });

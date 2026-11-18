@@ -31,11 +31,14 @@ import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
   TimeframeEmaLevels,
-  computeLatestEma100And200,
+  computeLatestEmaLevels,
   buildEmaTouchAlert,
   resolveTimeframeValue,
   formatEmaPrice,
+  getEmaLevelForPeriod,
+  SELECTABLE_EMA_PERIODS,
 } from "@/lib/alerts/ema-alerts";
+import type { EmaPeriod } from "@/lib/indicators/mtf-ema/types";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -114,10 +117,15 @@ export function PoiAlarmModal({
     );
   });
 
-  // Target selection: POI Zone and/or EMA 100 / EMA 200
+  // Target selection: POI Zone and/or EMA 20 / 50 / 100 / 200
   const [includePoiZone, setIncludePoiZone] = useState(true);
-  const [includeEma100, setIncludeEma100] = useState(false);
-  const [includeEma200, setIncludeEma200] = useState(false);
+  const [selectedEmaPeriods, setSelectedEmaPeriods] = useState<EmaPeriod[]>([]);
+  const toggleEmaPeriod = (period: EmaPeriod) =>
+    setSelectedEmaPeriods((prev) =>
+      prev.includes(period)
+        ? prev.filter((p) => p !== period)
+        : SELECTABLE_EMA_PERIODS.filter((p) => p === period || prev.includes(p))
+    );
   const [fetchedEmasByTf, setFetchedEmasByTf] = useState<Record<string, TimeframeEmaLevels>>({});
   const [loadingEmas, setLoadingEmas] = useState(false);
 
@@ -140,7 +148,7 @@ export function PoiAlarmModal({
         const raw = await res.json();
         if (!Array.isArray(raw) || raw.length === 0) return null;
         const closes = raw.map((k) => Number(k[4])).filter((n) => Number.isFinite(n) && n > 0);
-        return computeLatestEma100And200(closes);
+        return computeLatestEmaLevels(closes);
       } catch {
         return null;
       }
@@ -149,7 +157,7 @@ export function PoiAlarmModal({
   );
 
   useEffect(() => {
-    if (!isOpen || (!includeEma100 && !includeEma200)) return;
+    if (!isOpen || selectedEmaPeriods.length === 0) return;
     const missingTfs = selectedTimeframes.filter((tf) => !resolveTimeframeValue(mergedEmasByTf, tf));
     if (missingTfs.length === 0) return;
 
@@ -178,7 +186,7 @@ export function PoiAlarmModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, includeEma100, includeEma200, selectedTimeframes, mergedEmasByTf, fetchEmasForTimeframe]);
+  }, [isOpen, selectedEmaPeriods, selectedTimeframes, mergedEmasByTf, fetchEmasForTimeframe]);
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
   const [touchLevel, setTouchLevel] = useState<OrderBlockTouchLevel>("fifty_pct");
@@ -372,10 +380,15 @@ export function PoiAlarmModal({
           }
         }
 
-        // 2. Optional EMA 100 & EMA 200 alerts for this timeframe
-        if (includeEma100 || includeEma200) {
+        // 2. Optional EMA 20 / 50 / 100 / 200 alerts for this timeframe
+        if (selectedEmaPeriods.length > 0) {
           let tfEmas = resolveTimeframeValue(mergedEmasByTf, tf);
-          if (!tfEmas) {
+          const needsFastEma =
+            selectedEmaPeriods.some((p) => p === 20 || p === 50) &&
+            tfEmas &&
+            tfEmas.ema20 === undefined &&
+            tfEmas.ema50 === undefined;
+          if (!tfEmas || needsFastEma) {
             const fetched = await fetchEmasForTimeframe(tf);
             if (fetched) {
               tfEmas = fetched;
@@ -383,39 +396,25 @@ export function PoiAlarmModal({
             }
           }
           if (tfEmas) {
-            if (includeEma100 && tfEmas.ema100 && tfEmas.ema100 > 0) {
-              alertsToCreate.push(
-                buildEmaTouchAlert({
-                  idPrefix: "alert",
-                  symbol,
-                  timeframe: tf,
-                  period: 100,
-                  emaPrice: tfEmas.ema100,
-                  currentPrice,
-                  notifyDiscord,
-                  notifyTelegram,
-                  notifyTradingWebhook,
-                  soundType: alarmChime,
-                  now,
-                })
-              );
-            }
-            if (includeEma200 && tfEmas.ema200 && tfEmas.ema200 > 0) {
-              alertsToCreate.push(
-                buildEmaTouchAlert({
-                  idPrefix: "alert",
-                  symbol,
-                  timeframe: tf,
-                  period: 200,
-                  emaPrice: tfEmas.ema200,
-                  currentPrice,
-                  notifyDiscord,
-                  notifyTelegram,
-                  notifyTradingWebhook,
-                  soundType: alarmChime,
-                  now,
-                })
-              );
+            for (const period of selectedEmaPeriods) {
+              const emaVal = getEmaLevelForPeriod(tfEmas, period);
+              if (emaVal !== null) {
+                alertsToCreate.push(
+                  buildEmaTouchAlert({
+                    idPrefix: "alert",
+                    symbol,
+                    timeframe: tf,
+                    period,
+                    emaPrice: emaVal,
+                    currentPrice,
+                    notifyDiscord,
+                    notifyTelegram,
+                    notifyTradingWebhook,
+                    soundType: alarmChime,
+                    now,
+                  })
+                );
+              }
             }
           }
         }
@@ -423,10 +422,10 @@ export function PoiAlarmModal({
 
       if (alertsToCreate.length === 0) {
         setStatusMessage(
-          includeEma100 || includeEma200
-            ? "Could not resolve an unmitigated POI or valid EMA 100/200 levels for selected timeframes"
+          selectedEmaPeriods.length > 0
+            ? "Could not resolve an unmitigated POI or valid EMA levels for selected timeframes"
             : poi.category === "order_block"
-              ? "Validated OB must be unmitigated (0% hit) to create an alarm (or select EMA 100 / EMA 200)"
+              ? "Validated OB must be unmitigated (0% hit) to create an alarm (or select EMA targets)"
               : "No matching POI found for selected timeframes"
         );
         return;
@@ -728,24 +727,23 @@ export function PoiAlarmModal({
             </div>
           </div>
 
-          {/* 2B. EMA 100 & EMA 200 Targets (Selected Timeframes) */}
+          {/* 2B. EMA Targets to Hit (Selected Timeframes) */}
           <div className="flex flex-col gap-1.5 pt-2 border-t border-[#1f2c3f]">
             <div className="flex items-center justify-between">
               <label className="text-[11px] text-[#b6c4ff] font-semibold">
-                EMA 100 &amp; EMA 200 Hit Alarms
+                EMA Hit Alarms (Choose EMA 20 / 50 / 100 / 200)
               </label>
               <span className="text-[9px] text-[#848e9c]">
                 {loadingEmas ? "Loading 220-bar EMAs..." : "Dynamic 24/7 Moving Average"}
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {([100, 200] as const).map((period) => {
-                const checked = period === 100 ? includeEma100 : includeEma200;
-                const toggle = () =>
-                  period === 100 ? setIncludeEma100((v) => !v) : setIncludeEma200((v) => !v);
+              {SELECTABLE_EMA_PERIODS.map((period) => {
+                const checked = selectedEmaPeriods.includes(period);
+                const toggle = () => toggleEmaPeriod(period);
                 const firstTf = selectedTimeframes[0] || poi.timeframe || "4H";
                 const levels = resolveTimeframeValue(mergedEmasByTf, firstTf);
-                const val = period === 100 ? levels?.ema100 : levels?.ema200;
+                const val = getEmaLevelForPeriod(levels, period);
                 return (
                   <label
                     key={period}
@@ -1029,7 +1027,7 @@ export function PoiAlarmModal({
 
           {poi.category === "order_block" && !hasEligibleSelectedPoi && includePoiZone && (
             <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/35 text-rose-300 text-[11px] leading-relaxed">
-              This Validated Order Block has already been touched/mitigated (&gt;0% hit). Only completely unmitigated (0% hit) Order Blocks can be armed for new POI alarms ? or select EMA 100 / EMA 200 above.
+              This Validated Order Block has already been touched/mitigated (&gt;0% hit). Only completely unmitigated (0% hit) Order Blocks can be armed for new POI alarms — or choose EMA 20/50/100/200 targets above.
             </div>
           )}
 
@@ -1057,7 +1055,7 @@ export function PoiAlarmModal({
             <button
               type="button"
               onClick={handleCreateAlarms}
-              disabled={saving || (!(includePoiZone && hasEligibleSelectedPoi) && !includeEma100 && !includeEma200)}
+              disabled={saving || (!(includePoiZone && hasEligibleSelectedPoi) && selectedEmaPeriods.length === 0)}
               className="px-4 py-1.5 rounded bg-[#2962ff] hover:bg-[#1e50db] text-white font-bold flex items-center gap-1.5 transition-all shadow-md shadow-[#2962ff]/30 cursor-pointer disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}

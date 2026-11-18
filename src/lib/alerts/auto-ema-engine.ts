@@ -1,6 +1,13 @@
 import { CandlestickBar } from "@/lib/mexc/types";
 import { PriceAlert, normalizeAlertTimeframe } from "@/lib/alerts/alerts-engine";
-import { buildEmaTouchAlert, computeLatestEmaLevels, formatEmaPrice } from "@/lib/alerts/ema-alerts";
+import {
+  buildEmaTouchAlert,
+  computeLatestEmaLevels,
+  formatEmaPrice,
+  getEmaLevelForPeriod,
+  normalizeSelectedEmaPeriods,
+  SELECTABLE_EMA_PERIODS,
+} from "@/lib/alerts/ema-alerts";
 import type { EmaPeriod } from "@/lib/indicators/mtf-ema/types";
 import {
   SUPPORTED_EXCHANGES,
@@ -25,7 +32,7 @@ export function detectEmaSetups(
   token: MexcRankedToken,
   timeframe: string,
   exchange: "bybit" | "binance",
-  options: { livePriceOverride?: number; maxDistancePct?: number } = {}
+  options: { livePriceOverride?: number; maxDistancePct?: number; periods?: EmaPeriod[] } = {}
 ): AutoEmaSetup[] {
   if (!Array.isArray(bars) || bars.length < 20) return [];
   const currentPrice = options.livePriceOverride && options.livePriceOverride > 0
@@ -36,11 +43,12 @@ export function detectEmaSetups(
   const levels = computeLatestEmaLevels(bars.map((bar) => bar.close));
   const tf = normalizeAlertTimeframe(timeframe) || timeframe;
   const maxDistancePct = Math.max(0, options.maxDistancePct ?? 5);
+  const periods = normalizeSelectedEmaPeriods(options.periods, [...SELECTABLE_EMA_PERIODS]);
   const exchangeLabel = SUPPORTED_EXCHANGES[exchange]?.badgeLabel || exchange.toUpperCase();
 
-  return ([20, 50, 100, 200] as const).flatMap((period) => {
-    const emaPrice = levels[`ema${period}`];
-    if (typeof emaPrice !== "number" || !Number.isFinite(emaPrice) || emaPrice <= 0) return [];
+  return periods.flatMap((period) => {
+    const emaPrice = getEmaLevelForPeriod(levels, period);
+    if (emaPrice === null) return [];
     const distancePct = (Math.abs(currentPrice - emaPrice) / currentPrice) * 100;
     if (distancePct > maxDistancePct) return [];
     return [{
