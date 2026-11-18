@@ -82,11 +82,12 @@ export interface PriceAlert {
     autoArmed?: boolean;
     exchange?: "mexc" | "binance" | "bybit";
   };
-  /** Optional EMA 100 / EMA 200 hit target metadata */
+  /** Optional EMA hit target metadata */
   emaMetadata?: {
-    period: 100 | 200;
+    period: 20 | 50 | 100 | 200;
     timeframe: string;
     direction?: "SUPPORT" | "RESISTANCE";
+    autoArmed?: boolean;
   };
   breakTelemetry?: any;
 }
@@ -122,6 +123,7 @@ export interface AlertLogEntry {
   deliveryResults?: AlertDeliveryResults;
   exchange?: "mexc" | "binance" | "bybit";
   poiMetadata?: PriceAlert["poiMetadata"];
+  emaMetadata?: PriceAlert["emaMetadata"];
 }
 
 export const ALERT_COOLDOWN_MS = 60_000;
@@ -574,6 +576,7 @@ export function evaluateAlertsBatch(
         triggeredAt: nowMs,
         exchange: alert.exchange || alert.poiMetadata?.exchange,
         poiMetadata: alert.poiMetadata,
+        emaMetadata: alert.emaMetadata,
       });
 
       if (isPoiPriceAlert(alert)) {
@@ -611,6 +614,7 @@ export function evaluateAlertsBatch(
           triggeredAt: nowMs,
           exchange: alert.exchange || alert.poiMetadata?.exchange,
           poiMetadata: alert.poiMetadata,
+        emaMetadata: alert.emaMetadata,
         });
       }
       continue;

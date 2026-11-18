@@ -3,9 +3,14 @@ import fs from "fs";
 import path from "path";
 import {
   computeLatestEma100And200,
+  computeLatestEmaLevels,
   buildEmaTouchAlert,
   resolveTimeframeValue,
 } from "../src/lib/alerts/ema-alerts";
+import {
+  detectEmaSetups,
+  selectNonDuplicateAutoEmaAlarms,
+} from "../src/lib/alerts/auto-ema-engine";
 import {
   evaluateAlertsBatch,
   findDuplicateAlerts,
@@ -57,6 +62,7 @@ describe("EMA 100 & EMA 200 Alerts Engine", () => {
       period: 200,
       timeframe: "4H",
       direction: "SUPPORT",
+      autoArmed: false,
     });
 
     const resistanceAlert = buildEmaTouchAlert({
@@ -74,6 +80,7 @@ describe("EMA 100 & EMA 200 Alerts Engine", () => {
       period: 100,
       timeframe: "1H",
       direction: "RESISTANCE",
+      autoArmed: false,
     });
   });
 
@@ -239,5 +246,61 @@ describe("ServerAlertDaemon EMA 100/200 dynamic refresh", () => {
     expect(updated!.targetPrice).not.toBe(50000);
     expect(updated!.targetPrice).toBeGreaterThan(60000);
     expect(updated!.targetPrice).toBeLessThan(62200);
+  });
+});
+
+describe("Auto EMA 20/50/100/200 Radar Engine", () => {
+  it("computes EMA 20/50/100/200, detects setups within maxDistancePct, and deduplicates auto-arms", () => {
+    const bars = Array.from({ length: 220 }, (_, i) => ({
+      time: 1700000000000 + i * 3600_000,
+      open: 100 + i * 0.05,
+      high: 100.5 + i * 0.05,
+      low: 99.5 + i * 0.05,
+      close: 100 + i * 0.05,
+      volume: 1000,
+    }));
+
+    const levels = computeLatestEmaLevels(bars.map((b) => b.close));
+    expect(levels.ema20).not.toBeNull();
+    expect(levels.ema50).not.toBeNull();
+    expect(levels.ema100).not.toBeNull();
+    expect(levels.ema200).not.toBeNull();
+
+    const setups = detectEmaSetups(
+      bars,
+      {
+        symbol: "SOLUSDT",
+        name: "Solana",
+        category: "majors",
+        mexcRank: 2,
+        mexcPrice: bars[bars.length - 1].close,
+        mexcVolume24h: 900_000_000,
+        mexcChange24h: 2.1,
+      },
+      "60",
+      "bybit",
+      { maxDistancePct: 10 }
+    );
+
+    expect(setups.map((s) => s.period)).toEqual([20, 50, 100, 200]);
+    expect(setups.every((s) => s.timeframe === "1H" && s.exchange === "bybit")).toBe(true);
+
+    const existing = buildEmaTouchAlert({
+      idPrefix: "auto",
+      symbol: "SOLUSDT",
+      timeframe: "1H",
+      period: 20,
+      emaPrice: levels.ema20!,
+      currentPrice: bars[bars.length - 1].close,
+      exchange: "bybit",
+    });
+
+    const { alertsToArm, skippedDuplicatesCount } = selectNonDuplicateAutoEmaAlarms(
+      setups,
+      [existing]
+    );
+    expect(skippedDuplicatesCount).toBe(1);
+    expect(alertsToArm).toHaveLength(3);
+    expect(alertsToArm.every((a) => a.emaMetadata?.autoArmed === true)).toBe(true);
   });
 });

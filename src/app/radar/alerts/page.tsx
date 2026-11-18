@@ -608,6 +608,15 @@ export default function RadarAlertsPage() {
             <span>OB Alarms &amp; Logs</span>
           </Link>
 
+          <Link
+            href="/radar/ema-alarms/logs"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/40 bg-violet-500/15 text-violet-200 hover:text-white text-xs font-bold transition-colors"
+            title="Open EMA 20/50/100/200 Alarm Set & Logs"
+          >
+            <Bell size={13} />
+            <span>EMA Alarms &amp; Logs</span>
+          </Link>
+
           {/* Logs Link (DEC-166) */}
           <Link
             href="/radar/logs"

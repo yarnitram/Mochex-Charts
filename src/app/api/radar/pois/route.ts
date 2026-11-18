@@ -12,7 +12,7 @@ import {
   attachLiquidityToPoi,
 } from "@/lib/indicators/poi-liquidity-heatmap";
 import { MAJORS_UNIVERSE } from "@/lib/screener/universe-catalog";
-import { computeLatestEma100And200, TimeframeEmaLevels } from "@/lib/alerts/ema-alerts";
+import { computeLatestEmaLevels, TimeframeEmaLevels } from "@/lib/alerts/ema-alerts";
 import { evaluatePortfolioRiskHeat, ScannedCandidateForRisk } from "@/lib/indicators/portfolio-risk-engine";
 import {
   SupportedExchange,
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
         for (const tf of timeframes) {
           poisByTimeframe[tf] = [];
 
-          // Query each target exchange (220 bars provides full warmup for EMA 100 & EMA 200)
+          // Query each target exchange (220 bars provides warmup through EMA 200)
           for (const ex of targetExchanges) {
             try {
               const bars = await fetchExchangeKlines(ex, upperSym, tf, 220);
@@ -153,9 +153,11 @@ export async function POST(request: NextRequest) {
                 allPois.push(...detected);
 
                 if (!emaByTimeframe[tf] || (emaByTimeframe[tf].ema200 === null && bars.length >= 200)) {
-                  const emaLevels = computeLatestEma100And200(bars.map((b) => b.close));
+                  const emaLevels = computeLatestEmaLevels(bars.map((b) => b.close));
                   if (emaLevels.ema100 !== null || emaLevels.ema200 !== null) {
                     emaByTimeframe[tf] = {
+                      ema20: emaByTimeframe[tf]?.ema20 ?? emaLevels.ema20,
+                      ema50: emaByTimeframe[tf]?.ema50 ?? emaLevels.ema50,
                       ema100: emaByTimeframe[tf]?.ema100 ?? emaLevels.ema100,
                       ema200: emaByTimeframe[tf]?.ema200 ?? emaLevels.ema200,
                     };
