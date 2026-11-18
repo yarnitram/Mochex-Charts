@@ -766,7 +766,7 @@ export function PoiQuickPreviewDrawer({
           </button>
 
           <Link
-            href={`/chart?symbol=${symbol}`}
+            href={`/chart?symbol=${encodeURIComponent(symbol.toUpperCase())}&tf=${encodeURIComponent(poi.timeframe || "1H")}&indicator=${poi.category === "order_block" ? "validated-ob-radar" : poi.category === "sandwich_zone" ? "sandwich" : "ob-fvg"}`}
             className="py-2.5 px-3 rounded-lg bg-[#121824] hover:bg-[#1a2332] text-white border border-[#233144] font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <span className="hidden sm:inline">Chart</span>

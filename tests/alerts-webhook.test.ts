@@ -14,6 +14,16 @@ import {
   AlertWebhookConfig,
 } from "../src/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "../src/lib/alerts/alerts-engine";
+import {
+  buildMochexChartUrl,
+  normalizeChartSymbolParam,
+  normalizeChartTimeframeParam,
+  resolveChartIndicatorsParam,
+} from "../src/lib/chart/chart-url";
+import {
+  clearMaxLeverageCache,
+  resolveMaxLeverageInfo,
+} from "../src/lib/screener/leverage-lookup";
 
 describe("Discord & Telegram Alert Webhook Dispatcher (DEC-130)", () => {
   const sampleAlert: PriceAlert = {
@@ -304,6 +314,119 @@ describe("Discord & Telegram Alert Webhook Dispatcher (DEC-130)", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://discord.com/api/webhooks/300/ema");
       fetchSpy.mockRestore();
+    });
+  });
+
+  describe("Discord Max Leverage, Invalidation & Parameterized Chart URL", () => {
+    it("normalizes /chart query parameters and builds full parameterized URLs", () => {
+      expect(normalizeChartSymbolParam("sol/usdt")).toBe("SOLUSDT");
+      expect(normalizeChartTimeframeParam("1H")).toBe("60");
+      expect(normalizeChartTimeframeParam("4h")).toBe("240");
+      expect(resolveChartIndicatorsParam("validated-ob-radar,ema")).toEqual([
+        "Validated OB (Radar / Alarm)",
+        "MTF EMA \u2014 20/50/100/200",
+      ]);
+
+      const url = buildMochexChartUrl({
+        baseUrl: "https://charts.mochex.io",
+        symbol: "SOL/USDT",
+        timeframe: "1H",
+        exchange: "bybit",
+        indicator: "validated-ob-radar",
+        targetPrice: 145.1234567,
+      });
+      expect(url).toBe(
+        "https://charts.mochex.io/chart?symbol=SOLUSDT&tf=1H&exchange=bybit&indicator=validated-ob-radar&target=145.1234567"
+      );
+    });
+
+    it("includes Max Leverage, Invalidation, clickable embed.url, and Mochex Chart link in Discord & Telegram payloads", () => {
+      const obAlert: PriceAlert = {
+        ...sampleAlert,
+        id: "auto-ob-pepe-1",
+        symbol: "PEPEUSDT",
+        targetPrice: 0.000012345,
+        invalidationPrice: 0.0000118,
+        exchange: "bybit",
+        maxLeverage: 50,
+        maxLeverageSource: "bybit",
+        poiMetadata: {
+          poiId: "poi-pepe-1",
+          category: "order_block",
+          direction: "BULLISH",
+          timeframe: "1H",
+          zoneTop: 0.000012345,
+          zoneBottom: 0.0000118,
+          invalidationPrice: 0.0000118,
+        },
+      };
+      const obLog: AlertLogEntry = {
+        ...sampleLog,
+        alertId: obAlert.id,
+        symbol: "PEPEUSDT",
+        triggerPrice: 0.00001234,
+        targetPrice: 0.000012345,
+        exchange: "bybit",
+        maxLeverage: 50,
+        maxLeverageSource: "bybit",
+        poiMetadata: obAlert.poiMetadata,
+      };
+
+      const discord = formatDiscordPayload(obAlert, obLog, {
+        baseUrl: "https://mochex.local:3018",
+      });
+      const embed = discord.embeds![0]!;
+      expect(embed.url).toContain("https://mochex.local:3018/chart?symbol=PEPEUSDT");
+      expect(embed.url).toContain("tf=1H");
+      expect(embed.url).toContain("indicator=validated-ob-radar");
+
+      const levField = embed.fields!.find((f) => f.name === "Max Leverage");
+      expect(levField?.value).toBe("`50x (BYBIT)`");
+
+      const invField = embed.fields!.find((f) => f.name === "Invalidation");
+      expect(invField?.value).toBe("`$0.00001180`");
+
+      const chartField = embed.fields!.find((f) => f.name === "Mochex Chart");
+      expect(chartField?.value).toContain("https://mochex.local:3018/chart?symbol=PEPEUSDT");
+
+      const tg = formatTelegramMessage(obAlert, obLog, {
+        baseUrl: "https://mochex.local:3018",
+      });
+      expect(tg).toContain("<b>Max Leverage:</b> <code>50x (BYBIT)</code>");
+      expect(tg).toContain("https://mochex.local:3018/chart?symbol=PEPEUSDT");
+    });
+
+    it("resolves & caches live max leverage from Bybit and MEXC public instrument APIs", async () => {
+      clearMaxLeverageCache();
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("bybit.com")) {
+          return new Response(
+            JSON.stringify({
+              retCode: 0,
+              result: {
+                list: [{ symbol: "BTCUSDT", leverageFilter: { maxLeverage: "150.00" } }],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [{ symbol: "WIF_USDT", maxLeverage: 100 }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      });
+
+      const bybitLev = await resolveMaxLeverageInfo("BTCUSDT", "bybit");
+      expect(bybitLev).toEqual({ maxLeverage: 150, source: "bybit" });
+
+      const fallbackLev = await resolveMaxLeverageInfo("WIFUSDT", "binance");
+      expect(fallbackLev).toEqual({ maxLeverage: 100, source: "mexc" });
+
+      fetchSpy.mockRestore();
+      clearMaxLeverageCache();
     });
   });
 });

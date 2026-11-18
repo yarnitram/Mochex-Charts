@@ -28,6 +28,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import { PriceAlert, isPoiPriceAlert, findDuplicateAlerts, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
+import { buildMochexChartUrl } from "@/lib/chart/chart-url";
 import {
   loadClientAlerts,
   saveClientAlerts,
@@ -1058,7 +1059,13 @@ export default function RadarAlertsPage() {
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-1.5">
                             <Link
-                              href={`/chart?symbol=${a.symbol.toUpperCase()}`}
+                              href={buildMochexChartUrl({
+                                symbol: a.symbol,
+                                timeframe: a.poiMetadata?.timeframe || a.emaMetadata?.timeframe || "1H",
+                                exchange: a.exchange || a.poiMetadata?.exchange,
+                                indicator: a.emaMetadata ? "ema" : a.poiMetadata?.category === "order_block" ? "validated-ob-radar" : undefined,
+                                targetPrice: a.targetPrice,
+                              })}
                               className="font-bold text-white hover:text-[#2962ff] flex items-center gap-1 group"
                               title="Open in Chart Terminal"
                             >

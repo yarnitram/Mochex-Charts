@@ -39,6 +39,11 @@ import {
 } from "@/lib/chart/multi-chart-grid";
 import { isTypingTarget } from "@/lib/ui/keyboard-shortcuts";
 import {
+  normalizeChartSymbolParam,
+  normalizeChartTimeframeParam,
+  resolveChartIndicatorsParam,
+} from "@/lib/chart/chart-url";
+import {
   DEFAULT_SPLIT_SIZES,
   SplitSizesByLayout,
   buildGridTemplate,
@@ -201,30 +206,65 @@ export default function WorkstationPage() {
         setSplitSizes(parseSplitSizes(savedSplitSizes));
       }
 
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSymbol = normalizeChartSymbolParam(urlParams.get("symbol") || urlParams.get("pair"));
+      const urlResolution = normalizeChartTimeframeParam(
+        urlParams.get("tf") || urlParams.get("interval") || urlParams.get("resolution")
+      );
+      const urlIndicators = resolveChartIndicatorsParam(
+        urlParams.get("indicator") || urlParams.get("indicators")
+      );
+      const urlTab = urlParams.get("tab");
+
       if (savedGrid) {
         const parsedGrid = JSON.parse(savedGrid) as MultiChartWorkspaceState;
         if (parsedGrid && Array.isArray(parsedGrid.panes) && parsedGrid.panes.length === 4) {
-          setGridState(parsedGrid);
-          const activePane = getActivePane(parsedGrid);
+          let nextGrid = parsedGrid;
+          if (urlSymbol) nextGrid = updateActivePaneSymbol(nextGrid, urlSymbol);
+          if (urlResolution) nextGrid = updateActivePaneResolution(nextGrid, urlResolution);
+          setGridState(nextGrid);
+          const activePane = getActivePane(nextGrid);
           setSymbol(activePane.symbol);
           setResolution(activePane.resolution);
         }
       } else {
-        const initSym = savedSymbol || "BTCUSDT";
-        const initRes = savedRes || "15";
+        const initSym = urlSymbol || savedSymbol || "BTCUSDT";
+        const initRes = urlResolution || savedRes || "15";
         setSymbol(initSym);
         setResolution(initRes);
         setGridState(createInitialMultiChartState(initSym, initRes));
       }
 
-      if (savedSidebar !== null) setIsSidebarOpen(savedSidebar === "true");
+      if (urlSymbol) localStorage.setItem("mochex:symbol", urlSymbol);
+      if (urlResolution) localStorage.setItem("mochex:resolution", urlResolution);
+
+      if (urlTab) {
+        setIsSidebarOpen(true);
+      } else if (savedSidebar !== null) {
+        setIsSidebarOpen(savedSidebar === "true");
+      }
       // Script Studio always defaults to closed on fresh page load (DEC-086)
       setIsStudioOpen(false);
       try {
         localStorage.setItem("mochex:studio_open", "false");
       } catch {}
       if (savedScreener !== null) setIsScreenerOpen(savedScreener === "true");
-      if (savedIndicators) setActiveIndicators(JSON.parse(savedIndicators));
+
+      let baseIndicators: string[] = ["EMA Ribbon Momentum Multi-Timeframe"];
+      if (savedIndicators) {
+        const parsedIndicators = JSON.parse(savedIndicators);
+        if (Array.isArray(parsedIndicators)) baseIndicators = parsedIndicators;
+      }
+      if (urlIndicators.length > 0) {
+        const merged = [...baseIndicators];
+        for (const ind of urlIndicators) {
+          if (!merged.includes(ind)) merged.push(ind);
+        }
+        setActiveIndicators(merged);
+        localStorage.setItem("mochex:active_indicators", JSON.stringify(merged));
+      } else if (savedIndicators) {
+        setActiveIndicators(baseIndicators);
+      }
       if (savedFavs) setFavoriteTools(JSON.parse(savedFavs));
       if (savedShowFavs !== null) setShowFavoritesBar(savedShowFavs === "true");
     } catch {

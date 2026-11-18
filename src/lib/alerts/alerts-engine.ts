@@ -70,6 +70,9 @@ export interface PriceAlert {
   invalidationPrice?: number;
   /** Exchange feed used for detection & 24/7 price monitoring */
   exchange?: "mexc" | "binance" | "bybit";
+  /** Optional perpetual max leverage metadata included in notifications */
+  maxLeverage?: number;
+  maxLeverageSource?: "mexc" | "binance" | "bybit";
   poiMetadata?: {
     poiId: string;
     category: "order_block" | "sandwich_zone" | "fvg";
@@ -122,6 +125,8 @@ export interface AlertLogEntry {
   logType?: "trigger" | "test" | "system" | "error";
   deliveryResults?: AlertDeliveryResults;
   exchange?: "mexc" | "binance" | "bybit";
+  maxLeverage?: number;
+  maxLeverageSource?: "mexc" | "binance" | "bybit";
   poiMetadata?: PriceAlert["poiMetadata"];
   emaMetadata?: PriceAlert["emaMetadata"];
 }

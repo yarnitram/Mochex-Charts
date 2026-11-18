@@ -4,6 +4,7 @@
  */
 
 import { PriceAlert, AlertLogEntry, formatAlarmPrice } from "./alerts-engine";
+import { buildChartUrlForAlert } from "../chart/chart-url";
 import {
   formatPoiInvalidationTelegramMessage,
   formatPoiInvalidationDiscordPayload,
@@ -30,6 +31,7 @@ export interface AlertWebhookConfig {
   discordEmaEnabled?: boolean;
   discordObWebhookUrl?: string;
   discordObEnabled?: boolean;
+  appBaseUrl?: string;
   telegramBotToken?: string;
   telegramChatId?: string;
   telegramEnabled?: boolean;
@@ -245,7 +247,8 @@ function formatPriceNumber(price: number): string {
  */
 export function formatDiscordPayload(
   alert: PriceAlert,
-  log: AlertLogEntry
+  log: AlertLogEntry,
+  options?: { baseUrl?: string | null }
 ): DiscordWebhookPayload {
   if (alert.breakTelemetry) {
     const raw = formatPoiInvalidationDiscordPayload(alert.breakTelemetry);
@@ -336,6 +339,33 @@ export function formatDiscordPayload(
     });
   }
 
+  const maxLev = alert.maxLeverage ?? log.maxLeverage;
+  const levSource = alert.maxLeverageSource ?? log.maxLeverageSource;
+  if (typeof maxLev === "number" && Number.isFinite(maxLev) && maxLev > 0) {
+    fields.push({
+      name: "Max Leverage",
+      value: `\`${maxLev}x${levSource ? ` (${levSource.toUpperCase()})` : ""}\``,
+      inline: true,
+    });
+  }
+
+  const invalidationLevel = alert.invalidationPrice ?? poiMeta?.invalidationPrice;
+  if (typeof invalidationLevel === "number" && Number.isFinite(invalidationLevel) && invalidationLevel > 0) {
+    fields.push({
+      name: "Invalidation",
+      value: `\`$${formatPriceNumber(invalidationLevel)}\``,
+      inline: true,
+    });
+  }
+
+  const chartUrl = buildChartUrlForAlert(alert, log, options?.baseUrl);
+  const chartTf = poiMeta?.timeframe || alert.emaMetadata?.timeframe || log.emaMetadata?.timeframe || "1H";
+  fields.push({
+    name: "Mochex Chart",
+    value: `[Open ${pair} (${chartTf}) Chart](${chartUrl})`,
+    inline: true,
+  });
+
   if (log.message) {
     fields.push({
       name: "Signal Note",
@@ -349,6 +379,7 @@ export function formatDiscordPayload(
     embeds: [
       {
         title: `🚨 [${pair}] Alert Triggered: ${log.label}`,
+        url: chartUrl,
         description: `Market event detected on **${pair}** at **$${formatPriceNumber(log.triggerPrice)}**.`,
         color: embedColor,
         fields,
@@ -366,7 +397,8 @@ export function formatDiscordPayload(
  */
 export function formatTelegramMessage(
   alert: PriceAlert,
-  log: AlertLogEntry
+  log: AlertLogEntry,
+  options?: { baseUrl?: string | null }
 ): string {
   if (alert.breakTelemetry) {
     return formatPoiInvalidationTelegramMessage(alert.breakTelemetry);
@@ -411,9 +443,16 @@ export function formatTelegramMessage(
   if (log.sourceType) {
     text += `<b>Source:</b> ${escapeHtml(log.sourceType.replace(/_/g, " ").toUpperCase())}\n`;
   }
+  const maxLev = alert.maxLeverage ?? log.maxLeverage;
+  const levSource = alert.maxLeverageSource ?? log.maxLeverageSource;
+  if (typeof maxLev === "number" && Number.isFinite(maxLev) && maxLev > 0) {
+    text += `<b>Max Leverage:</b> <code>${maxLev}x${levSource ? ` (${escapeHtml(levSource.toUpperCase())})` : ""}</code>\n`;
+  }
   if (log.message) {
     text += `<b>Signal:</b> ${escapeHtml(log.message)}\n`;
   }
+  const chartUrl = buildChartUrlForAlert(alert, log, options?.baseUrl);
+  text += `🔗 <a href="${escapeHtml(chartUrl)}">Open ${escapeHtml(pair)} in Mochex Chart</a>\n`;
   text += `\n⏰ <i>${escapeHtml(dateStr)}</i>`;
 
   return text;
@@ -543,7 +582,7 @@ export async function dispatchDirectWebhooks(
 
   // 1. Discord Webhook (Default, OB, or EMA channel)
   if (allowDiscord && discordTarget.url) {
-    const payload = formatDiscordPayload(alert, log);
+    const payload = formatDiscordPayload(alert, log, { baseUrl: config.appBaseUrl });
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
@@ -575,7 +614,7 @@ export async function dispatchDirectWebhooks(
     config.telegramBotToken &&
     config.telegramChatId
   ) {
-    const text = formatTelegramMessage(alert, log);
+    const text = formatTelegramMessage(alert, log, { baseUrl: config.appBaseUrl });
     const tgUrl = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -688,6 +727,7 @@ export async function sendAlertNotifications(
           discordEmaEnabled: config.discordEmaEnabled,
           discordObWebhookUrl: config.discordObWebhookUrl,
           discordObEnabled: config.discordObEnabled,
+          appBaseUrl: config.appBaseUrl,
           telegramBotToken: allowTelegram ? config.telegramBotToken : undefined,
           telegramChatId: allowTelegram ? config.telegramChatId : undefined,
           telegramEnabled: allowTelegram,

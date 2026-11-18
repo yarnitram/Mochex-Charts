@@ -43,6 +43,8 @@ export function loadClientWebhooks(): AlertWebhookConfig {
           parsed.discordObWebhookUrl
             ? parsed.discordObEnabled !== false
             : false,
+        appBaseUrl:
+          parsed.appBaseUrl || (typeof window !== "undefined" ? (window.location?.origin || "") : ""),
         telegramBotToken: parsed.telegramBotToken || "",
         telegramChatId: parsed.telegramChatId || "",
         telegramEnabled: Boolean(
@@ -91,6 +93,7 @@ export function areWebhookConfigsEqual(a?: AlertWebhookConfig | null, b?: AlertW
     discordEmaEnabled: Boolean(c?.discordEmaWebhookUrl?.trim() && c?.discordEmaEnabled !== false),
     discordObWebhookUrl: (c?.discordObWebhookUrl || "").trim(),
     discordObEnabled: Boolean(c?.discordObWebhookUrl?.trim() && c?.discordObEnabled !== false),
+    appBaseUrl: (c?.appBaseUrl || "").trim(),
     telegramBotToken: (c?.telegramBotToken || "").trim(),
     telegramChatId: (c?.telegramChatId || "").trim(),
     telegramEnabled: Boolean(c?.telegramEnabled && c?.telegramBotToken?.trim() && c?.telegramChatId?.trim()),
@@ -196,6 +199,11 @@ export function mergeClientAndServerWebhooks(
     tradingWebhook = { ...local.tradingWebhook! };
   }
 
+  const resolvedAppBaseUrl =
+    (server.appBaseUrl || "").trim() ||
+    (local.appBaseUrl || "").trim() ||
+    (typeof window !== "undefined" ? (window.location?.origin || "") : "");
+
   return {
     discordWebhookUrl: defaultDiscord.url,
     discordEnabled: Boolean(defaultDiscord.enabled && defaultDiscord.url),
@@ -203,6 +211,7 @@ export function mergeClientAndServerWebhooks(
     discordEmaEnabled: Boolean(emaDiscord.enabled && emaDiscord.url),
     discordObWebhookUrl: obDiscord.url,
     discordObEnabled: Boolean(obDiscord.enabled && obDiscord.url),
+    appBaseUrl: resolvedAppBaseUrl,
     telegramBotToken,
     telegramChatId,
     telegramEnabled: Boolean(telegramEnabled && telegramBotToken && telegramChatId),

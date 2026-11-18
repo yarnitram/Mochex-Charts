@@ -9,6 +9,7 @@ import {
   formatTradingWebhookPayload,
 } from "@/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "@/lib/alerts/alerts-engine";
+import { resolveMaxLeverageInfo } from "@/lib/screener/leverage-lookup";
 import { getRequestUser } from "@/lib/auth/request-user";
 import {
   buildAlertDeliveryResults,
@@ -433,10 +434,21 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await getRequestUser(req);
-    const results = await dispatchDirectWebhooks(config, alert, log);
+    const enrichedLog: AlertLogEntry = { ...log };
+    if (alert.maxLeverage == null && enrichedLog.maxLeverage == null) {
+      const lev = await resolveMaxLeverageInfo(
+        alert.symbol,
+        alert.exchange || enrichedLog.exchange || alert.poiMetadata?.exchange
+      ).catch(() => null);
+      if (lev) {
+        enrichedLog.maxLeverage = lev.maxLeverage;
+        enrichedLog.maxLeverageSource = lev.source;
+      }
+    }
+    const results = await dispatchDirectWebhooks(config, alert, enrichedLog);
     safeUpsertServerAlertLog(user.userId, {
-      ...log,
-      logType: log.logType || "trigger",
+      ...enrichedLog,
+      logType: enrichedLog.logType || "trigger",
       deliveryResults: buildAlertDeliveryResults(
         config,
         alert,
