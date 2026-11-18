@@ -31,7 +31,7 @@ import {
   getCatalogCategoryCount,
   ObSearchExchangePreference,
 } from "@/lib/alerts/auto-ob-fvg-engine";
-import { PriceAlert } from "@/lib/alerts/alerts-engine";
+import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
   loadClientAlerts,
   mergeClientAndServerAlerts,
@@ -42,7 +42,7 @@ import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 import { ObZoneMiniChart } from "@/components/radar/ObZoneMiniChart";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+
 import { SUPPORTED_EXCHANGES } from "@/lib/screener/multi-exchange-client";
 
 const TIMEFRAME_OPTIONS = ["15m", "30m", "1H", "2H", "4H", "1D", "1W"];
@@ -656,7 +656,7 @@ export default function AutoObFvgMonitorPage() {
                         <td className="py-2.5 px-3">
                           <div className="flex flex-col">
                             <span className="text-[11px] font-bold text-white">
-                              ${formatPoiPrice(setup.bottom)} - ${formatPoiPrice(setup.top)}
+                              ${formatAlarmPrice(setup.bottom)} - ${formatAlarmPrice(setup.top)}
                             </span>
                             <span className="text-[10px] text-[#848e9c]">
                               Width {setup.spreadPct.toFixed(2)}% • FVG +{setup.fvgGapPct.toFixed(2)}%
@@ -669,7 +669,7 @@ export default function AutoObFvgMonitorPage() {
                             {setup.distanceToEntryPct.toFixed(2)}%
                           </div>
                           <div className="text-[10px] text-[#848e9c]">
-                            @${formatPoiPrice(setup.currentPrice)}
+                            @${formatAlarmPrice(setup.currentPrice)}
                           </div>
                         </td>
 
@@ -754,13 +754,13 @@ export default function AutoObFvgMonitorPage() {
                   <div className="p-2.5 rounded-lg bg-[#121824] border border-[#1b2535]">
                     <div className="text-[10px] text-[#848e9c]">OB Range (Bottom — Top)</div>
                     <div className="font-bold text-white mt-0.5">
-                      ${formatPoiPrice(selectedSetup.bottom)} — ${formatPoiPrice(selectedSetup.top)}
+                      ${formatAlarmPrice(selectedSetup.bottom)} — ${formatAlarmPrice(selectedSetup.top)}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-lg bg-[#121824] border border-[#1b2535]">
                     <div className="text-[10px] text-[#848e9c]">FVG Gap Range</div>
                     <div className="font-bold text-sky-300 mt-0.5">
-                      ${formatPoiPrice(selectedSetup.fvgBottom)} — ${formatPoiPrice(selectedSetup.fvgTop)}
+                      ${formatAlarmPrice(selectedSetup.fvgBottom)} — ${formatAlarmPrice(selectedSetup.fvgTop)}
                     </div>
                   </div>
                 </div>

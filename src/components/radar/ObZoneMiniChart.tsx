@@ -12,7 +12,7 @@ import {
 } from "lightweight-charts";
 import { Loader2, RefreshCw } from "lucide-react";
 import { CandlestickBar } from "@/lib/mexc/types";
-import { formatPoiPrice } from "@/lib/indicators/radar-poi-engine";
+import { formatAlarmPrice, getAlarmChartPriceFormat } from "@/lib/alerts/alerts-engine";
 import { SupportedExchange, SUPPORTED_EXCHANGES } from "@/lib/screener/multi-exchange-client";
 
 export interface ObZoneMiniChartProps {
@@ -116,6 +116,11 @@ export function ObZoneMiniChart({
           setError(`No klines returned from ${exchange.toUpperCase()}`);
           return;
         }
+
+        const refPrice = targetPrice && targetPrice > 0 ? targetPrice : bars[bars.length - 1].close;
+        series.applyOptions({
+          priceFormat: getAlarmChartPriceFormat(refPrice),
+        });
 
         series.setData(
           bars.map((b) => ({
@@ -258,14 +263,14 @@ export function ObZoneMiniChart({
             <span className="text-[10px] text-[#b6c4ff]">
               OB Range:{" "}
               <strong className="text-white">
-                ${formatPoiPrice(low)} - ${formatPoiPrice(high)}
+                ${formatAlarmPrice(low)} - ${formatAlarmPrice(high)}
               </strong>{" "}
               <span className="text-[#848e9c]">({spreadPct.toFixed(2)}%)</span>
             </span>
           )}
           {targetPrice && targetPrice > 0 && (
             <span className="text-[10px] text-amber-300 font-bold">
-              Target: ${formatPoiPrice(targetPrice)}
+              Target: ${formatAlarmPrice(targetPrice)}
             </span>
           )}
           <button

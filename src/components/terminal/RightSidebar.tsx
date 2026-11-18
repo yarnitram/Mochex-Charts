@@ -64,6 +64,8 @@ import {
   AlertCondition,
   AlertFrequency,
   evaluateAlertsBatch,
+  formatAlarmPrice,
+  formatAlarmInputPrice,
   playInstitutionalAlertChime,
   StrategyAlertEvaluationContext,
 } from "@/lib/alerts/alerts-engine";
@@ -472,13 +474,10 @@ export function RightSidebar({
   // Keep default target price & limit price inputs synced when switching symbols
   useEffect(() => {
     if (currentPrice > 0) {
-      const suggested =
-        currentPrice >= 1
-          ? (currentPrice * 1.005).toFixed(2)
-          : (currentPrice * 1.005).toFixed(4);
+      const suggested = formatAlarmInputPrice(currentPrice * 1.005);
       setNewAlertPrice(suggested);
       setOrderLimitPrice(
-        currentPrice >= 1 ? currentPrice.toFixed(2) : currentPrice.toFixed(4)
+        formatAlarmInputPrice(currentPrice)
       );
     }
   }, [selectedSymbol]);
@@ -977,7 +976,7 @@ export function RightSidebar({
       const target = parseFloat(newAlertPrice);
       if (!Number.isFinite(target) || target <= 0) return;
 
-      const formattedPrice = target >= 1 ? target.toFixed(2) : target.toFixed(4);
+      const formattedPrice = formatAlarmPrice(target);
       const created: PriceAlert = {
         id: `alert-price-${selectedSymbol}-${nowMs}`,
         symbol: selectedSymbol,
@@ -1167,7 +1166,7 @@ export function RightSidebar({
             <span>
               Price @{" "}
               <strong className="text-secondary">
-                ${activeToast.triggerPrice >= 1 ? activeToast.triggerPrice.toFixed(2) : activeToast.triggerPrice.toFixed(4)}
+                ${formatAlarmPrice(activeToast.triggerPrice)}
               </strong>
             </span>
             <span>{new Date(activeToast.triggeredAt).toLocaleTimeString()}</span>
@@ -2195,7 +2194,7 @@ export function RightSidebar({
                   </div>
                 ) : (
                   radarAlerts.map((a: PriceAlert) => {
-                    const formattedTarget = a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                    const formattedTarget = formatAlarmPrice(a.targetPrice);
                     const category = a.poiMetadata?.category || "POI";
                     const catBadge =
                       category === "order_block"
@@ -2264,7 +2263,7 @@ export function RightSidebar({
                             <span>{a.condition.replace(/_/g, " ").toUpperCase()} @ ${formattedTarget}</span>
                             {a.invalidationPrice && (
                               <span className="text-rose-400/80">
-                                Inv: ${a.invalidationPrice >= 1 ? a.invalidationPrice.toFixed(2) : a.invalidationPrice.toFixed(4)}
+                                Inv: ${formatAlarmPrice(a.invalidationPrice)}
                               </span>
                             )}
                           </div>
@@ -2540,8 +2539,7 @@ export function RightSidebar({
               </div>
             ) : (
               displayedAlerts.map((a: PriceAlert) => {
-                const formattedTarget =
-                  a.targetPrice >= 1 ? a.targetPrice.toFixed(2) : a.targetPrice.toFixed(4);
+                const formattedTarget = formatAlarmPrice(a.targetPrice);
                 const isRadar = isRadarAlert(a);
                 const category = a.poiMetadata?.category;
                 const catBadge =
@@ -2690,7 +2688,7 @@ export function RightSidebar({
                     </div>
                     <div className="text-right shrink-0 text-muted">
                       <div className="text-secondary font-semibold">
-                        ${log.triggerPrice >= 1 ? log.triggerPrice.toFixed(2) : log.triggerPrice.toFixed(4)}
+                        ${formatAlarmPrice(log.triggerPrice)}
                       </div>
                       <div className="text-[9px]">
                         {new Date(log.triggeredAt).toLocaleTimeString()}

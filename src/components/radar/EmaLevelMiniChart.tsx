@@ -13,6 +13,7 @@ import {
 import { CandlestickBar } from "@/lib/mexc/types";
 import { SupportedExchange, SUPPORTED_EXCHANGES } from "@/lib/screener/multi-exchange-client";
 import { formatEmaPrice } from "@/lib/alerts/ema-alerts";
+import { getAlarmChartPriceFormat } from "@/lib/alerts/alerts-engine";
 
 export function EmaLevelMiniChart({
   symbol,
@@ -65,6 +66,10 @@ export function EmaLevelMiniChart({
           setError(`No candles returned from ${exchange.toUpperCase()}`);
           return;
         }
+        const refPrice = emaPrice > 0 ? emaPrice : bars[bars.length - 1].close;
+        series.applyOptions({
+          priceFormat: getAlarmChartPriceFormat(refPrice),
+        });
         series.setData(bars.map((bar) => ({
           time: Math.floor(bar.time / 1000) as Time,
           open: bar.open,
