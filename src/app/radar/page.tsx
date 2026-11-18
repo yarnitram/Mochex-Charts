@@ -68,7 +68,7 @@ import { PortfolioRiskHeatSummary, evaluatePortfolioRiskHeat, ScannedCandidateFo
 import { BrokerCredentialsModal } from "@/components/terminal/BrokerCredentialsModal";
 import { PoiLiveTradeModal } from "@/components/radar/PoiLiveTradeModal";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
-import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { AlertWebhookConfig, getDiscordWebhookStatus } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PoiPaperTradeModal } from "@/components/radar/PoiPaperTradeModal";
 import { PoiQuickPreviewDrawer } from "@/components/radar/PoiQuickPreviewDrawer";
@@ -1088,27 +1088,32 @@ export default function RadarPage() {
           </button>
 
           {/* Alert Channels (Discord & Telegram) Quick Settings Button */}
-          <button
-            type="button"
-            onClick={() => setIsChannelsModalOpen(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
-              webhookConfig.discordEnabled || webhookConfig.telegramEnabled
-                ? "bg-[#121824] border-[#5865F2]/50 text-[#b6c4ff] hover:text-white hover:bg-[#1a2332]"
-                : "bg-[#121824] border-[#233144] text-[#848e9c] hover:text-white hover:bg-[#1a2332]"
-            }`}
-            title="Configure Discord Webhook & Telegram Bot Channels"
-          >
-            <Send size={13} className="text-[#5865F2]" />
-            <span className="hidden sm:inline">Channels</span>
-            <div className="flex items-center gap-1">
-              {webhookConfig.discordEnabled && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[#5865F2]" title="Discord Active" />
-              )}
-              {webhookConfig.telegramEnabled && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[#229ED9]" title="Telegram Active" />
-              )}
-            </div>
-          </button>
+          {(() => {
+            const dcActive = getDiscordWebhookStatus(webhookConfig).anyEnabled;
+            return (
+              <button
+                type="button"
+                onClick={() => setIsChannelsModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                  dcActive || webhookConfig.telegramEnabled
+                    ? "bg-[#121824] border-[#5865F2]/50 text-[#b6c4ff] hover:text-white hover:bg-[#1a2332]"
+                    : "bg-[#121824] border-[#233144] text-[#848e9c] hover:text-white hover:bg-[#1a2332]"
+                }`}
+                title="Configure Discord Webhook & Telegram Bot Channels"
+              >
+                <Send size={13} className="text-[#5865F2]" />
+                <span className="hidden sm:inline">Channels</span>
+                <div className="flex items-center gap-1">
+                  {dcActive && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#5865F2]" title="Discord Active" />
+                  )}
+                  {webhookConfig.telegramEnabled && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#229ED9]" title="Telegram Active" />
+                  )}
+                </div>
+              </button>
+            );
+          })()}
 
 
           {/* Bulk Alarm Trigger Button (DEC-157) */}

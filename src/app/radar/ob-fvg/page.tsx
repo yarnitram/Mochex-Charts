@@ -153,7 +153,9 @@ export default function AutoObFvgMonitorPage() {
           autoArm,
           touchMode,
           obZoneType,
-          notifyDiscord: webhookConfig.discordEnabled !== false,
+          notifyDiscord: webhookConfig.discordObWebhookUrl
+            ? webhookConfig.discordObEnabled !== false
+            : webhookConfig.discordEnabled !== false,
           notifyTelegram: webhookConfig.telegramEnabled !== false,
           notifyTradingWebhook: Boolean(webhookConfig.tradingWebhook?.enabled),
           notifyOnInvalidation: true,
@@ -234,7 +236,9 @@ export default function AutoObFvgMonitorPage() {
   const handleManualArmSingle = async (setup: AutoObFvgSetup) => {
     const newAlert = buildAutoObFvgAlarm(setup, {
       touchMode,
-      notifyDiscord: webhookConfig.discordEnabled !== false,
+      notifyDiscord: webhookConfig.discordObWebhookUrl
+        ? webhookConfig.discordObEnabled !== false
+        : webhookConfig.discordEnabled !== false,
       notifyTelegram: webhookConfig.telegramEnabled !== false,
       notifyTradingWebhook: Boolean(webhookConfig.tradingWebhook?.enabled),
       notifyOnInvalidation: true,
@@ -295,7 +299,7 @@ export default function AutoObFvgMonitorPage() {
             <Send size={13} className="text-[#5865F2]" />
             <span className="hidden sm:inline">Channels</span>
             <span className="text-[10px] text-[#848e9c]">
-              {webhookConfig.discordEnabled ? "DC✓" : ""}{" "}
+              {(webhookConfig.discordObWebhookUrl ? webhookConfig.discordObEnabled !== false : webhookConfig.discordEnabled) ? "DC✓" : ""}{" "}
               {webhookConfig.telegramEnabled ? "TG✓" : ""}
             </span>
           </button>

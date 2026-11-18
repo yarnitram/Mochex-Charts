@@ -21,9 +21,15 @@ export interface TradingWebhookConfig {
   customTemplate?: string; // custom JSON payload template with {{tokens}}
 }
 
+export type DiscordChannelRoute = "default" | "ob" | "ema";
+
 export interface AlertWebhookConfig {
   discordWebhookUrl?: string;
   discordEnabled?: boolean;
+  discordEmaWebhookUrl?: string;
+  discordEmaEnabled?: boolean;
+  discordObWebhookUrl?: string;
+  discordObEnabled?: boolean;
   telegramBotToken?: string;
   telegramChatId?: string;
   telegramEnabled?: boolean;
@@ -111,6 +117,70 @@ export function getDefaultTradingWebhookTemplate(platform?: TradingWebhookPlatfo
     default:
       return DEFAULT_CUSTOM_TRADING_TEMPLATE;
   }
+}
+
+/**
+ * Determines which Discord channel an alert routes to (EMA -> OB -> Default),
+ * with seamless fallback to the default channel when a dedicated URL is blank.
+ */
+export function resolveDiscordWebhookTarget(
+  config: AlertWebhookConfig | null | undefined,
+  alert?: Partial<Pick<PriceAlert, "id" | "sourceType" | "poiMetadata" | "emaMetadata" | "breakTelemetry">> | null
+): { route: DiscordChannelRoute; url: string; enabled: boolean; isDedicated: boolean } {
+  const defaultUrl = (config?.discordWebhookUrl || "").trim();
+  const defaultEnabled = Boolean(config?.discordEnabled && defaultUrl);
+
+  const isEmaAlert = Boolean(alert?.emaMetadata || alert?.id?.startsWith("auto-ema-"));
+  if (isEmaAlert) {
+    const emaUrl = (config?.discordEmaWebhookUrl || "").trim();
+    if (emaUrl) {
+      return {
+        route: "ema",
+        url: emaUrl,
+        enabled: config?.discordEmaEnabled !== false,
+        isDedicated: true,
+      };
+    }
+    return { route: "ema", url: defaultUrl, enabled: defaultEnabled, isDedicated: false };
+  }
+
+  const isObAlert = Boolean(
+    alert?.poiMetadata?.category === "order_block" ||
+      alert?.breakTelemetry ||
+      alert?.id?.startsWith("auto-ob-")
+  );
+  if (isObAlert) {
+    const obUrl = (config?.discordObWebhookUrl || "").trim();
+    if (obUrl) {
+      return {
+        route: "ob",
+        url: obUrl,
+        enabled: config?.discordObEnabled !== false,
+        isDedicated: true,
+      };
+    }
+    return { route: "ob", url: defaultUrl, enabled: defaultEnabled, isDedicated: false };
+  }
+
+  return { route: "default", url: defaultUrl, enabled: defaultEnabled, isDedicated: false };
+}
+
+/**
+ * Summarizes whether any Discord webhook (Default, OB, or EMA) is configured / enabled.
+ */
+export function getDiscordWebhookStatus(config?: AlertWebhookConfig | null): {
+  anyConfigured: boolean;
+  anyEnabled: boolean;
+} {
+  if (!config) return { anyConfigured: false, anyEnabled: false };
+  const slots: Array<{ url: string; enabled: boolean }> = [
+    { url: (config.discordWebhookUrl || "").trim(), enabled: Boolean(config.discordEnabled) },
+    { url: (config.discordObWebhookUrl || "").trim(), enabled: config.discordObEnabled !== false },
+    { url: (config.discordEmaWebhookUrl || "").trim(), enabled: config.discordEmaEnabled !== false },
+  ];
+  const anyConfigured = slots.some((slot) => slot.url.length > 0);
+  const anyEnabled = slots.some((slot) => slot.url.length > 0 && slot.enabled);
+  return { anyConfigured, anyEnabled };
 }
 
 /**
@@ -447,9 +517,10 @@ export async function dispatchDirectWebhooks(
   alert: PriceAlert,
   log: AlertLogEntry
 ): Promise<DispatchNotificationResult> {
+  const discordTarget = resolveDiscordWebhookTarget(config, alert);
   const allowDiscord =
-    Boolean(config.discordEnabled) &&
-    isValidDiscordWebhookUrl(config.discordWebhookUrl) &&
+    discordTarget.enabled &&
+    isValidDiscordWebhookUrl(discordTarget.url) &&
     alert.notifyDiscord !== false;
 
   const allowTelegram =
@@ -470,14 +541,14 @@ export async function dispatchDirectWebhooks(
 
   const results: DispatchNotificationResult = {};
 
-  // 1. Discord Webhook
-  if (allowDiscord && config.discordWebhookUrl) {
+  // 1. Discord Webhook (Default, OB, or EMA channel)
+  if (allowDiscord && discordTarget.url) {
     const payload = formatDiscordPayload(alert, log);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
     try {
-      const res = await fetch(config.discordWebhookUrl, {
+      const res = await fetch(discordTarget.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -581,10 +652,11 @@ export async function sendAlertNotifications(
   alert: PriceAlert,
   log: AlertLogEntry
 ): Promise<DispatchNotificationResult> {
+  const discordTarget = resolveDiscordWebhookTarget(config, alert);
   // Check if per-alert notification flags allow dispatching
   const allowDiscord =
-    config.discordEnabled &&
-    isValidDiscordWebhookUrl(config.discordWebhookUrl) &&
+    discordTarget.enabled &&
+    isValidDiscordWebhookUrl(discordTarget.url) &&
     alert.notifyDiscord !== false;
 
   const allowTelegram =
@@ -610,8 +682,12 @@ export async function sendAlertNotifications(
       body: JSON.stringify({
         action: "dispatch",
         config: {
-          discordWebhookUrl: allowDiscord ? config.discordWebhookUrl : undefined,
+          discordWebhookUrl: allowDiscord ? discordTarget.url : undefined,
           discordEnabled: allowDiscord,
+          discordEmaWebhookUrl: config.discordEmaWebhookUrl,
+          discordEmaEnabled: config.discordEmaEnabled,
+          discordObWebhookUrl: config.discordObWebhookUrl,
+          discordObEnabled: config.discordObEnabled,
           telegramBotToken: allowTelegram ? config.telegramBotToken : undefined,
           telegramChatId: allowTelegram ? config.telegramChatId : undefined,
           telegramEnabled: allowTelegram,

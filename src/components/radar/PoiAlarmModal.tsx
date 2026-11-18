@@ -26,7 +26,7 @@ import {
 } from "@/lib/indicators/radar-poi-engine";
 import { OrderBlockTouchLevel } from "@/lib/indicators/validated-ob-engine";
 import { AlertChannelsModal, DiscordIcon, TelegramIcon } from "@/components/terminal/AlertChannelsModal";
-import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { AlertWebhookConfig, getDiscordWebhookStatus } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import { PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import {
@@ -804,7 +804,7 @@ export function PoiAlarmModal({
                 <span className="flex items-center gap-1 text-[#5865F2] font-semibold">
                   <DiscordIcon size={14} /> Discord Webhook
                 </span>
-                {!webhookConfig.discordWebhookUrl && (
+                {!getDiscordWebhookStatus(webhookConfig).anyConfigured && (
                   <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded border border-amber-400/30">
                     Not configured
                   </span>

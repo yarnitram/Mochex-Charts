@@ -33,6 +33,16 @@ export function loadClientWebhooks(): AlertWebhookConfig {
       return {
         discordWebhookUrl: parsed.discordWebhookUrl || "",
         discordEnabled: Boolean(parsed.discordEnabled && parsed.discordWebhookUrl),
+        discordEmaWebhookUrl: parsed.discordEmaWebhookUrl || "",
+        discordEmaEnabled:
+          parsed.discordEmaWebhookUrl
+            ? parsed.discordEmaEnabled !== false
+            : false,
+        discordObWebhookUrl: parsed.discordObWebhookUrl || "",
+        discordObEnabled:
+          parsed.discordObWebhookUrl
+            ? parsed.discordObEnabled !== false
+            : false,
         telegramBotToken: parsed.telegramBotToken || "",
         telegramChatId: parsed.telegramChatId || "",
         telegramEnabled: Boolean(
@@ -77,6 +87,10 @@ export function areWebhookConfigsEqual(a?: AlertWebhookConfig | null, b?: AlertW
   const norm = (c?: AlertWebhookConfig | null) => ({
     discordWebhookUrl: (c?.discordWebhookUrl || "").trim(),
     discordEnabled: Boolean(c?.discordEnabled && c?.discordWebhookUrl?.trim()),
+    discordEmaWebhookUrl: (c?.discordEmaWebhookUrl || "").trim(),
+    discordEmaEnabled: Boolean(c?.discordEmaWebhookUrl?.trim() && c?.discordEmaEnabled !== false),
+    discordObWebhookUrl: (c?.discordObWebhookUrl || "").trim(),
+    discordObEnabled: Boolean(c?.discordObWebhookUrl?.trim() && c?.discordObEnabled !== false),
     telegramBotToken: (c?.telegramBotToken || "").trim(),
     telegramChatId: (c?.telegramChatId || "").trim(),
     telegramEnabled: Boolean(c?.telegramEnabled && c?.telegramBotToken?.trim() && c?.telegramChatId?.trim()),
@@ -102,20 +116,38 @@ export function mergeClientAndServerWebhooks(
     return { ...local };
   }
 
-  // Resolve Discord: prefer whichever has a valid non-empty URL
-  const serverHasDiscord = Boolean(server.discordWebhookUrl && server.discordWebhookUrl.trim().length > 0);
-  const localHasDiscord = Boolean(local.discordWebhookUrl && local.discordWebhookUrl.trim().length > 0);
+  const resolveUrlSlot = (
+    serverUrl?: string,
+    serverOn?: boolean,
+    localUrl?: string,
+    localOn?: boolean
+  ) => {
+    const sUrl = (serverUrl || "").trim();
+    const lUrl = (localUrl || "").trim();
+    if (sUrl) return { url: sUrl, enabled: serverOn ?? true };
+    if (lUrl) return { url: lUrl, enabled: localOn ?? true };
+    return { url: "", enabled: false };
+  };
 
-  let discordWebhookUrl = "";
-  let discordEnabled = false;
-
-  if (serverHasDiscord) {
-    discordWebhookUrl = server.discordWebhookUrl!.trim();
-    discordEnabled = server.discordEnabled ?? true;
-  } else if (localHasDiscord) {
-    discordWebhookUrl = local.discordWebhookUrl!.trim();
-    discordEnabled = local.discordEnabled ?? true;
-  }
+  // Resolve Discord channels (Default, EMA, OB)
+  const defaultDiscord = resolveUrlSlot(
+    server.discordWebhookUrl,
+    server.discordEnabled,
+    local.discordWebhookUrl,
+    local.discordEnabled
+  );
+  const emaDiscord = resolveUrlSlot(
+    server.discordEmaWebhookUrl,
+    server.discordEmaEnabled,
+    local.discordEmaWebhookUrl,
+    local.discordEmaEnabled
+  );
+  const obDiscord = resolveUrlSlot(
+    server.discordObWebhookUrl,
+    server.discordObEnabled,
+    local.discordObWebhookUrl,
+    local.discordObEnabled
+  );
 
   // Resolve Telegram: prefer whichever has bot token and chat ID
   const serverHasTelegram = Boolean(
@@ -165,8 +197,12 @@ export function mergeClientAndServerWebhooks(
   }
 
   return {
-    discordWebhookUrl,
-    discordEnabled: Boolean(discordEnabled && discordWebhookUrl),
+    discordWebhookUrl: defaultDiscord.url,
+    discordEnabled: Boolean(defaultDiscord.enabled && defaultDiscord.url),
+    discordEmaWebhookUrl: emaDiscord.url,
+    discordEmaEnabled: Boolean(emaDiscord.enabled && emaDiscord.url),
+    discordObWebhookUrl: obDiscord.url,
+    discordObEnabled: Boolean(obDiscord.enabled && obDiscord.url),
     telegramBotToken,
     telegramChatId,
     telegramEnabled: Boolean(telegramEnabled && telegramBotToken && telegramChatId),
@@ -198,7 +234,10 @@ export async function syncWebhooks(): Promise<AlertWebhookConfig> {
       saveClientWebhooks(merged, { silent: !changed });
 
       // If local possessed credentials that server was missing, back-fill to server
-      const serverMissingDiscord = !serverConfig?.discordWebhookUrl && Boolean(merged.discordWebhookUrl);
+      const serverMissingDiscord =
+        (!serverConfig?.discordWebhookUrl && Boolean(merged.discordWebhookUrl)) ||
+        (!serverConfig?.discordEmaWebhookUrl && Boolean(merged.discordEmaWebhookUrl)) ||
+        (!serverConfig?.discordObWebhookUrl && Boolean(merged.discordObWebhookUrl));
       const serverMissingTelegram = !serverConfig?.telegramBotToken && Boolean(merged.telegramBotToken);
       const serverMissingTrading = !serverConfig?.tradingWebhook?.webhookUrl && Boolean(merged.tradingWebhook?.webhookUrl);
 

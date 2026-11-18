@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 interface NotifyRequestBody {
   action?: "test" | "dispatch" | "detect_telegram_chat";
   channel?: "discord" | "telegram" | "trading_webhook";
+  discordTarget?: "default" | "ob" | "ema";
   config?: AlertWebhookConfig;
   alert?: PriceAlert;
   log?: AlertLogEntry;
@@ -107,7 +108,21 @@ export async function POST(req: NextRequest) {
     // 1. TEST ACTION
     if (action === "test") {
       if (channel === "discord") {
-        if (!isValidDiscordWebhookUrl(config.discordWebhookUrl)) {
+        const discordTarget = body.discordTarget || "default";
+        const targetUrl =
+          discordTarget === "ob"
+            ? config.discordObWebhookUrl || config.discordWebhookUrl
+            : discordTarget === "ema"
+            ? config.discordEmaWebhookUrl || config.discordWebhookUrl
+            : config.discordWebhookUrl;
+        const routeTitle =
+          discordTarget === "ob"
+            ? "OB Alarms Channel"
+            : discordTarget === "ema"
+            ? "EMA Alarms Channel"
+            : "Default Alarms Channel";
+
+        if (!isValidDiscordWebhookUrl(targetUrl)) {
           return NextResponse.json(
             { success: false, error: "Invalid Discord Webhook URL. Format: https://discord.com/api/webhooks/..." },
             { status: 400 }
@@ -118,10 +133,11 @@ export async function POST(req: NextRequest) {
           username: "Mochex Alerts",
           embeds: [
             {
-              title: "✅ Discord Webhook Connected",
-              description: "Your Mochex Discord alert integration is active and verified! Real-time market, drawing, and strategy alerts will now be posted to this channel.",
+              title: `✅ Discord Webhook Connected (${routeTitle})`,
+              description: `Your Mochex Discord ${routeTitle} integration is active and verified!`,
               color: 49287, // Institutional Green (#00c087)
               fields: [
+                { name: "Route", value: `\`${routeTitle.toUpperCase()}\``, inline: true },
                 { name: "Terminal Status", value: "`ONLINE`", inline: true },
                 { name: "Channel Verification", value: "`PASSED`", inline: true },
                 { name: "Timestamp", value: new Date().toUTCString(), inline: false },
@@ -136,7 +152,7 @@ export async function POST(req: NextRequest) {
         const user = await getRequestUser(req);
 
         try {
-          const res = await fetch(config.discordWebhookUrl!, {
+          const res = await fetch(targetUrl!, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(testPayload),
