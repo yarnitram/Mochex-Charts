@@ -103,7 +103,7 @@ export function PoiAlarmModal({
 
   // Multi-select timeframes
   const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
-    poi.timeframe || "4H",
+    poi.timeframe || "1H",
   ]);
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"
@@ -741,7 +741,7 @@ export function PoiAlarmModal({
               {SELECTABLE_EMA_PERIODS.map((period) => {
                 const checked = selectedEmaPeriods.includes(period);
                 const toggle = () => toggleEmaPeriod(period);
-                const firstTf = selectedTimeframes[0] || poi.timeframe || "4H";
+                const firstTf = selectedTimeframes[0] || poi.timeframe || "1H";
                 const levels = resolveTimeframeValue(mergedEmasByTf, firstTf);
                 const val = getEmaLevelForPeriod(levels, period);
                 return (

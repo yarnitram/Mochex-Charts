@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const topLimit = Math.max(5, Math.min(MAX_AUTO_OB_TOP_LIMIT, Number(body.topLimit) || 25));
     const timeframes: string[] = Array.isArray(body.timeframes) && body.timeframes.length
       ? body.timeframes.map((tf: unknown) => String(tf))
-      : ["15m", "1H", "4H"];
+      : ["1H"];
     const periods = normalizeSelectedEmaPeriods(body.periods, [...SELECTABLE_EMA_PERIODS]);
     const maxDistancePct = Math.max(0.1, Math.min(50, Number(body.maxDistancePct) || 5));
     const autoArm = body.autoArm !== false;

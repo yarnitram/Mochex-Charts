@@ -589,7 +589,7 @@ export class ServerAlertDaemon {
 
     const grouped = new Map<string, ActiveAlertContext[]>();
     for (const item of emaItems) {
-      const tf = item.alert.emaMetadata?.timeframe || "4H";
+      const tf = item.alert.emaMetadata?.timeframe || "1H";
       const sym = item.alert.symbol.toUpperCase();
       const exchange = item.alert.exchange || "mexc";
       const key = `${exchange}|${sym}|${tf}`;

@@ -2710,7 +2710,7 @@ export default function RadarPage() {
         coins={candidateCoinsForBulk}
         currentUniverseLabel={currentUniverseLabel}
         currentExchange={activeExchange}
-        defaultSelectedTimeframes={selectedTimeframes}
+        defaultSelectedTimeframes={["1H"]}
         existingAlerts={activeAlerts}
         onSuccess={(count) => {
           setToastMessage(`⚡ Successfully armed ${count} 24/7 Cloud POI Alarms!`);

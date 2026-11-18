@@ -450,7 +450,7 @@ export function formatTradingWebhookPayload(
   const tp3 = isBullish ? price + risk * 3 : price - risk * 3;
 
   const tfMatch = log.label.match(/\b(15m|1h|4h|1d)\b/i);
-  const timeframe = tfMatch ? tfMatch[0].toUpperCase() : "4H";
+  const timeframe = tfMatch ? tfMatch[0].toUpperCase() : "1H";
 
   const pricePrecision = price >= 1000 ? 2 : price >= 1 ? 6 : 9;
   const targetPrecision = log.targetPrice >= 1000 ? 2 : log.targetPrice >= 1 ? 6 : 9;

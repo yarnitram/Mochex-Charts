@@ -33,7 +33,7 @@ export default function EmaAlarmScannerPage() {
   const [category, setCategory] = useState<AutoObCategory>("majors");
   const [exchangePreference, setExchangePreference] = useState<ObSearchExchangePreference>("auto");
   const [topLimit, setTopLimit] = useState(25);
-  const [timeframes, setTimeframes] = useState<string[]>(["15m", "1H", "4H"]);
+  const [timeframes, setTimeframes] = useState<string[]>(["1H"]);
   const [selectedPeriods, setSelectedPeriods] = useState<EmaPeriod[]>([20, 50, 100, 200]);
   const [maxDistancePct, setMaxDistancePct] = useState(5);
   const [autoArm, setAutoArm] = useState(true);

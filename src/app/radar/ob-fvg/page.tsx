@@ -61,11 +61,7 @@ export default function AutoObFvgMonitorPage() {
   const [topLimit, setTopLimit] = useState<number>(25);
   const [exchangePreference, setExchangePreference] =
     useState<ObSearchExchangePreference>("auto");
-  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>([
-    "15m",
-    "1H",
-    "4H",
-  ]);
+  const [selectedTimeframes, setSelectedTimeframes] = useState<string[]>(["1H"]);
   const [touchMode, setTouchMode] = useState<AutoObTouchMode>("entry");
   const [obZoneType, setObZoneType] = useState<"full" | "body">("full");
   const [autoArm, setAutoArm] = useState<boolean>(true);
