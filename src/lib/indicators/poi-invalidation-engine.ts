@@ -260,10 +260,14 @@ export function dispatchPoiInvalidationWebhook(
     promises.push(tgPromise);
   }
 
-  // 2. Dispatch Discord
-  if (webhooks.discordWebhookUrl) {
+  // 2. Dispatch Discord (route Validated OB invalidations to dedicated OB channel if configured)
+  const discordTargetUrl =
+    telemetry.category === "order_block" && webhooks.discordObWebhookUrl
+      ? webhooks.discordObWebhookUrl
+      : webhooks.discordWebhookUrl || webhooks.discordObWebhookUrl;
+  if (discordTargetUrl) {
     const payload = formatPoiInvalidationDiscordPayload(telemetry);
-    const dcPromise = fetch(webhooks.discordWebhookUrl, {
+    const dcPromise = fetch(discordTargetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

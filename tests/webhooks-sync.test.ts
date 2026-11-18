@@ -164,4 +164,22 @@ describe("Resilient Two-Way Webhook Synchronization (DEC-165)", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("merges and compares separate Default, OB, and EMA Discord webhooks non-destructively", () => {
+    const local: AlertWebhookConfig = {
+      discordWebhookUrl: "https://discord.com/api/webhooks/1/def",
+      discordEnabled: true,
+      discordObWebhookUrl: "https://discord.com/api/webhooks/2/ob",
+      discordObEnabled: true,
+      discordEmaWebhookUrl: "https://discord.com/api/webhooks/3/ema",
+      discordEmaEnabled: true,
+    };
+    const merged = mergeClientAndServerWebhooks(local, {
+      discordWebhookUrl: "https://discord.com/api/webhooks/1/def",
+      discordEnabled: true,
+    });
+    expect(merged.discordObWebhookUrl).toBe("https://discord.com/api/webhooks/2/ob");
+    expect(merged.discordEmaWebhookUrl).toBe("https://discord.com/api/webhooks/3/ema");
+    expect(areWebhookConfigsEqual(local, merged)).toBe(true);
+  });
 });

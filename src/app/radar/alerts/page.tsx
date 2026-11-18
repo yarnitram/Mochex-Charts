@@ -34,7 +34,7 @@ import {
   syncAlerts,
   recordDeletedAlertIds,
 } from "@/lib/alerts/alerts-sync";
-import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { AlertWebhookConfig, getDiscordWebhookStatus } from "@/lib/alerts/webhook-dispatcher";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
 import {
   RadarAudioSettings,
@@ -732,17 +732,22 @@ export default function RadarAlertsPage() {
               <Send size={12} className="text-[#5865F2]" />
             </div>
             <div className="flex items-center gap-1.5 mt-1">
-              <span
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
-                  webhookConfig.discordEnabled && webhookConfig.discordWebhookUrl
-                    ? "bg-[#5865F2]/20 text-[#5865F2] border-[#5865F2]/40"
-                    : webhookConfig.discordWebhookUrl
-                    ? "bg-amber-500/15 text-amber-400 border-amber-500/40"
-                    : "bg-[#121824] text-[#848e9c] border-[#233144]"
-                }`}
-              >
-                DC: {webhookConfig.discordEnabled && webhookConfig.discordWebhookUrl ? "ON" : webhookConfig.discordWebhookUrl ? "PAUSED" : "OFF"}
-              </span>
+              {(() => {
+                const dcStatus = getDiscordWebhookStatus(webhookConfig);
+                return (
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                      dcStatus.anyEnabled
+                        ? "bg-[#5865F2]/20 text-[#5865F2] border-[#5865F2]/40"
+                        : dcStatus.anyConfigured
+                        ? "bg-amber-500/15 text-amber-400 border-amber-500/40"
+                        : "bg-[#121824] text-[#848e9c] border-[#233144]"
+                    }`}
+                  >
+                    DC: {dcStatus.anyEnabled ? "ON" : dcStatus.anyConfigured ? "PAUSED" : "OFF"}
+                  </span>
+                );
+              })()}
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
                   webhookConfig.telegramEnabled && webhookConfig.telegramBotToken && webhookConfig.telegramChatId
@@ -1159,7 +1164,7 @@ export default function RadarAlertsPage() {
                         {/* Channels */}
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-1">
-                            {a.notifyDiscord !== false && (webhookConfig.discordEnabled || Boolean(webhookConfig.discordWebhookUrl)) && (
+                            {a.notifyDiscord !== false && getDiscordWebhookStatus(webhookConfig).anyEnabled && (
                               <span
                                 className="text-[8px] px-1 py-0.2 rounded bg-[#5865F2]/20 text-[#5865F2] font-semibold flex items-center gap-0.5"
                                 title="Discord active"
@@ -1177,7 +1182,7 @@ export default function RadarAlertsPage() {
                                 <span>TG</span>
                               </span>
                             )}
-                            {(!webhookConfig.discordEnabled && !webhookConfig.telegramEnabled && !webhookConfig.discordWebhookUrl && !webhookConfig.telegramBotToken) && (
+                            {(!getDiscordWebhookStatus(webhookConfig).anyConfigured && !webhookConfig.telegramEnabled && !webhookConfig.telegramBotToken) && (
                               <span className="text-[9px] text-[#848e9c]/60">Chime Only</span>
                             )}
                           </div>

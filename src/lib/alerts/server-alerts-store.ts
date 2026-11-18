@@ -212,16 +212,26 @@ export async function updateServerAlertsBatch(
 /**
  * Returns saved webhook configuration for a user with cross-account resilience
  */
+function hasConfiguredWebhooks(w?: AlertWebhookConfig | null): boolean {
+  return Boolean(
+    w &&
+      (w.discordWebhookUrl ||
+        w.discordObWebhookUrl ||
+        w.discordEmaWebhookUrl ||
+        w.telegramBotToken ||
+        w.tradingWebhook?.webhookUrl)
+  );
+}
+
 export async function getServerWebhooks(userId: string): Promise<AlertWebhookConfig | null> {
   const map = readJsonFile<UserWebhooksMap>(WEBHOOKS_FILE, {});
   const userConfig = map[userId] || null;
 
   // Cross-account resilience 1: if logged-in user has no webhooks, check if "default-trader" has them
   if (
-    (!userConfig || (!userConfig.discordWebhookUrl && !userConfig.telegramBotToken && !userConfig.tradingWebhook?.webhookUrl)) &&
+    !hasConfiguredWebhooks(userConfig) &&
     userId !== "default-trader" &&
-    map["default-trader"] &&
-    (map["default-trader"].discordWebhookUrl || map["default-trader"].telegramBotToken || map["default-trader"].tradingWebhook?.webhookUrl)
+    hasConfiguredWebhooks(map["default-trader"])
   ) {
     map[userId] = { ...map["default-trader"] };
     writeJsonFile(WEBHOOKS_FILE, map);
@@ -229,12 +239,9 @@ export async function getServerWebhooks(userId: string): Promise<AlertWebhookCon
   }
 
   // Cross-account resilience 2: if default-trader has no webhooks, check if any authenticated user configured webhooks
-  if (
-    (!userConfig || (!userConfig.discordWebhookUrl && !userConfig.telegramBotToken && !userConfig.tradingWebhook?.webhookUrl)) &&
-    userId === "default-trader"
-  ) {
+  if (!hasConfiguredWebhooks(userConfig) && userId === "default-trader") {
     const populated = Object.entries(map).find(
-      ([k, v]) => k !== "default-trader" && (v.discordWebhookUrl || v.telegramBotToken || v.tradingWebhook?.webhookUrl)
+      ([k, v]) => k !== "default-trader" && hasConfiguredWebhooks(v)
     );
     if (populated) {
       map["default-trader"] = { ...populated[1] };
@@ -325,7 +332,7 @@ export async function getAllActiveServerAlerts(): Promise<ActiveAlertContext[]> 
     const userWebhooks =
       webhooksMap[userId] ||
       webhooksMap["default-trader"] ||
-      Object.values(webhooksMap).find((w) => w && (w.discordWebhookUrl || w.telegramBotToken));
+      Object.values(webhooksMap).find((w) => hasConfiguredWebhooks(w));
 
     for (const alert of alerts) {
       if (alert && alert.active) {

@@ -65,7 +65,11 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "test_server_discord") {
       const serverWebhooks = await getServerWebhooks(user.userId);
-      const webhookUrl = serverWebhooks?.discordWebhookUrl?.trim() || "";
+      const webhookUrl =
+        serverWebhooks?.discordWebhookUrl?.trim() ||
+        serverWebhooks?.discordObWebhookUrl?.trim() ||
+        serverWebhooks?.discordEmaWebhookUrl?.trim() ||
+        "";
 
       if (!webhookUrl) {
         const reason = "No Discord Webhook URL is saved on the server for this account.";

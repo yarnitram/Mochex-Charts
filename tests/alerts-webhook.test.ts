@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import {
@@ -8,6 +8,10 @@ import {
   formatDiscordPayload,
   formatTelegramMessage,
   escapeHtml,
+  resolveDiscordWebhookTarget,
+  getDiscordWebhookStatus,
+  dispatchDirectWebhooks,
+  AlertWebhookConfig,
 } from "../src/lib/alerts/webhook-dispatcher";
 import { PriceAlert, AlertLogEntry } from "../src/lib/alerts/alerts-engine";
 
@@ -206,6 +210,100 @@ describe("Discord & Telegram Alert Webhook Dispatcher (DEC-130)", () => {
       expect(migrated).toBeDefined();
       expect(migrated?.discordWebhookUrl).toBe(unauthenticatedCfg.discordWebhookUrl);
       expect(migrated?.telegramBotToken).toBe(unauthenticatedCfg.telegramBotToken);
+    });
+  });
+
+  describe("Separate Discord Channel Routing (Default / OB / EMA)", () => {
+    const cfg: AlertWebhookConfig = {
+      discordWebhookUrl: "https://discord.com/api/webhooks/100/default",
+      discordEnabled: true,
+      discordObWebhookUrl: "https://discord.com/api/webhooks/200/ob",
+      discordObEnabled: true,
+      discordEmaWebhookUrl: "https://discord.com/api/webhooks/300/ema",
+      discordEmaEnabled: true,
+    };
+
+    it("routes EMA alerts, OB alerts, and Default alerts to their dedicated Discord webhooks", () => {
+      const emaTarget = resolveDiscordWebhookTarget(cfg, {
+        ...sampleAlert,
+        id: "auto-ema-1",
+        emaMetadata: { period: 200, timeframe: "4H", direction: "SUPPORT", autoArmed: true },
+      });
+      expect(emaTarget).toEqual({
+        route: "ema",
+        url: "https://discord.com/api/webhooks/300/ema",
+        enabled: true,
+        isDedicated: true,
+      });
+
+      const obTarget = resolveDiscordWebhookTarget(cfg, {
+        ...sampleAlert,
+        id: "auto-ob-1",
+        poiMetadata: {
+          poiId: "poi-1",
+          category: "order_block",
+          direction: "BULLISH",
+          timeframe: "1H",
+          zoneTop: 105,
+          zoneBottom: 100,
+        },
+      });
+      expect(obTarget).toEqual({
+        route: "ob",
+        url: "https://discord.com/api/webhooks/200/ob",
+        enabled: true,
+        isDedicated: true,
+      });
+
+      const defaultTarget = resolveDiscordWebhookTarget(cfg, sampleAlert);
+      expect(defaultTarget).toEqual({
+        route: "default",
+        url: "https://discord.com/api/webhooks/100/default",
+        enabled: true,
+        isDedicated: false,
+      });
+    });
+
+    it("falls back to Default channel when dedicated OB/EMA URLs are empty", () => {
+      const fallbackCfg: AlertWebhookConfig = {
+        discordWebhookUrl: "https://discord.com/api/webhooks/100/default",
+        discordEnabled: true,
+      };
+      expect(
+        resolveDiscordWebhookTarget(fallbackCfg, {
+          ...sampleAlert,
+          emaMetadata: { period: 50, timeframe: "1H" },
+        }).url
+      ).toBe("https://discord.com/api/webhooks/100/default");
+
+      expect(getDiscordWebhookStatus({ discordEmaWebhookUrl: "https://discord.com/api/webhooks/300/ema", discordEmaEnabled: true })).toEqual({
+        anyConfigured: true,
+        anyEnabled: true,
+      });
+    });
+
+    it("dispatches to the dedicated EMA Discord webhook URL via dispatchDirectWebhooks", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      const emaAlert: PriceAlert = {
+        ...sampleAlert,
+        id: "auto-ema-sol",
+        symbol: "SOLUSDT",
+        emaMetadata: { period: 100, timeframe: "4H", direction: "SUPPORT", autoArmed: true },
+      };
+
+      const res = await dispatchDirectWebhooks(cfg, emaAlert, {
+        ...sampleLog,
+        alertId: emaAlert.id,
+        symbol: "SOLUSDT",
+      });
+
+      expect(res.discord?.ok).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://discord.com/api/webhooks/300/ema");
+      fetchSpy.mockRestore();
     });
   });
 });

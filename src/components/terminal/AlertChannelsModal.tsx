@@ -62,7 +62,11 @@ export function AlertChannelsModal({
   // Use passed config if populated, otherwise synchronously fall back to localStorage
   const fallbackConfig = typeof window !== "undefined" ? loadClientWebhooks() : {};
   const effectiveInitial =
-    initialConfig && (initialConfig.discordWebhookUrl || initialConfig.telegramBotToken)
+    initialConfig &&
+    (initialConfig.discordWebhookUrl ||
+      initialConfig.discordObWebhookUrl ||
+      initialConfig.discordEmaWebhookUrl ||
+      initialConfig.telegramBotToken)
       ? initialConfig
       : fallbackConfig;
 
@@ -70,8 +74,20 @@ export function AlertChannelsModal({
   const [discordEnabled, setDiscordEnabled] = useState(
     effectiveInitial.discordEnabled ?? Boolean(effectiveInitial.discordWebhookUrl)
   );
-  const [discordTesting, setDiscordTesting] = useState(false);
-  const [discordStatus, setDiscordStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [discordObWebhookUrl, setDiscordObWebhookUrl] = useState(effectiveInitial.discordObWebhookUrl || "");
+  const [discordObEnabled, setDiscordObEnabled] = useState(
+    effectiveInitial.discordObWebhookUrl ? effectiveInitial.discordObEnabled !== false : false
+  );
+  const [discordEmaWebhookUrl, setDiscordEmaWebhookUrl] = useState(effectiveInitial.discordEmaWebhookUrl || "");
+  const [discordEmaEnabled, setDiscordEmaEnabled] = useState(
+    effectiveInitial.discordEmaWebhookUrl ? effectiveInitial.discordEmaEnabled !== false : false
+  );
+  const [discordTestingTarget, setDiscordTestingTarget] = useState<"default" | "ob" | "ema" | null>(null);
+  const [discordStatus, setDiscordStatus] = useState<{
+    target: "default" | "ob" | "ema";
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   const [telegramBotToken, setTelegramBotToken] = useState(effectiveInitial.telegramBotToken || "");
   const [telegramChatId, setTelegramChatId] = useState(effectiveInitial.telegramChatId || "");
@@ -118,6 +134,14 @@ export function AlertChannelsModal({
           ? source.discordEnabled
           : Boolean(source.discordWebhookUrl?.trim())
       );
+      setDiscordObWebhookUrl(source.discordObWebhookUrl || "");
+      setDiscordObEnabled(
+        Boolean(source.discordObWebhookUrl?.trim()) && source.discordObEnabled !== false
+      );
+      setDiscordEmaWebhookUrl(source.discordEmaWebhookUrl || "");
+      setDiscordEmaEnabled(
+        Boolean(source.discordEmaWebhookUrl?.trim()) && source.discordEmaEnabled !== false
+      );
 
       setTelegramBotToken(source.telegramBotToken || "");
       setTelegramChatId(source.telegramChatId || "");
@@ -149,7 +173,12 @@ export function AlertChannelsModal({
     const local = loadClientWebhooks();
     const initial = initialConfigRef.current;
     const source =
-      initial && (initial.discordWebhookUrl || initial.telegramBotToken || initial.tradingWebhook?.webhookUrl)
+      initial &&
+      (initial.discordWebhookUrl ||
+        initial.discordObWebhookUrl ||
+        initial.discordEmaWebhookUrl ||
+        initial.telegramBotToken ||
+        initial.tradingWebhook?.webhookUrl)
         ? mergeClientAndServerWebhooks(local, initial)
         : local;
     applyConfigToForm(source);
@@ -239,17 +268,28 @@ export function AlertChannelsModal({
     }
   };
 
-  const handleTestDiscord = async () => {
-    if (!isValidDiscordWebhookUrl(discordWebhookUrl)) {
+  const handleTestDiscord = async (target: "default" | "ob" | "ema" = "default") => {
+    const rawUrl =
+      target === "ob"
+        ? discordObWebhookUrl
+        : target === "ema"
+        ? discordEmaWebhookUrl
+        : discordWebhookUrl;
+
+    if (!isValidDiscordWebhookUrl(rawUrl)) {
       setDiscordStatus({
+        target,
         ok: false,
         msg: "Please enter a valid Discord webhook URL (https://discord.com/api/webhooks/...)",
       });
       return;
     }
 
-    setDiscordEnabled(true);
-    setDiscordTesting(true);
+    if (target === "ob") setDiscordObEnabled(true);
+    else if (target === "ema") setDiscordEmaEnabled(true);
+    else setDiscordEnabled(true);
+
+    setDiscordTestingTarget(target);
     setDiscordStatus(null);
 
     try {
@@ -259,26 +299,42 @@ export function AlertChannelsModal({
         body: JSON.stringify({
           action: "test",
           channel: "discord",
+          discordTarget: target,
           config: {
             discordWebhookUrl: discordWebhookUrl.trim(),
             discordEnabled: true,
+            discordObWebhookUrl: discordObWebhookUrl.trim(),
+            discordObEnabled: true,
+            discordEmaWebhookUrl: discordEmaWebhookUrl.trim(),
+            discordEmaEnabled: true,
           },
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setDiscordStatus({ ok: true, msg: "Test notification delivered to Discord channel!" });
+        setDiscordStatus({
+          target,
+          ok: true,
+          msg: `Test notification delivered to ${
+            target === "ob" ? "OB Alarms" : target === "ema" ? "EMA Alarms" : "Default Alarms"
+          } Discord channel!`,
+        });
       } else {
-        setDiscordStatus({ ok: false, msg: data.error || `Discord error (HTTP ${res.status})` });
+        setDiscordStatus({
+          target,
+          ok: false,
+          msg: data.error || `Discord error (HTTP ${res.status})`,
+        });
       }
     } catch (err: unknown) {
       setDiscordStatus({
+        target,
         ok: false,
         msg: err instanceof Error ? err.message : "Failed to reach server",
       });
     } finally {
-      setDiscordTesting(false);
+      setDiscordTestingTarget(null);
     }
   };
 
@@ -393,12 +449,18 @@ export function AlertChannelsModal({
     setSaveFeedback(null);
 
     const hasDiscord = Boolean(discordWebhookUrl.trim());
+    const hasDiscordOb = Boolean(discordObWebhookUrl.trim());
+    const hasDiscordEma = Boolean(discordEmaWebhookUrl.trim());
     const hasTelegram = Boolean(telegramBotToken.trim() && telegramChatId.trim());
     const isTrading = Boolean(tradingWebhookUrl.trim());
 
     const updated: AlertWebhookConfig = {
       discordWebhookUrl: discordWebhookUrl.trim(),
       discordEnabled: hasDiscord ? (discordEnabled ?? true) : false,
+      discordObWebhookUrl: discordObWebhookUrl.trim(),
+      discordObEnabled: hasDiscordOb ? (discordObEnabled ?? true) : false,
+      discordEmaWebhookUrl: discordEmaWebhookUrl.trim(),
+      discordEmaEnabled: hasDiscordEma ? (discordEmaEnabled ?? true) : false,
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
       telegramEnabled: hasTelegram ? (telegramEnabled ?? true) : false,
@@ -472,86 +534,133 @@ export function AlertChannelsModal({
             Connect Discord webhooks and Telegram bots to receive real-time price crossings, drawings, order blocks, and strategy execution signals. Webhooks are monitored 24/7 on the server even when your browser is closed.
           </p>
 
-          {/* 1. DISCORD INTEGRATION CARD */}
-          <div className="bg-surface-container-lowest border border-border/70 rounded-lg p-3 flex flex-col gap-2.5">
+          {/* 1. DISCORD INTEGRATION CARD (Default, OB, & EMA Channels) */}
+          <div className="bg-surface-container-lowest border border-border/70 rounded-lg p-3 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-[#5865F2] font-semibold text-xs">
                 <DiscordIcon size={16} />
-                <span>Discord Webhook</span>
+                <span>Discord Channels (Default / OB / EMA)</span>
               </div>
-              <label className="flex items-center gap-1.5 text-on-surface cursor-pointer text-[11px]">
-                <input
-                  type="checkbox"
-                  checked={discordEnabled}
-                  onChange={(e) => {
-                    hasUserEditedRef.current = true;
-                    setDiscordEnabled(e.target.checked);
-                  }}
-                  className="accent-[#5865F2] rounded cursor-pointer"
-                />
-                <span className={discordEnabled ? "text-on-surface font-semibold" : "text-muted"}>
-                  {discordEnabled ? "Active" : "Disabled"}
-                </span>
-              </label>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted">Discord Webhook URL:</label>
-              <input
-                type="text"
-                value={discordWebhookUrl}
-                onChange={(e) => {
-                  hasUserEditedRef.current = true;
-                  const val = e.target.value;
-                  setDiscordWebhookUrl(val);
-                  setDiscordStatus(null);
-                  if (val.trim().length > 0) {
-                    setDiscordEnabled(true);
-                  } else {
-                    setDiscordEnabled(false);
-                  }
-                }}
-                placeholder="https://discord.com/api/webhooks/..."
-                className="w-full bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#5865F2] outline-none"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[9px] text-muted/70 flex items-center gap-1">
+              <span className="text-[9px] text-muted/70">
                 Server Settings &gt; Integrations &gt; Webhooks
               </span>
-              <button
-                type="button"
-                onClick={handleTestDiscord}
-                disabled={discordTesting || !discordWebhookUrl.trim()}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#5865F2]/20 hover:bg-[#5865F2] text-[#5865F2] hover:text-white border border-[#5865F2]/40 transition-colors text-[10px] font-semibold cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
-              >
-                {discordTesting ? (
-                  <>
-                    <Loader2 size={11} className="animate-spin" />
-                    <span>Sending Test...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send size={11} />
-                    <span>Send Test Notification</span>
-                  </>
-                )}
-              </button>
             </div>
 
-            {discordStatus && (
-              <div
-                className={`p-2 rounded text-[10px] flex items-center gap-1.5 border ${
-                  discordStatus.ok
-                    ? "bg-green-500/10 border-green-500/30 text-green-400"
-                    : "bg-red-500/10 border-red-500/30 text-red-400"
-                }`}
-              >
-                {discordStatus.ok ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
-                <span>{discordStatus.msg}</span>
-              </div>
-            )}
+            {(
+              [
+                {
+                  key: "default" as const,
+                  title: "Default Alarms Channel",
+                  subtitle: "Price, Drawing, Sandwich & fallback if OB/EMA blank",
+                  url: discordWebhookUrl,
+                  enabled: discordEnabled,
+                  onUrl: (val: string) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordWebhookUrl(val);
+                    setDiscordStatus(null);
+                    setDiscordEnabled(val.trim().length > 0);
+                  },
+                  onToggle: (checked: boolean) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordEnabled(checked);
+                  },
+                },
+                {
+                  key: "ob" as const,
+                  title: "OB Alarms Discord Channel",
+                  subtitle: "Validated OB + FVG touches & invalidations",
+                  url: discordObWebhookUrl,
+                  enabled: discordObEnabled,
+                  onUrl: (val: string) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordObWebhookUrl(val);
+                    setDiscordStatus(null);
+                    setDiscordObEnabled(val.trim().length > 0);
+                  },
+                  onToggle: (checked: boolean) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordObEnabled(checked);
+                  },
+                },
+                {
+                  key: "ema" as const,
+                  title: "EMA Alarms Discord Channel",
+                  subtitle: "EMA 20 / 50 / 100 / 200 touch alerts",
+                  url: discordEmaWebhookUrl,
+                  enabled: discordEmaEnabled,
+                  onUrl: (val: string) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordEmaWebhookUrl(val);
+                    setDiscordStatus(null);
+                    setDiscordEmaEnabled(val.trim().length > 0);
+                  },
+                  onToggle: (checked: boolean) => {
+                    hasUserEditedRef.current = true;
+                    setDiscordEmaEnabled(checked);
+                  },
+                },
+              ] as const
+            ).map((slot) => {
+              const isTesting = discordTestingTarget === slot.key;
+              const slotStatus =
+                discordStatus && discordStatus.target === slot.key ? discordStatus : null;
+              return (
+                <div
+                  key={slot.key}
+                  className="p-2.5 rounded-md bg-surface/60 border border-border/60 flex flex-col gap-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-semibold text-on-surface">{slot.title}</div>
+                      <div className="text-[9px] text-muted">{slot.subtitle}</div>
+                    </div>
+                    <label className="flex items-center gap-1.5 text-on-surface cursor-pointer text-[10px] shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={slot.enabled}
+                        onChange={(e) => slot.onToggle(e.target.checked)}
+                        className="accent-[#5865F2] rounded cursor-pointer"
+                      />
+                      <span className={slot.enabled ? "text-on-surface font-semibold" : "text-muted"}>
+                        {slot.enabled ? "Active" : "Disabled"}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={slot.url}
+                      onChange={(e) => slot.onUrl(e.target.value)}
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="flex-1 bg-surface px-2.5 py-1.5 rounded border border-border text-on-surface font-mono text-[11px] placeholder:text-muted/40 focus:border-[#5865F2] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleTestDiscord(slot.key)}
+                      disabled={discordTestingTarget !== null || !slot.url.trim()}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded bg-[#5865F2]/20 hover:bg-[#5865F2] text-[#5865F2] hover:text-white border border-[#5865F2]/40 transition-colors text-[10px] font-semibold cursor-pointer disabled:opacity-40 disabled:pointer-events-none shrink-0"
+                    >
+                      {isTesting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                      <span>{isTesting ? "Testing..." : "Test"}</span>
+                    </button>
+                  </div>
+
+                  {slotStatus && (
+                    <div
+                      className={`p-1.5 rounded text-[10px] flex items-center gap-1.5 border ${
+                        slotStatus.ok
+                          ? "bg-green-500/10 border-green-500/30 text-green-400"
+                          : "bg-red-500/10 border-red-500/30 text-red-400"
+                      }`}
+                    >
+                      {slotStatus.ok ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+                      <span>{slotStatus.msg}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* 2. TELEGRAM INTEGRATION CARD */}

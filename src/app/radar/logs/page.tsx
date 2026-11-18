@@ -25,7 +25,7 @@ import {
 import { AlertLogEntry, ChannelDeliveryResult, PriceAlert, formatAlarmPrice } from "@/lib/alerts/alerts-engine";
 import { loadClientAlerts, syncAlerts } from "@/lib/alerts/alerts-sync";
 import { loadClientWebhooks, syncWebhooks } from "@/lib/alerts/webhooks-sync";
-import { AlertWebhookConfig } from "@/lib/alerts/webhook-dispatcher";
+import { AlertWebhookConfig, getDiscordWebhookStatus } from "@/lib/alerts/webhook-dispatcher";
 import { AlertChannelsModal } from "@/components/terminal/AlertChannelsModal";
 
 interface DaemonStatusSnapshot {
@@ -213,7 +213,7 @@ export default function RadarLogsPage() {
       await syncAlerts();
 
       if (
-        localWebhooks.discordWebhookUrl ||
+        getDiscordWebhookStatus(localWebhooks).anyConfigured ||
         localWebhooks.telegramBotToken ||
         localWebhooks.tradingWebhook?.webhookUrl
       ) {

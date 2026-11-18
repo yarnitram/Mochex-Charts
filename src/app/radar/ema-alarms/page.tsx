@@ -77,7 +77,7 @@ export default function EmaAlarmScannerPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           category, exchangePreference, topLimit, timeframes, periods: selectedPeriods, maxDistancePct, autoArm,
-          notifyDiscord: webhookConfig.discordEnabled !== false,
+          notifyDiscord: webhookConfig.discordEmaWebhookUrl ? webhookConfig.discordEmaEnabled !== false : webhookConfig.discordEnabled !== false,
           notifyTelegram: webhookConfig.telegramEnabled !== false,
           notifyTradingWebhook: Boolean(webhookConfig.tradingWebhook?.enabled),
         }),
@@ -128,7 +128,7 @@ export default function EmaAlarmScannerPage() {
 
   const armOne = async (setup: AutoEmaSetup) => {
     const alert = buildAutoEmaAlarm(setup, {
-      notifyDiscord: webhookConfig.discordEnabled !== false,
+      notifyDiscord: webhookConfig.discordEmaWebhookUrl ? webhookConfig.discordEmaEnabled !== false : webhookConfig.discordEnabled !== false,
       notifyTelegram: webhookConfig.telegramEnabled !== false,
       notifyTradingWebhook: Boolean(webhookConfig.tradingWebhook?.enabled),
     });

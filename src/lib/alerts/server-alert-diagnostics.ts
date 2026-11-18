@@ -4,7 +4,11 @@ import {
   ChannelDeliveryResult,
   PriceAlert,
 } from "./alerts-engine";
-import { AlertWebhookConfig } from "./webhook-dispatcher";
+import {
+  AlertWebhookConfig,
+  getDiscordWebhookStatus,
+  resolveDiscordWebhookTarget,
+} from "./webhook-dispatcher";
 import { readJsonData, writeJsonData } from "../storage/data-dir";
 
 const ALERTS_FILE = "alerts.json";
@@ -90,7 +94,8 @@ export function clearUserServerAlertLogs(userId: string): void {
  */
 export function buildAlertDeliveryResults(
   webhooks: AlertWebhookConfig | null | undefined,
-  alert: Pick<PriceAlert, "notifyDiscord" | "notifyTelegram" | "notifyTradingWebhook">,
+  alert: Pick<PriceAlert, "notifyDiscord" | "notifyTelegram" | "notifyTradingWebhook"> &
+    Partial<Pick<PriceAlert, "id" | "sourceType" | "poiMetadata" | "emaMetadata" | "breakTelemetry">>,
   rawDispatchResult?: Record<string, unknown> | null,
   dispatchError?: unknown
 ): AlertDeliveryResults {
@@ -107,12 +112,13 @@ export function buildAlertDeliveryResults(
     };
   };
 
+  const discordTarget = resolveDiscordWebhookTarget(webhooks, alert);
   let discord: ChannelDeliveryResult;
   if (alert.notifyDiscord === false) {
     discord = { ok: false, skipped: true, skippedReason: "Discord disabled on this alert" };
-  } else if (!webhooks || !webhooks.discordWebhookUrl?.trim()) {
+  } else if (!webhooks || !discordTarget.url) {
     discord = { ok: false, skipped: true, skippedReason: "No Discord Webhook URL saved on server" };
-  } else if (!webhooks.discordEnabled) {
+  } else if (!discordTarget.enabled) {
     discord = { ok: false, skipped: true, skippedReason: "Discord channel toggle is disabled" };
   } else if (errMsg) {
     discord = { ok: false, error: errMsg };
@@ -189,8 +195,8 @@ export function getServerDiagnosticsSummary(userId: string): ServerAlertDiagnost
   }
 
   const userWebhook = webhooksStore[userId];
-  const discordConfigured = Boolean(userWebhook?.discordWebhookUrl?.trim());
-  const discordEnabled = Boolean(discordConfigured && userWebhook?.discordEnabled);
+  const { anyConfigured: discordConfigured, anyEnabled: discordEnabled } =
+    getDiscordWebhookStatus(userWebhook);
   const telegramConfigured = Boolean(
     userWebhook?.telegramBotToken?.trim() && userWebhook?.telegramChatId?.trim()
   );
@@ -214,7 +220,11 @@ export function getServerDiagnosticsSummary(userId: string): ServerAlertDiagnost
     globalActiveAlerts,
     discordConfigured,
     discordEnabled,
-    maskedDiscordUrl: maskDiscordWebhookUrl(userWebhook?.discordWebhookUrl),
+    maskedDiscordUrl: maskDiscordWebhookUrl(
+      userWebhook?.discordWebhookUrl ||
+        userWebhook?.discordObWebhookUrl ||
+        userWebhook?.discordEmaWebhookUrl
+    ),
     telegramConfigured,
     telegramEnabled,
     logsCount: logs.length,
