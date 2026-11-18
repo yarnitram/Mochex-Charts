@@ -9,6 +9,7 @@
  */
 
 import { ObFvgSettings, ValidatedOrderBlock } from "./validated-ob-engine";
+import { formatAlarmPrice } from "../alerts/alerts-engine";
 import { hexToRgba } from "./sandwich/renderer";
 
 export interface RenderObFvgParams {
@@ -216,6 +217,114 @@ export function renderObFvgZones(params: RenderObFvgParams): void {
       const statusSuffix = isMitigated ? "MITIGATED" : "ACTIVE";
       const zoneTag = ob.zoneType === "body" ? "Body" : "Full";
       const labelText = `${patternLabel} ${isBullish ? "Bull" : "Bear"} OB [${zoneTag}] · ${statusSuffix}`;
+      drawBadgeLabel(
+        ctx,
+        labelText,
+        obStartX,
+        boxY,
+        boxH,
+        chartWidth,
+        chartHeight,
+        obColor,
+        obColor,
+        "center"
+      );
+    }
+
+    ctx.restore();
+  }
+}
+
+export interface RenderRadarValidatedObsParams {
+  ctx: CanvasRenderingContext2D;
+  blocks: ValidatedOrderBlock[];
+  timeToCoordinate: (timeMs: number) => number | null;
+  priceToCoordinate: (price: number) => number | null;
+  chartWidth: number;
+  chartHeight: number;
+  lastBarTimeMs?: number;
+}
+
+/**
+ * Renders Radar / Alarm Validated OBs (strictly 0% hit unmitigated ACTIVE zones)
+ * with Entry, 50% Mean Threshold hairline, and high-precision OB price range badges.
+ */
+export function renderRadarValidatedObs(params: RenderRadarValidatedObsParams): void {
+  const {
+    ctx,
+    blocks,
+    timeToCoordinate,
+    priceToCoordinate,
+    chartWidth,
+    chartHeight,
+    lastBarTimeMs,
+  } = params;
+
+  if (!blocks || blocks.length === 0) return;
+
+  let defaultRightX = chartWidth + 50;
+  if (lastBarTimeMs !== undefined) {
+    const lastX = timeToCoordinate(lastBarTimeMs);
+    if (lastX !== null && !isNaN(lastX)) {
+      defaultRightX = Math.max(lastX + 70, chartWidth + 50);
+    }
+  }
+
+  for (const ob of blocks) {
+    if (ob.touched || ob.lifecycleState !== "ACTIVE") continue;
+
+    const obStartX = timeToCoordinate(ob.obTime);
+    const obTopY = priceToCoordinate(ob.top);
+    const obBottomY = priceToCoordinate(ob.bottom);
+    if (obStartX === null || isNaN(obStartX) || obTopY === null || obBottomY === null) {
+      continue;
+    }
+
+    const obEndX = defaultRightX;
+    if (obEndX < 0 || obStartX > chartWidth + 50) continue;
+
+    const isBullish = ob.type === "BULLISH";
+    const obColor = isBullish ? "#00c087" : "#ff3b30";
+    const boxW = Math.max(12, obEndX - obStartX);
+    const boxY = Math.min(obTopY, obBottomY);
+    const boxH = Math.max(4, Math.abs(obBottomY - obTopY));
+
+    ctx.save();
+    ctx.fillStyle = hexToRgba(obColor, 0.16);
+    ctx.strokeStyle = hexToRgba(obColor, 0.85);
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(obStartX, boxY, boxW, boxH);
+    ctx.strokeRect(obStartX, boxY, boxW, boxH);
+
+    // Highlight outer Entry boundary (alarm zone-entry line)
+    const entryY = priceToCoordinate(ob.entryPrice);
+    if (entryY !== null && !isNaN(entryY)) {
+      ctx.beginPath();
+      ctx.strokeStyle = obColor;
+      ctx.lineWidth = 2;
+      ctx.moveTo(obStartX, entryY);
+      ctx.lineTo(obStartX + boxW, entryY);
+      ctx.stroke();
+    }
+
+    // 50% Mean Threshold hairline
+    const mtY = priceToCoordinate(ob.meanThreshold);
+    if (mtY !== null && !isNaN(mtY) && boxH >= 8) {
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(245, 172, 55, 0.85)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.moveTo(obStartX, mtY);
+      ctx.lineTo(obStartX + boxW, mtY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (boxW > 28) {
+      const low = Math.min(ob.bottom, ob.top);
+      const high = Math.max(ob.bottom, ob.top);
+      const pat = ob.pattern || (isBullish ? "RGG" : "GRR");
+      const labelText = `${isBullish ? "BULL" : "BEAR"} VALIDATED OB (${pat} · 0% HIT) · ${formatAlarmPrice(low)} - ${formatAlarmPrice(high)}`;
       drawBadgeLabel(
         ctx,
         labelText,

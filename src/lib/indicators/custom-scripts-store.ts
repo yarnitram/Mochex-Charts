@@ -4309,7 +4309,7 @@ function calculate(bars, inputs, ta, strategy, alertcondition) {
  */
 export function resolveCatalogScriptCode(id?: string, name?: string): string {
   const n = ((id || "") + " " + (name || "")).toLowerCase();
-  if (n.includes("validated-ob") || n.includes("validated ob") || (n.includes("rgg") && n.includes("grr"))) {
+  if (n.includes("validated-ob-fvg") || n.includes("validated ob + fvg") || (n.includes("rgg") && n.includes("grr"))) {
     return DEFAULT_OB_FVG_SCRIPT;
   }
   if (n.includes("sandwich") || n.includes("rgrr") || n.includes("grgg")) {

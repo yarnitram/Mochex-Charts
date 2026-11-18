@@ -526,6 +526,77 @@ export function computeObFvgZones(
 }
 
 /**
+ * Chart overlay helper mirroring Radar & Auto-Alarm OB validation:
+ * strictly unmitigated (0% hit), unbroken 3-Candle RGG/GRR Order Blocks
+ * with mandatory FVG and closed Candle 3 confirmation.
+ */
+export function computeRadarValidatedObZones(
+  bars: CandlestickBar[],
+  symbol: string,
+  timeframe: string,
+  options: {
+    enableBullishRgg?: boolean;
+    enableBearishGrr?: boolean;
+    obZoneType?: ObZoneType;
+    minGapPct?: number;
+    maxActiveObZones?: number;
+    requireUntouchedLivePrice?: boolean;
+  } = {}
+): ObFvgEngineResult {
+  if (!bars || bars.length < 4) {
+    return {
+      blocks: [],
+      activeCount: 0,
+      activeBullishCount: 0,
+      activeBearishCount: 0,
+      mitigatedCount: 0,
+    };
+  }
+
+  const rawBlocks = computeValidatedOrderBlocks(bars, symbol, timeframe, {
+    enableBullishRgg: options.enableBullishRgg ?? true,
+    enableBearishGrr: options.enableBearishGrr ?? true,
+    requireValidFvg: true,
+    minGapPct: options.minGapPct ?? 0,
+    minDisplacementPct: 0,
+    obZoneType: options.obZoneType ?? "full",
+    confirmClosedOnly: true,
+    mitigationMode: "first_touch",
+    includeMitigated: false,
+    includeBroken: false,
+    maxActiveObZones: options.maxActiveObZones ?? 50,
+    maxResults: 100,
+  });
+
+  const requireUntouched = options.requireUntouchedLivePrice !== false;
+  const currentPrice = bars[bars.length - 1].close;
+
+  const filtered = rawBlocks.filter((ob) => {
+    if (ob.touched || ob.lifecycleState !== "ACTIVE") return false;
+    if (requireUntouched) {
+      if (ob.type === "BULLISH" && currentPrice <= ob.top) return false;
+      if (ob.type === "BEARISH" && currentPrice >= ob.bottom) return false;
+    }
+    return true;
+  });
+
+  let activeBullishCount = 0;
+  let activeBearishCount = 0;
+  for (const b of filtered) {
+    if (b.type === "BULLISH") activeBullishCount++;
+    else activeBearishCount++;
+  }
+
+  return {
+    blocks: filtered,
+    activeCount: filtered.length,
+    activeBullishCount,
+    activeBearishCount,
+    mitigatedCount: 0,
+  };
+}
+
+/**
  * Helper to resolve the exact alarm target price given a validated OB and user's touch preference
  */
 export function getObAlarmTargetPrice(
