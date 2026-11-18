@@ -1163,6 +1163,15 @@ export default function RadarPage() {
             <span className="hidden md:inline">OB Alarms &amp; Logs</span>
           </Link>
 
+          <Link
+            href="/radar/ema-alarms"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/45 bg-violet-500/15 hover:bg-violet-500 text-violet-200 hover:text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+            title="Scan and arm EMA 20, 50, 100, and 200 touch alarms"
+          >
+            <Zap size={13} />
+            <span className="hidden lg:inline">EMA Alarms</span>
+          </Link>
+
                     {/* Direct link to Notification & Discord Delivery Logs (DEC-166) */}
           <Link
             href="/radar/logs"

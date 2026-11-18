@@ -23,7 +23,7 @@ import {
   mapSymbolForPerpExchange,
   SupportedExchange,
 } from "../screener/multi-exchange-client";
-import { computeLatestEma100And200 } from "./ema-alerts";
+import { getLatestEmaValue } from "./ema-alerts";
 import {
   dispatchDirectWebhooks,
   AlertWebhookConfig,
@@ -340,6 +340,7 @@ export class ServerAlertDaemon {
       triggeredAt: nowMs,
       exchange: alert.exchange || alert.poiMetadata?.exchange,
       poiMetadata: alert.poiMetadata,
+      emaMetadata: alert.emaMetadata,
     };
 
     console.log(
@@ -551,7 +552,7 @@ export class ServerAlertDaemon {
         await this.refreshActiveAlerts().catch(() => {});
       }
 
-      // Periodically refresh dynamic EMA 100 / EMA 200 targets as timeframe candles evolve (every 3m)
+      // Periodically refresh dynamic EMA targets as timeframe candles evolve (every 3m)
       if (Date.now() - this.lastEmaRefreshAt >= 180_000) {
         this.lastEmaRefreshAt = Date.now();
         await this.refreshDynamicEmaTargets().catch(() => {});
@@ -578,7 +579,7 @@ export class ServerAlertDaemon {
   private restPollCount = 0;
 
   /**
-   * Refreshes target prices for active EMA 100 / EMA 200 alerts from live selected-timeframe klines.
+   * Refreshes target prices for active EMA alerts from live selected-timeframe klines.
    */
   public async refreshDynamicEmaTargets(): Promise<void> {
     const emaItems = this.activeAlertsWithContext.filter(
@@ -590,23 +591,24 @@ export class ServerAlertDaemon {
     for (const item of emaItems) {
       const tf = item.alert.emaMetadata?.timeframe || "4H";
       const sym = item.alert.symbol.toUpperCase();
-      const key = `${sym}|${tf}`;
+      const exchange = item.alert.exchange || "mexc";
+      const key = `${exchange}|${sym}|${tf}`;
       const list = grouped.get(key);
       if (list) list.push(item);
       else grouped.set(key, [item]);
     }
 
     for (const [key, items] of grouped.entries()) {
-      const [sym, tf] = key.split("|");
-      const targetEx: SupportedExchange = items[0]?.alert.exchange || "mexc";
+      const [exchange, sym, tf] = key.split("|");
+      const targetEx: SupportedExchange = exchange as SupportedExchange;
       try {
         const bars = await fetchExchangeKlines(targetEx, sym, tf, 220);
-        if (!bars || bars.length < 100) continue;
-        const levels = computeLatestEma100And200(bars.map((b) => b.close));
+        if (!bars || bars.length < 20) continue;
+        const closes = bars.map((b) => b.close);
 
         for (const item of items) {
           const period = item.alert.emaMetadata?.period;
-          const nextTarget = period === 100 ? levels.ema100 : period === 200 ? levels.ema200 : null;
+          const nextTarget = period ? getLatestEmaValue(closes, period) : null;
           if (typeof nextTarget !== "number" || !Number.isFinite(nextTarget) || nextTarget <= 0) {
             continue;
           }

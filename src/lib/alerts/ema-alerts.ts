@@ -5,10 +5,13 @@ import {
   PriceAlert,
   normalizeAlertTimeframe,
 } from "./alerts-engine";
+import { SupportedExchange } from "@/lib/screener/multi-exchange-client";
 
 export interface TimeframeEmaLevels {
   ema100: number | null;
   ema200: number | null;
+  ema20?: number | null;
+  ema50?: number | null;
 }
 
 const TIMEFRAME_ALIAS_MAP: Record<string, string[]> = {
@@ -58,26 +61,35 @@ export function getLatestEmaValue(closes: number[], period: EmaPeriod): number |
 }
 
 /**
- * Computes latest EMA 100 and EMA 200 levels from chronological closes.
+ * Computes the latest supported EMA levels from chronological closes.
  */
-export function computeLatestEma100And200(closes: number[]): TimeframeEmaLevels {
+export function computeLatestEmaLevels(closes: number[]): TimeframeEmaLevels {
   return {
+    ema20: getLatestEmaValue(closes, 20),
+    ema50: getLatestEmaValue(closes, 50),
     ema100: getLatestEmaValue(closes, 100),
     ema200: getLatestEmaValue(closes, 200),
   };
 }
 
+/** Keeps the established 100/200 result shape for existing consumers. */
+export function computeLatestEma100And200(closes: number[]): TimeframeEmaLevels {
+  const levels = computeLatestEmaLevels(closes);
+  return { ema100: levels.ema100, ema200: levels.ema200 };
+}
+
 export interface BuildEmaAlertParams {
-  idPrefix?: "alert" | "bulk";
+  idPrefix?: "alert" | "bulk" | "auto";
   symbol: string;
   timeframe: string;
-  period: 100 | 200;
+  period: EmaPeriod;
   emaPrice: number;
   currentPrice?: number;
   notifyDiscord?: boolean;
   notifyTelegram?: boolean;
   notifyTradingWebhook?: boolean;
   soundType?: string;
+  exchange?: SupportedExchange;
   now?: number;
   randSuffix?: number;
 }
@@ -94,7 +106,7 @@ export function formatEmaPrice(price: number): string {
 }
 
 /**
- * Constructs a 24/7 hit alarm for EMA 100 or EMA 200 on the chosen timeframe.
+ * Constructs a 24/7 hit alarm for the selected EMA period and timeframe.
  */
 export function buildEmaTouchAlert({
   idPrefix = "alert",
@@ -107,6 +119,7 @@ export function buildEmaTouchAlert({
   notifyTelegram = true,
   notifyTradingWebhook = false,
   soundType,
+  exchange,
   now = Date.now(),
   randSuffix = Math.floor(Math.random() * 1000),
 }: BuildEmaAlertParams): PriceAlert {
@@ -143,10 +156,12 @@ export function buildEmaTouchAlert({
     notifyTelegram,
     notifyTradingWebhook,
     soundType,
+    exchange,
     emaMetadata: {
       period,
       timeframe: normTf,
       direction,
+      autoArmed: idPrefix === "auto",
     },
   };
 }
