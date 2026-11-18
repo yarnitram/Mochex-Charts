@@ -131,7 +131,7 @@ export function PoiBulkAlarmModal({
     if (defaultSelectedTimeframes.length > 0) {
       return defaultSelectedTimeframes.map((tf) => (tf === "60" ? "1H" : tf === "240" ? "4H" : tf));
     }
-    return ["1H", "4H"];
+    return ["1H"];
   });
 
   // Touch Level choice: "entry" | "fifty_pct" | "full"

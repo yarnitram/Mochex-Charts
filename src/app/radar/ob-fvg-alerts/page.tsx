@@ -207,7 +207,7 @@ export default function ObFvgAlertsAndLogsPage() {
       return {
         id: picked.id,
         symbol: picked.symbol,
-        timeframe: picked.poiMetadata?.timeframe || "4H",
+        timeframe: picked.poiMetadata?.timeframe || "1H",
         exchange: ex,
         zoneTop: zTop,
         zoneBottom: zBot,
@@ -230,7 +230,7 @@ export default function ObFvgAlertsAndLogsPage() {
       return {
         id: pickedLog.id,
         symbol: pickedLog.symbol,
-        timeframe: pickedLog.poiMetadata?.timeframe || "4H",
+        timeframe: pickedLog.poiMetadata?.timeframe || "1H",
         exchange: ex,
         zoneTop: zTop,
         zoneBottom: zBot,
@@ -478,7 +478,7 @@ export default function ObFvgAlertsAndLogsPage() {
                             {alert.symbol.replace("USDT", "/USDT")}
                           </span>
                           <span className="px-1.5 py-0.5 rounded bg-[#121824] border border-[#233144] text-[10px] font-bold text-white">
-                            {alert.poiMetadata?.timeframe || "4H"}
+                            {alert.poiMetadata?.timeframe || "1H"}
                           </span>
                           {alert.poiMetadata?.pattern && (
                             <span

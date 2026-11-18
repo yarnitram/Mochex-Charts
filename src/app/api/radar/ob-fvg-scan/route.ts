@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const timeframes: string[] =
       Array.isArray(body.timeframes) && body.timeframes.length > 0
         ? body.timeframes.map((tf: any) => String(tf))
-        : ["15m", "1H", "4H"];
+        : ["1H"];
 
     const autoArm = body.autoArm !== undefined ? Boolean(body.autoArm) : true;
     const touchMode: AutoObTouchMode =

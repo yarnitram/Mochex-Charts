@@ -104,7 +104,7 @@ export function ObZoneMiniChart({
     const url = `/api/exchange/klines?exchange=${encodeURIComponent(
       exchange
     )}&symbol=${encodeURIComponent(symbol.toUpperCase())}&interval=${encodeURIComponent(
-      timeframe || "4H"
+      timeframe || "1H"
     )}&limit=120`;
 
     fetch(url)
@@ -234,7 +234,7 @@ export function ObZoneMiniChart({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-white">{symbol.replace("USDT", "/USDT")}</span>
           <span className="px-1.5 py-0.5 rounded bg-[#121824] border border-[#233144] text-[10px] font-bold text-[#b6c4ff]">
-            {timeframe || "4H"}
+            {timeframe || "1H"}
           </span>
           <span
             className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${

@@ -1259,7 +1259,7 @@ export default function RadarAlertsPage() {
         coins={candidateCoins}
         currentUniverseLabel="Radar Monitored Coins"
         currentExchange="mexc"
-        defaultSelectedTimeframes={["15m", "30m", "1H", "2H", "4H", "1D", "1W"]}
+        defaultSelectedTimeframes={["1H"]}
         existingAlerts={alerts}
         onSuccess={(count) => {
           setToastMessage(`⚡ Successfully armed ${count} 24/7 Cloud POI Alarms!`);
@@ -1300,7 +1300,7 @@ export default function RadarAlertsPage() {
             </div>
             <ObZoneMiniChart
               symbol={chartPreviewAlert.symbol}
-              timeframe={chartPreviewAlert.poiMetadata?.timeframe || chartPreviewAlert.emaMetadata?.timeframe || "4H"}
+              timeframe={chartPreviewAlert.poiMetadata?.timeframe || chartPreviewAlert.emaMetadata?.timeframe || "1H"}
               exchange={chartPreviewAlert.exchange || chartPreviewAlert.poiMetadata?.exchange || "mexc"}
               zoneTop={chartPreviewAlert.poiMetadata?.zoneTop ?? chartPreviewAlert.targetPrice}
               zoneBottom={chartPreviewAlert.poiMetadata?.zoneBottom ?? chartPreviewAlert.targetPrice}
